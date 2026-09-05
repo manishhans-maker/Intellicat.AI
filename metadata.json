@@ -1,0 +1,6 @@
+{
+  "name": "IntellicatAI",
+  "description": "Cyber Cat Coder AI assistant with VIP priority passes and code intelligence",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

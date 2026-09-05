@@ -1,0 +1,48 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    background-color: #030303;
+    color: #ffffff;
+  }
+}
+
+.font-serif-display {
+  font-family: 'Instrument Serif', 'Playfair Display', Georgia, serif;
+  font-style: italic;
+  font-weight: 400;
+}
+
+.neon-frame {
+  border: 2px solid #ef233c;
+  box-shadow: 0 0 20px rgba(239, 35, 60, 0.6), 
+              0 0 40px rgba(217, 4, 41, 0.35), 
+              inset 0 0 15px rgba(239, 35, 60, 0.4);
+}
+
+.card-glass {
+  background: rgba(18, 18, 20, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(12px);
+}
+
+.card-glass:hover {
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+.nav-pill-bg {
+  background: rgba(25, 25, 28, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.red-cta-btn {
+  background: linear-gradient(180deg, #ff1a2a 0%, #d80015 100%);
+  box-shadow: 0 4px 20px rgba(230, 10, 30, 0.45);
+}
+
+.red-cta-btn:hover {
+  background: linear-gradient(180deg, #ff2e3e 0%, #e60017 100%);
+  box-shadow: 0 6px 28px rgba(255, 20, 45, 0.65);
+}
+
