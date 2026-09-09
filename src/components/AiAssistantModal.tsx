@@ -234,6 +234,8 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
       const decoder = new TextDecoder('utf-8');
       let accumulatedContent = '';
       let buffer = '';
+      let streamError: string | null = null;
+      let streamProvider: AiProvider = provider;
 
       while (true) {
         const { value, done } = await reader.read();
@@ -249,41 +251,53 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
           const dataStr = trimmed.slice(6);
           if (dataStr === '[DONE]') break;
 
+          let parsed: any;
           try {
-            const parsed = JSON.parse(dataStr);
-            if (parsed.text) {
-              accumulatedContent += parsed.text;
-              const currentText = accumulatedContent;
-              
-              const words = currentText.split(/\s+/).length;
-              setStreamStats({
-                tokenCount: words * 2,
-                latencyMs: Number(((performance.now() - startTime) / Math.max(1, words)).toFixed(1)),
-              });
+            parsed = JSON.parse(dataStr);
+          } catch {
+            continue;
+          }
 
-              setMessages((prev) =>
-                prev.map((msg) =>
-                  msg.id === assistantMsgId
-                    ? { ...msg, content: currentText }
-                    : msg
-                )
-              );
-            } else if (parsed.error) {
-              throw new Error(parsed.error);
-            }
-          } catch (e) {
-            // ignore partial json
+          if (parsed.error) {
+            streamError = parsed.error;
+            break;
+          }
+
+          if (parsed.provider) {
+            streamProvider = parsed.provider;
+          }
+
+          if (parsed.text) {
+            accumulatedContent += parsed.text;
+            const currentText = accumulatedContent;
+            
+            const words = currentText.split(/\s+/).length;
+            setStreamStats({
+              tokenCount: words * 2,
+              latencyMs: Number(((performance.now() - startTime) / Math.max(1, words)).toFixed(1)),
+            });
+
+            setMessages((prev) =>
+              prev.map((msg) =>
+                msg.id === assistantMsgId
+                  ? { ...msg, content: currentText, provider: streamProvider }
+                  : msg
+              )
+            );
           }
         }
+        if (streamError) break;
+      }
+
+      if (streamError) {
+        throw new Error(streamError);
       }
 
       if (!accumulatedContent) {
-        setMessages((prev) =>
-          prev.map((msg) =>
-            msg.id === assistantMsgId
-              ? { ...msg, content: mode === 'normal' ? "How else can I help you today?" : "🐾 Code executed smoothly. What would you like to build next?" }
-              : msg
-          )
+        throw new Error(
+          streamProvider === 'groq'
+            ? 'No response received from Groq. Please check that GROQ_API_KEY is configured in your Environment Variables or switch to Gemini.'
+            : 'No response received from Gemini. Please check that GEMINI_API_KEY is configured in your Environment Variables or switch to Groq.'
         );
       }
     } catch (err: any) {
@@ -414,8 +428,8 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
             </div>
           </div>
 
-          {/* Center/Right: Active AI Engine Status & Manual Override Toggle */}
-          <div className="flex items-center gap-1 p-1 rounded-2xl bg-neutral-900/90 border border-white/10 text-xs shadow-inner">
+          {/* Center/Right: Active AI Engine Status & Manual Override Toggle (Desktop/Tablet) */}
+          <div className="hidden md:flex items-center gap-1 p-1 rounded-2xl bg-neutral-900/90 border border-white/10 text-xs shadow-inner">
             <button
               id="engine-groq-btn"
               type="button"
@@ -566,10 +580,10 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
 
                   {/* Actions under AI response */}
                   {!isUser && m.content && (
-                    <div className="flex items-center justify-between border-t border-white/10 mt-2.5 pt-2 text-[10px] text-neutral-400">
-                      <div className="flex items-center gap-2 font-mono">
+                    <div className="flex flex-wrap items-center justify-between border-t border-white/10 mt-2.5 pt-2 text-[10px] text-neutral-400 gap-2">
+                      <div className="flex items-center gap-2 font-mono shrink-0">
                         <span>{m.timestamp}</span>
-                        <span className={`px-1.5 py-0.5 rounded text-[9px] flex items-center gap-1 font-sans ${
+                        <span className={`px-2 py-0.5 rounded text-[9px] flex items-center gap-1 font-sans font-medium whitespace-nowrap ${
                           (m.provider || provider) === 'groq'
                             ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
                             : 'bg-blue-500/15 text-blue-300 border border-blue-500/30'
@@ -577,17 +591,19 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                           {(m.provider || provider) === 'groq' ? (
                             <>
                               <Zap className="w-2.5 h-2.5 text-amber-400" />
-                              <span>Groq LPU (Llama 3.3 70B)</span>
+                              <span>Groq LPU</span>
+                              <span className="hidden sm:inline text-amber-400/70">(Llama 3.3 70B)</span>
                             </>
                           ) : (
                             <>
                               <Sparkles className="w-2.5 h-2.5 text-blue-400" />
-                              <span>Gemini 3.6 Flash</span>
+                              <span>Gemini 3.6</span>
+                              <span className="hidden sm:inline text-blue-400/70">Flash</span>
                             </>
                           )}
                         </span>
                       </div>
-                      <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-3 shrink-0">
                         <button
                           onClick={() => handleSpeak(m.id, m.content)}
                           className="hover:text-white transition-colors cursor-pointer flex items-center gap-1"

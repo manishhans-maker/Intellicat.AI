@@ -96,14 +96,29 @@ You are in "Cat Code Mode" — feline agility meets superhuman programming power
         activeProvider = mode === "normal" ? "groq" : "gemini";
       }
 
-      // If requested provider key is missing, gracefully fall back to the available key if configured
-      if (activeProvider === "groq" && !process.env.GROQ_API_KEY && process.env.GEMINI_API_KEY) {
-        activeProvider = "gemini";
-      } else if (activeProvider === "gemini" && !process.env.GEMINI_API_KEY && process.env.GROQ_API_KEY) {
-        activeProvider = "groq";
+      // Graceful automatic fallback if the selected provider key is missing
+      const hasGroqKey = Boolean(process.env.GROQ_API_KEY && process.env.GROQ_API_KEY.trim() !== "");
+      const hasGeminiKey = Boolean(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim() !== "");
+
+      if (activeProvider === "groq" && !hasGroqKey) {
+        if (hasGeminiKey) {
+          activeProvider = "gemini";
+        } else {
+          return res.status(400).json({
+            error: "GROQ_API_KEY is not configured. Please add GROQ_API_KEY in your Secrets or Environment Variables (get a free key at https://console.groq.com) or configure GEMINI_API_KEY.",
+          });
+        }
+      } else if (activeProvider === "gemini" && !hasGeminiKey) {
+        if (hasGroqKey) {
+          activeProvider = "groq";
+        } else {
+          return res.status(400).json({
+            error: "GEMINI_API_KEY is not configured. Please add GEMINI_API_KEY in your Secrets or Environment Variables (get a key at https://aistudio.google.com/app/apikey) or configure GROQ_API_KEY.",
+          });
+        }
       }
 
-      // Set headers for Server-Sent Events streaming
+      // Set headers for Server-Sent Events streaming AFTER key validation
       res.setHeader("Content-Type", "text/event-stream");
       res.setHeader("Cache-Control", "no-cache, no-transform");
       res.setHeader("Connection", "keep-alive");
@@ -111,10 +126,6 @@ You are in "Cat Code Mode" — feline agility meets superhuman programming power
       res.flushHeaders?.();
 
       if (activeProvider === "groq") {
-        if (!process.env.GROQ_API_KEY) {
-          throw new Error("GROQ_API_KEY is not configured. Please add your Groq API key in Secrets or Environment Variables (get a free key at https://console.groq.com).");
-        }
-
         const groq = getGroqClient();
         const groqMessages = [
           { role: "system" as const, content: systemInstruction },
