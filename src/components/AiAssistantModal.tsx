@@ -302,7 +302,19 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
       }
     } catch (err: any) {
       console.error('Chat error:', err);
-      setError(err.message || 'Unable to connect to AI engine.');
+      let errMsg = err.message || 'Unable to connect to AI engine.';
+      try {
+        if (errMsg.includes('{"error"')) {
+          const match = errMsg.match(/\{.*"error".*\}/);
+          if (match) {
+            const parsed = JSON.parse(match[0]);
+            if (parsed.error?.message) {
+              errMsg = parsed.error.message;
+            }
+          }
+        }
+      } catch {}
+      setError(errMsg);
       setMessages((prev) => prev.filter((m) => m.id !== assistantMsgId || m.content.length > 0));
     } finally {
       setLoading(false);

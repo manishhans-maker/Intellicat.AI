@@ -34,6 +34,71 @@ function getGroqClient(): Groq {
   return groqClient;
 }
 
+const CANDIDATE_GROQ_MODELS = [
+  "llama-3.1-8b-instant",
+  "llama-3.3-70b-versatile",
+  "llama3-8b-8192",
+  "mixtral-8x7b-32768",
+];
+
+async function resolveGroqModel(groq: Groq): Promise<string> {
+  try {
+    const list = await groq.models.list();
+    const available = new Set(list.data.map((m: any) => m.id));
+    for (const candidate of CANDIDATE_GROQ_MODELS) {
+      if (available.has(candidate)) {
+        return candidate;
+      }
+    }
+    const textModel = list.data.find((m: any) => !m.id.includes("whisper"));
+    if (textModel) return textModel.id;
+  } catch (err) {
+    console.warn("Could not list Groq models dynamically, falling back to llama-3.1-8b-instant:", err);
+  }
+  return "llama-3.1-8b-instant";
+}
+
+const GEMINI_CANDIDATE_MODELS = ["gemini-3.6-flash"];
+
+async function streamGeminiWithFallback(
+  ai: GoogleGenAI,
+  formattedContents: any[],
+  systemInstruction: string,
+  temperature: number,
+  onChunk: (text: string, model: string) => void
+) {
+  let lastErr: any = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    for (const model of GEMINI_CANDIDATE_MODELS) {
+      try {
+        const responseStream = await ai.models.generateContentStream({
+          model,
+          contents: formattedContents,
+          config: {
+            systemInstruction,
+            temperature,
+          },
+        });
+        let receivedAny = false;
+        for await (const chunk of responseStream) {
+          if (chunk.text) {
+            receivedAny = true;
+            onChunk(chunk.text, model);
+          }
+        }
+        if (receivedAny) return;
+      } catch (err: any) {
+        console.warn(`Gemini model ${model} attempt ${attempt + 1} failed:`, err?.message);
+        lastErr = err;
+        if (attempt === 0) {
+          await new Promise((r) => setTimeout(r, 400));
+        }
+      }
+    }
+  }
+  if (lastErr) throw lastErr;
+}
+
 async function startServer() {
   const app = express();
   const PORT = 3000;
@@ -135,17 +200,57 @@ You are in "Cat Code Mode" — feline agility meets superhuman programming power
           })),
         ];
 
-        const completion = await groq.chat.completions.create({
-          model: "llama-3.3-70b-versatile",
-          messages: groqMessages,
-          temperature,
-          stream: true,
-        });
+        let selectedModel = await resolveGroqModel(groq);
+        let streamStarted = false;
 
-        for await (const chunk of completion) {
-          const text = chunk.choices[0]?.delta?.content || "";
-          if (text) {
-            res.write(`data: ${JSON.stringify({ text, provider: "groq", model: "llama-3.3-70b-versatile" })}\n\n`);
+        // Attempt Groq with fallback to lighter models or Gemini
+        try {
+          let completion: any;
+          try {
+            completion = await groq.chat.completions.create({
+              model: selectedModel,
+              messages: groqMessages,
+              temperature,
+              stream: true,
+            });
+          } catch (modelErr: any) {
+            console.warn(`Groq error with model ${selectedModel}, trying llama-3.1-8b-instant:`, modelErr?.message);
+            selectedModel = "llama-3.1-8b-instant";
+            completion = await groq.chat.completions.create({
+              model: selectedModel,
+              messages: groqMessages,
+              temperature,
+              stream: true,
+            });
+          }
+
+          for await (const chunk of completion) {
+            const text = chunk.choices[0]?.delta?.content || "";
+            if (text) {
+              streamStarted = true;
+              res.write(`data: ${JSON.stringify({ text, provider: "groq", model: selectedModel })}\n\n`);
+            }
+          }
+        } catch (groqFailure: any) {
+          console.error("Groq execution failed:", groqFailure);
+          if (!streamStarted && process.env.GEMINI_API_KEY) {
+            console.log("Falling back seamlessly to Gemini Flash...");
+            const formattedContents = messages.map((m: { role: string; content: string }) => ({
+              role: m.role === "assistant" ? "model" : "user",
+              parts: [{ text: m.content }],
+            }));
+            const ai = getAiClient();
+            await streamGeminiWithFallback(
+              ai,
+              formattedContents,
+              systemInstruction,
+              temperature,
+              (text, model) => {
+                res.write(`data: ${JSON.stringify({ text, provider: "gemini", model })}\n\n`);
+              }
+            );
+          } else {
+            throw groqFailure;
           }
         }
       } else {
@@ -159,21 +264,15 @@ You are in "Cat Code Mode" — feline agility meets superhuman programming power
         }));
 
         const ai = getAiClient();
-
-        const responseStream = await ai.models.generateContentStream({
-          model: "gemini-3.6-flash",
-          contents: formattedContents,
-          config: {
-            systemInstruction,
-            temperature,
-          },
-        });
-
-        for await (const chunk of responseStream) {
-          if (chunk.text) {
-            res.write(`data: ${JSON.stringify({ text: chunk.text, provider: "gemini", model: "gemini-3.6-flash" })}\n\n`);
+        await streamGeminiWithFallback(
+          ai,
+          formattedContents,
+          systemInstruction,
+          temperature,
+          (text, model) => {
+            res.write(`data: ${JSON.stringify({ text, provider: "gemini", model })}\n\n`);
           }
-        }
+        );
       }
 
       res.write("data: [DONE]\n\n");
