@@ -21,6 +21,7 @@ import { RobotBackground } from './RobotBackground';
 import { INTELLICAT_LOGO_URL } from '../constants';
 
 export type ChatMode = 'normal' | 'cat-code';
+export type AiProvider = 'groq' | 'gemini';
 
 interface Message {
   id: string;
@@ -28,6 +29,7 @@ interface Message {
   content: string;
   timestamp: string;
   mode?: ChatMode;
+  provider?: AiProvider;
 }
 
 interface AiAssistantModalProps {
@@ -56,17 +58,19 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
       return {
         id: 'welcome-normal',
         role: 'assistant',
-        content: `Hello! I'm your AI conversational companion in **Normal Talk Mode**.\n\nWe can talk about anything — brainstorm ideas, write essays or stories, discuss general topics, plan projects, or just have a friendly chat. What's on your mind today?`,
+        content: `Hello! I'm your AI conversational companion in **Normal Talk Mode** powered by **Groq LPU (Llama 3.3 70B)** ⚡.\n\nWe can talk about anything — brainstorm ideas, write essays or stories, discuss general topics, plan projects, or just have a friendly chat at lightning speed. What's on your mind today?`,
         timestamp: 'Just now',
         mode: 'normal',
+        provider: 'groq',
       };
     } else {
       return {
         id: 'welcome-cat-code',
         role: 'assistant',
-        content: `Purr-fect timing! 🐾 I am **IntelicatAI**, your Cybernetic Cat Coder in **Cat Code Mode**.\n\nI catch bugs faster than mice and write pristine, high-performance code across TypeScript, Python, Rust, Go, SQL, and React. What software are we building or debugging?`,
+        content: `Purr-fect timing! 🐾 I am **IntelicatAI**, your Cybernetic Cat Coder in **Cat Code Mode** powered by **Google Gemini 3.6 Flash** ✨.\n\nI catch bugs faster than mice and write pristine, high-performance code across TypeScript, Python, Rust, Go, SQL, and React. What software are we building or debugging?`,
         timestamp: 'Just now',
         mode: 'cat-code',
+        provider: 'gemini',
       };
     }
   };
@@ -78,10 +82,32 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
   
+  // AI Inference Engine: Groq for Normal Talk, Gemini for Cat Code
+  const [provider, setProvider] = useState<AiProvider>(initialChatMode === 'cat-code' ? 'gemini' : 'groq');
+  const [availableProviders, setAvailableProviders] = useState<{ groq: boolean; gemini: boolean }>({
+    groq: true,
+    gemini: true,
+  });
+
+  // Fetch available API keys dynamically on mount
+  useEffect(() => {
+    fetch('/api/providers')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data) {
+          setAvailableProviders({
+            groq: Boolean(data.groq),
+            gemini: Boolean(data.gemini),
+          });
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   // Real-time telemetry stats
   const [streamStats, setStreamStats] = useState({
     tokenCount: 120,
-    latencyMs: 6.5,
+    latencyMs: initialChatMode === 'normal' ? 3.2 : 6.5,
   });
 
   const chatBottomRef = useRef<HTMLDivElement>(null);
@@ -92,6 +118,8 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
     if (isOpen) {
       const targetMode: ChatMode = (defaultMode === 'cat-code') ? 'cat-code' : 'normal';
       setMode(targetMode);
+      setProvider(targetMode === 'normal' ? 'groq' : 'gemini');
+      setStreamStats((s) => ({ ...s, latencyMs: targetMode === 'normal' ? 3.2 : 6.5 }));
       setMessages([getWelcomeMessage(targetMode)]);
     }
   }, [isOpen, defaultMode]);
@@ -139,7 +167,10 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
       window.speechSynthesis.cancel();
       setSpeakingMessageId(null);
     }
+    const nextProvider: AiProvider = newMode === 'normal' ? 'groq' : 'gemini';
     setMode(newMode);
+    setProvider(nextProvider);
+    setStreamStats((s) => ({ ...s, latencyMs: newMode === 'normal' ? 3.2 : 6.5 }));
     setMessages([getWelcomeMessage(newMode)]);
     setError(null);
   };
@@ -168,6 +199,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
       content: '',
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       mode,
+      provider,
     };
 
     const updatedWithUser = [...messages, userMsg];
@@ -185,6 +217,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
         body: JSON.stringify({
           messages: updatedWithUser.map((m) => ({ role: m.role, content: m.content })),
           mode,
+          provider,
         }),
       });
 
@@ -333,39 +366,91 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
           {/* Left: 2 Modes Selector Tabs */}
           <div className="flex items-center gap-2">
             <div className="p-1 rounded-2xl bg-neutral-900/90 border border-white/10 flex items-center shadow-inner">
-              {/* Mode 1: Normal Talk */}
+              {/* Mode 1: Normal Talk (Groq) */}
               <button
                 id="mode-normal-btn"
                 onClick={() => handleSwitchMode('normal')}
-                className={`flex items-center gap-2 px-3 sm:px-4 py-1.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
+                className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
                   mode === 'normal'
                     ? 'bg-white text-black shadow-md shadow-white/20 scale-[1.02]'
                     : 'text-neutral-400 hover:text-white hover:bg-white/5'
                 }`}
+                title="Normal Talk Mode — powered by Groq LPU (Llama 3.3 70B)"
               >
                 <MessageSquare className={`w-4 h-4 ${mode === 'normal' ? 'text-black' : 'text-neutral-400'}`} />
                 <span>Normal Talk</span>
+                <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded font-bold flex items-center gap-0.5 ${
+                  mode === 'normal'
+                    ? 'bg-black/10 text-neutral-900 border border-black/10'
+                    : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                }`}>
+                  <Zap className="w-2.5 h-2.5 text-amber-500" />
+                  <span>Groq</span>
+                </span>
               </button>
 
-              {/* Mode 2: Cat Code */}
+              {/* Mode 2: Cat Code (Gemini) */}
               <button
                 id="mode-catcode-btn"
                 onClick={() => handleSwitchMode('cat-code')}
-                className={`flex items-center gap-2 px-3 sm:px-4 py-1.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
+                className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
                   mode === 'cat-code'
                     ? 'bg-gradient-to-r from-[#EF233C] to-amber-500 text-white shadow-md shadow-red-500/30 scale-[1.02]'
                     : 'text-neutral-400 hover:text-white hover:bg-white/5'
                 }`}
+                title="Cat Code Mode — powered by Google Gemini 3.6 Flash"
               >
                 <Cat className={`w-4 h-4 ${mode === 'cat-code' ? 'text-white' : 'text-[#EF233C]'}`} />
                 <span>Cat Code 🐾</span>
+                <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded font-bold flex items-center gap-0.5 ${
+                  mode === 'cat-code'
+                    ? 'bg-white/20 text-white border border-white/20'
+                    : 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
+                }`}>
+                  <Sparkles className="w-2.5 h-2.5 text-blue-300" />
+                  <span>Gemini</span>
+                </span>
               </button>
             </div>
+          </div>
 
-            {/* Mode Subtitle Badge */}
-            <span className="hidden md:inline-block text-[11px] text-neutral-400 font-medium px-2 py-0.5 rounded-md bg-white/5 border border-white/5">
-              {mode === 'normal' ? 'General Conversation & Writing' : 'Cybernetic Coding & Bug Hunting'}
-            </span>
+          {/* Center/Right: Active AI Engine Status & Manual Override Toggle */}
+          <div className="flex items-center gap-1 p-1 rounded-2xl bg-neutral-900/90 border border-white/10 text-xs shadow-inner">
+            <button
+              id="engine-groq-btn"
+              type="button"
+              onClick={() => setProvider('groq')}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                provider === 'groq'
+                  ? 'bg-amber-500/25 text-amber-300 border border-amber-500/50 shadow-sm shadow-amber-500/30 scale-[1.02]'
+                  : 'text-neutral-400 hover:text-white hover:bg-white/5'
+              }`}
+              title="Groq LPU: Llama 3.3 70B (Default for Normal Talk)"
+            >
+              <Zap className={`w-3.5 h-3.5 ${provider === 'groq' ? 'text-amber-400 fill-amber-400/30' : 'text-neutral-400'}`} />
+              <span>Groq LPU</span>
+              {mode === 'normal' && (
+                <span className="text-[9px] px-1 py-0.2 rounded bg-amber-400/20 text-amber-300">Default</span>
+              )}
+            </button>
+
+            <button
+              id="engine-gemini-btn"
+              type="button"
+              onClick={() => setProvider('gemini')}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                provider === 'gemini'
+                  ? 'bg-blue-500/25 text-blue-300 border border-blue-500/50 shadow-sm shadow-blue-500/30 scale-[1.02]'
+                  : 'text-neutral-400 hover:text-white hover:bg-white/5'
+              }`}
+              title="Google Gemini 3.6 Flash (Default for Cat Code)"
+            >
+              <Sparkles className={`w-3.5 h-3.5 ${provider === 'gemini' ? 'text-blue-400 fill-blue-400/30' : 'text-neutral-400'}`} />
+              <span>Gemini</span>
+              {mode === 'cat-code' && (
+                <span className="text-[9px] px-1 py-0.2 rounded bg-blue-400/20 text-blue-300">Default</span>
+              )}
+            </button>
           </div>
 
           {/* Right Controls: VIP Pass, Latency, Reset, Export & Close */}
@@ -482,7 +567,26 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                   {/* Actions under AI response */}
                   {!isUser && m.content && (
                     <div className="flex items-center justify-between border-t border-white/10 mt-2.5 pt-2 text-[10px] text-neutral-400">
-                      <span className="font-mono">{m.timestamp}</span>
+                      <div className="flex items-center gap-2 font-mono">
+                        <span>{m.timestamp}</span>
+                        <span className={`px-1.5 py-0.5 rounded text-[9px] flex items-center gap-1 font-sans ${
+                          (m.provider || provider) === 'groq'
+                            ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+                            : 'bg-blue-500/15 text-blue-300 border border-blue-500/30'
+                        }`}>
+                          {(m.provider || provider) === 'groq' ? (
+                            <>
+                              <Zap className="w-2.5 h-2.5 text-amber-400" />
+                              <span>Groq LPU (Llama 3.3 70B)</span>
+                            </>
+                          ) : (
+                            <>
+                              <Sparkles className="w-2.5 h-2.5 text-blue-400" />
+                              <span>Gemini 3.6 Flash</span>
+                            </>
+                          )}
+                        </span>
+                      </div>
                       <div className="flex items-center gap-3">
                         <button
                           onClick={() => handleSpeak(m.id, m.content)}
@@ -540,8 +644,18 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
         {/* Bottom Input Area */}
         <div className="p-3 sm:p-4 border-t border-white/10 bg-black/80 backdrop-blur-md relative z-20">
           {error && (
-            <div className="mb-2 p-2 rounded-xl bg-red-500/20 border border-red-500/40 text-red-400 text-xs text-center">
-              {error}
+            <div className="mb-2 p-2.5 rounded-xl bg-red-500/15 border border-red-500/35 text-red-300 text-xs flex flex-col sm:flex-row items-center justify-between gap-2">
+              <span className="text-center sm:text-left">{error}</span>
+              {error.includes('GROQ_API_KEY') && (
+                <span className="text-[11px] text-amber-300 bg-amber-500/20 px-2 py-0.5 rounded-md border border-amber-500/40 whitespace-nowrap">
+                  ⚡ Tip: Add GROQ_API_KEY in Secrets or console.groq.com
+                </span>
+              )}
+              {error.includes('GEMINI_API_KEY') && (
+                <span className="text-[11px] text-blue-300 bg-blue-500/20 px-2 py-0.5 rounded-md border border-blue-500/40 whitespace-nowrap">
+                  ✨ Tip: Add GEMINI_API_KEY in Secrets
+                </span>
+              )}
             </div>
           )}
 

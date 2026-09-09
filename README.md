@@ -1,12 +1,12 @@
 # IntelicatAI 🐾⚡
 
-Cybernetic Cat Coder & AI Software Engineering Assistant powered by Gemini 3.6 Flash.
+Cybernetic Cat Coder & AI Software Engineering Assistant powered by **Groq LPU (Llama 3.3 70B)** and **Google Gemini 3.6 Flash**.
 
 ---
 
 ## 🚀 Quick Deploy to Vercel
 
-This repository is pre-configured to work directly on **Vercel** with full Server-Sent Events (SSE) streaming support for the Gemini AI assistant.
+This repository is pre-configured to work directly on **Vercel** with full Server-Sent Events (SSE) streaming support for both Groq and Gemini AI engines.
 
 ### Step 1: Push or Export to GitHub
 - In Google AI Studio: Click the **Settings / Menu** in the top right and select **Export to GitHub** (or **Download ZIP** and push to a new GitHub repository).
@@ -28,12 +28,12 @@ This repository is pre-configured to work directly on **Vercel** with full Serve
 5. Build Command: `npm run build`
 6. Output Directory: `dist`
 
-### Step 3: Add Environment Variable
-Under **Environment Variables** in Vercel:
-- **Key**: `GEMINI_API_KEY`
-- **Value**: Your Google Gemini API Key (obtain one for free from [Google AI Studio](https://aistudio.google.com/app/apikey))
+### Step 3: Add Environment Variables
+Under **Environment Variables** in Vercel, add either or both:
+- **`GROQ_API_KEY`**: Your Groq API key for blazing-fast inference (~300 tokens/sec). Get a free key at [console.groq.com](https://console.groq.com).
+- **`GEMINI_API_KEY`**: Your Google Gemini API Key from [Google AI Studio](https://aistudio.google.com/app/apikey).
 
-Click **Deploy**! Your site and AI streaming endpoint (`/api/chat`) will be live in ~1 minute.
+Click **Deploy**! Your site and streaming endpoint (`/api/chat`) will be live in ~1 minute.
 
 ---
 
@@ -55,9 +55,10 @@ Click **Deploy**! Your site and AI streaming endpoint (`/api/chat`) will be live
    ```bash
    cp .env.example .env
    ```
-   Add your `GEMINI_API_KEY`:
+   Add your keys:
    ```env
-   GEMINI_API_KEY="your-gemini-api-key-here"
+   GROQ_API_KEY="gsk_..."
+   GEMINI_API_KEY="..."
    ```
 
 4. **Start the local server:**
@@ -71,5 +72,8 @@ Click **Deploy**! Your site and AI streaming endpoint (`/api/chat`) will be live
 ## 🛠️ Tech Stack
 
 - **Frontend**: React 19, TypeScript, Tailwind CSS v4, Motion, Lucide Icons
-- **Backend / AI Engine**: Node.js, Express, Vercel Serverless Functions (`/api/chat.ts`), `@google/genai` (Gemini 3.6 Flash)
-- **Streaming**: Server-Sent Events (SSE) real-time token streaming
+- **AI Engines**: 
+  - ⚡ **Groq LPU**: `llama-3.3-70b-versatile` via `groq-sdk` (ultra-fast ~300 tokens/sec)
+  - ✨ **Google Gemini**: `gemini-3.6-flash` via `@google/genai`
+- **Backend**: Node.js, Express, Vercel Serverless Functions (`/api/chat.ts`)
+- **Streaming**: Real-time Server-Sent Events (SSE) streaming

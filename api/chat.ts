@@ -1,4 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
+import Groq from "groq-sdk";
 
 let aiClient: GoogleGenAI | null = null;
 function getAiClient(): GoogleGenAI {
@@ -8,6 +9,18 @@ function getAiClient(): GoogleGenAI {
     });
   }
   return aiClient;
+}
+
+let groqClient: Groq | null = null;
+function getGroqClient(): Groq {
+  if (!groqClient) {
+    const key = process.env.GROQ_API_KEY;
+    if (!key) {
+      throw new Error("GROQ_API_KEY is not configured. Please add your Groq API key in Secrets or Environment Variables.");
+    }
+    groqClient = new Groq({ apiKey: key });
+  }
+  return groqClient;
 }
 
 export default async function handler(req: any, res: any) {
@@ -29,23 +42,10 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    const { messages, mode = "normal" } = req.body || {};
+    const { messages, mode = "normal", provider = "auto" } = req.body || {};
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
       return res.status(400).json({ error: "Messages array is required." });
     }
-
-    if (!process.env.GEMINI_API_KEY) {
-      return res.status(500).json({
-        error: "GEMINI_API_KEY is not configured in environment variables.",
-      });
-    }
-
-    const formattedContents = messages.map((m: { role: string; content: string }) => ({
-      role: m.role === "assistant" ? "model" : "user",
-      parts: [{ text: m.content }],
-    }));
-
-    const ai = getAiClient();
 
     let systemInstruction = "";
     let temperature = 0.7;
@@ -69,6 +69,19 @@ You are in "Cat Code Mode" — feline agility meets superhuman programming power
       temperature = 0.3;
     }
 
+    // Determine active provider: Normal Talk uses Groq, Cat Code uses Gemini
+    let activeProvider = provider;
+    if (!activeProvider || activeProvider === "auto") {
+      activeProvider = mode === "normal" ? "groq" : "gemini";
+    }
+
+    // If requested provider key is missing, gracefully fall back to the available key if configured
+    if (activeProvider === "groq" && !process.env.GROQ_API_KEY && process.env.GEMINI_API_KEY) {
+      activeProvider = "gemini";
+    } else if (activeProvider === "gemini" && !process.env.GEMINI_API_KEY && process.env.GROQ_API_KEY) {
+      activeProvider = "groq";
+    }
+
     // Set headers for Server-Sent Events streaming
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache, no-transform");
@@ -79,18 +92,58 @@ You are in "Cat Code Mode" — feline agility meets superhuman programming power
       res.flushHeaders();
     }
 
-    const responseStream = await ai.models.generateContentStream({
-      model: "gemini-3.6-flash",
-      contents: formattedContents,
-      config: {
-        systemInstruction,
-        temperature,
-      },
-    });
+    if (activeProvider === "groq") {
+      if (!process.env.GROQ_API_KEY) {
+        throw new Error("GROQ_API_KEY is not configured. Please add your Groq API key in Secrets or Environment Variables (free at https://console.groq.com).");
+      }
 
-    for await (const chunk of responseStream) {
-      if (chunk.text) {
-        res.write(`data: ${JSON.stringify({ text: chunk.text })}\n\n`);
+      const groq = getGroqClient();
+      const groqMessages = [
+        { role: "system" as const, content: systemInstruction },
+        ...messages.map((m: { role: string; content: string }) => ({
+          role: (m.role === "assistant" ? "assistant" : "user") as "assistant" | "user",
+          content: m.content,
+        })),
+      ];
+
+      const completion = await groq.chat.completions.create({
+        model: "llama-3.3-70b-versatile",
+        messages: groqMessages,
+        temperature,
+        stream: true,
+      });
+
+      for await (const chunk of completion) {
+        const text = chunk.choices[0]?.delta?.content || "";
+        if (text) {
+          res.write(`data: ${JSON.stringify({ text, provider: "groq", model: "llama-3.3-70b-versatile" })}\n\n`);
+        }
+      }
+    } else {
+      if (!process.env.GEMINI_API_KEY) {
+        throw new Error("GEMINI_API_KEY is not configured. Please add your Gemini API key in Secrets or Environment Variables.");
+      }
+
+      const formattedContents = messages.map((m: { role: string; content: string }) => ({
+        role: m.role === "assistant" ? "model" : "user",
+        parts: [{ text: m.content }],
+      }));
+
+      const ai = getAiClient();
+
+      const responseStream = await ai.models.generateContentStream({
+        model: "gemini-3.6-flash",
+        contents: formattedContents,
+        config: {
+          systemInstruction,
+          temperature,
+        },
+      });
+
+      for await (const chunk of responseStream) {
+        if (chunk.text) {
+          res.write(`data: ${JSON.stringify({ text: chunk.text, provider: "gemini", model: "gemini-3.6-flash" })}\n\n`);
+        }
       }
     }
 
@@ -100,7 +153,7 @@ You are in "Cat Code Mode" — feline agility meets superhuman programming power
     console.error("Vercel Serverless Chat API Error:", error);
     if (!res.headersSent) {
       res.status(500).json({
-        error: error.message || "Failed to generate AI response. Please check GEMINI_API_KEY.",
+        error: error.message || "Failed to generate AI response. Please check your API key configuration.",
       });
     } else {
       res.write(`data: ${JSON.stringify({ error: error.message || "Stream interrupted" })}\n\n`);
