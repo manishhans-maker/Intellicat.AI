@@ -1,0 +1,55 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile & Request Quota",
+      "description": "User profile with authentication details, subscription tier, and free AI request quota usage",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Authentication User ID"
+        },
+        "email": {
+          "type": "string",
+          "description": "User email address"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "User display name"
+        },
+        "photoURL": {
+          "type": "string",
+          "description": "User avatar URL"
+        },
+        "requestCount": {
+          "type": "number",
+          "description": "Number of AI requests made by the user"
+        },
+        "maxRequests": {
+          "type": "number",
+          "description": "Maximum allowed requests for the user (default: 15 for free tier)"
+        },
+        "tier": {
+          "type": "string",
+          "enum": ["free", "vip", "founder"],
+          "description": "User account tier"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "ISO timestamp of account creation"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "ISO timestamp of last account update"
+        }
+      },
+      "required": ["uid", "email", "requestCount", "maxRequests", "tier", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Stores user profiles, subscription tier, and AI request counts"
+    }
+  }
+}

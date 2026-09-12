@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { RobotBackground } from './RobotBackground';
 import { INTELLICAT_LOGO_URL } from '../constants';
+import { useAuth } from '../context/AuthContext';
 
 export type ChatMode = 'normal' | 'cat-code';
 export type AiProvider = 'groq' | 'gemini';
@@ -81,6 +82,19 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
+
+  const {
+    user,
+    userProfile,
+    openAuthModal,
+    remainingRequests,
+    requestCount,
+    maxRequests,
+    isLimitReached,
+    consumeRequest,
+  } = useAuth();
+
+  const isUnlimitedAccount = isFounder || isVipMember || userProfile?.tier === 'vip' || userProfile?.tier === 'founder';
   
   // AI Inference Engine: Groq for Normal Talk, Gemini for Cat Code
   const [provider, setProvider] = useState<AiProvider>(initialChatMode === 'cat-code' ? 'gemini' : 'groq');
@@ -178,6 +192,26 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
   const handleSend = async (textToSend?: string) => {
     const text = textToSend || input.trim();
     if (!text || loading) return;
+
+    // 1. Require Authentication
+    if (!user) {
+      openAuthModal('signin');
+      setError('Please sign in with Google or Email to claim your 15 free AI requests!');
+      return;
+    }
+
+    // 2. Enforce 15 requests Free Tier Limit
+    if (!isUnlimitedAccount && isLimitReached) {
+      setError(`Free tier limit reached! You've used all ${maxRequests} requests. Upgrade to VIP for unlimited requests!`);
+      return;
+    }
+
+    // 3. Consume 1 request quota from user profile
+    const allowed = await consumeRequest();
+    if (!allowed) {
+      setError(`Could not authorize request. Please verify your account status.`);
+      return;
+    }
 
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();
@@ -479,8 +513,44 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
             </button>
           </div>
 
-          {/* Right Controls: VIP Pass, Latency, Reset, Export & Close */}
+          {/* Right Controls: Quota Indicator, VIP Pass, Latency, Reset, Export & Close */}
           <div className="flex items-center gap-1.5 sm:gap-2">
+            {/* Free Tier Quota / Auth Status */}
+            {user ? (
+              <div
+                className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-mono font-bold border ${
+                  isUnlimitedAccount
+                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                    : isLimitReached
+                    ? 'bg-red-500/25 text-red-300 border-red-500/50 animate-pulse'
+                    : remainingRequests <= 3
+                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                    : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                }`}
+                title={
+                  isUnlimitedAccount
+                    ? 'Unlimited VIP Queries Active'
+                    : `${remainingRequests} of ${maxRequests} free queries remaining`
+                }
+              >
+                <Zap className="w-3 h-3" />
+                <span>{isUnlimitedAccount ? 'Unlimited' : `${remainingRequests}/${maxRequests}`}</span>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => openAuthModal('signin')}
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-semibold border border-white/20 transition-all cursor-pointer"
+                title="Sign in with Google or Email for 15 free requests"
+              >
+                <User className="w-3 h-3 text-sky-400" />
+                <span>Sign In</span>
+                <span className="text-[10px] text-amber-300 bg-amber-400/20 px-1 py-0.2 rounded font-mono font-bold">
+                  15 Free
+                </span>
+              </button>
+            )}
+
             {/* VIP Status or Buy */}
             <button
               onClick={() => {
@@ -671,6 +741,47 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
 
         {/* Bottom Input Area */}
         <div className="p-3 sm:p-4 border-t border-white/10 bg-black/80 backdrop-blur-md relative z-20">
+          {/* Guest Sign-In Prompt Banner */}
+          {!user && (
+            <div className="mb-3 p-2.5 rounded-xl bg-gradient-to-r from-sky-500/15 via-[#EF233C]/15 to-amber-500/15 border border-white/15 flex items-center justify-between gap-2 text-xs">
+              <div className="flex items-center gap-2 text-neutral-200">
+                <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
+                <span>
+                  <strong>Free Tier:</strong> Get <strong>15 Free AI Requests</strong> when you sign in with Google or Email.
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => openAuthModal('signin')}
+                className="px-3 py-1 rounded-lg bg-white text-black font-bold text-xs hover:bg-neutral-200 transition-all shrink-0 cursor-pointer shadow-sm"
+              >
+                Sign In
+              </button>
+            </div>
+          )}
+
+          {/* Limit Reached Warning Banner */}
+          {user && !isUnlimitedAccount && isLimitReached && (
+            <div className="mb-3 p-2.5 rounded-xl bg-red-500/20 border border-red-500/40 flex items-center justify-between gap-2 text-xs text-red-200">
+              <div className="flex items-center gap-2">
+                <Zap className="w-4 h-4 text-red-400 shrink-0" />
+                <span>
+                  <strong>Free Tier Limit Reached:</strong> You have used all <strong>15 requests</strong>. Upgrade to VIP for unlimited requests!
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onOpenBuyVip?.();
+                }}
+                className="px-3 py-1 rounded-lg bg-gradient-to-r from-amber-400 to-yellow-500 text-black font-bold text-xs hover:opacity-90 transition-all shrink-0 cursor-pointer shadow-md shadow-amber-500/30"
+              >
+                Get VIP Unlimited
+              </button>
+            </div>
+          )}
+
           {error && (
             <div className="mb-2 p-2.5 rounded-xl bg-red-500/15 border border-red-500/35 text-red-300 text-xs flex flex-col sm:flex-row items-center justify-between gap-2">
               <span className="text-center sm:text-left">{error}</span>

@@ -107,7 +107,15 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    const { messages, mode = "normal", provider = "auto" } = req.body || {};
+    let parsedBody = req.body;
+    if (typeof parsedBody === "string") {
+      try {
+        parsedBody = JSON.parse(parsedBody);
+      } catch {
+        parsedBody = {};
+      }
+    }
+    const { messages, mode = "normal", provider = "auto" } = parsedBody || {};
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
       return res.status(400).json({ error: "Messages array is required." });
     }

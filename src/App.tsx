@@ -9,6 +9,7 @@ import { PremiumModal } from './components/PremiumModal';
 import { InfoModal } from './components/InfoModal';
 import { AiAssistantModal, ChatMode } from './components/AiAssistantModal';
 import { VipCheckoutModal, VipData } from './components/VipCheckoutModal';
+import { AuthModal } from './components/AuthModal';
 import { RobotBackground } from './components/RobotBackground';
 import { AnimatePresence, motion } from 'motion/react';
 import { X, CheckCircle2, Eye, Sparkles, Cat, Crown, MessageSquare } from 'lucide-react';
@@ -315,6 +316,9 @@ export default function App() {
         onClose={() => setInfoOpen(false)}
         initialTab={infoTab}
       />
+
+      {/* User Authentication & Google/Email Sign-In Modal */}
+      <AuthModal />
 
       {/* Interactive Get Started / Access Modal */}
       <AnimatePresence>

@@ -1,0 +1,81 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 1. Global Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Security Helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email', 'requestCount', 'maxRequests', 'tier', 'createdAt', 'updatedAt']) &&
+        data.uid is string && data.uid.size() > 0 && data.uid.size() <= 128 &&
+        data.email is string && data.email.size() > 0 && data.email.size() <= 256 &&
+        data.requestCount is number && data.requestCount >= 0 &&
+        data.maxRequests is number && data.maxRequests >= 0 &&
+        data.tier is string && (data.tier == 'free' || data.tier == 'vip' || data.tier == 'founder') &&
+        data.createdAt is string && data.createdAt.size() <= 64 &&
+        data.updatedAt is string && data.updatedAt.size() <= 64 &&
+        (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 128)) &&
+        (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 1024));
+    }
+
+    // User collection rules
+    match /users/{userId} {
+      // PII Protection: Only the authenticated owner can read their own user record
+      allow get: if isSignedIn() && request.auth.uid == userId && isValidId(userId);
+      allow list: if isSignedIn() && resource.data.uid == request.auth.uid;
+
+      // Allow user creation on initial sign-up (strictly enforces 0 requests, 15 maxRequests, 'free' tier)
+      allow create: if isSignedIn() &&
+        request.auth.uid == userId &&
+        isValidId(userId) &&
+        isValidUser(incoming()) &&
+        incoming().uid == request.auth.uid &&
+        incoming().requestCount == 0 &&
+        incoming().maxRequests == 15 &&
+        incoming().tier == 'free';
+
+      // Action-based updates: Increment usage count or update profile info
+      // Crucial: Users CANNOT self-elevate tier or increase their maxRequests
+      allow update: if isSignedIn() &&
+        request.auth.uid == userId &&
+        isValidId(userId) &&
+        isValidUser(incoming()) && (
+          // Action 1: Increment request usage
+          (
+            incoming().diff(existing()).affectedKeys().hasOnly(['requestCount', 'updatedAt']) &&
+            incoming().requestCount >= existing().requestCount &&
+            incoming().maxRequests == existing().maxRequests &&
+            incoming().tier == existing().tier
+          ) ||
+          // Action 2: Update display profile
+          (
+            incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'updatedAt']) &&
+            incoming().requestCount == existing().requestCount &&
+            incoming().maxRequests == existing().maxRequests &&
+            incoming().tier == existing().tier
+          )
+        );
+
+      allow delete: if false;
+    }
+  }
+}
