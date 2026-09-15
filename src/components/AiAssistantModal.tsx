@@ -16,22 +16,33 @@ import {
   Crown,
   Volume2,
   VolumeX,
+  Square,
+  Globe,
+  Paperclip,
+  Image as ImageIcon,
+  Menu,
+  FileText,
+  Trash2,
+  Share2,
 } from 'lucide-react';
 import { RobotBackground } from './RobotBackground';
 import { INTELLICAT_LOGO_URL } from '../constants';
 import { useAuth } from '../context/AuthContext';
-
-export type ChatMode = 'normal' | 'cat-code';
-export type AiProvider = 'groq' | 'gemini';
-
-interface Message {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-  timestamp: string;
-  mode?: ChatMode;
-  provider?: AiProvider;
-}
+import { ChatMessage, ChatMode, AiProvider, ChatAttachment, CitationSource, Conversation } from '../types';
+export type { ChatMode, AiProvider };
+import { MarkdownRenderer } from './MarkdownRenderer';
+import { ConversationSidebar } from './ConversationSidebar';
+import {
+  loadUserConversations,
+  saveConversation,
+  deleteConversation,
+  togglePinConversation,
+  toggleArchiveConversation,
+  renameConversation,
+  loadConversationMessages,
+  saveMessage,
+  generateAutomaticTitle,
+} from '../lib/conversationService';
 
 interface AiAssistantModalProps {
   isOpen: boolean;
@@ -52,122 +63,163 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
   isVipMember = false,
   isFounder = false,
 }) => {
-  const [mode, setMode] = useState<ChatMode>(defaultMode);
-  
-  const getWelcomeMessage = (selectedMode: ChatMode = 'normal'): Message => {
-    if (selectedMode === 'normal') {
-      return {
-        id: 'welcome-normal',
-        role: 'assistant',
-        content: `Hello! I'm your AI conversational companion in **Normal Talk Mode** powered by **Groq LPU (Llama 3.3 70B)** ⚡.\n\nWe can talk about anything — brainstorm ideas, write essays or stories, discuss general topics, plan projects, or just have a friendly chat at lightning speed. What's on your mind today?`,
-        timestamp: 'Just now',
-        mode: 'normal',
-        provider: 'groq',
-      };
-    } else {
-      return {
-        id: 'welcome-cat-code',
-        role: 'assistant',
-        content: `Purr-fect timing! 🐾 I am **IntelicatAI**, your Cybernetic Cat Coder in **Cat Code Mode** powered by **Google Gemini 3.6 Flash** ✨.\n\nI catch bugs faster than mice and write pristine, high-performance code across TypeScript, Python, Rust, Go, SQL, and React. What software are we building or debugging?`,
-        timestamp: 'Just now',
-        mode: 'cat-code',
-        provider: 'gemini',
-      };
-    }
-  };
-
-  const initialChatMode: ChatMode = (defaultMode === 'cat-code') ? 'cat-code' : 'normal';
-  const [messages, setMessages] = useState<Message[]>([getWelcomeMessage(initialChatMode)]);
-  const [input, setInput] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
-
   const {
     user,
     userProfile,
     openAuthModal,
     remainingRequests,
-    requestCount,
     maxRequests,
     isLimitReached,
     consumeRequest,
   } = useAuth();
 
   const isUnlimitedAccount = isFounder || isVipMember || userProfile?.tier === 'vip' || userProfile?.tier === 'founder';
-  
-  // AI Inference Engine: Groq for Normal Talk, Gemini for Cat Code
-  const [provider, setProvider] = useState<AiProvider>(initialChatMode === 'cat-code' ? 'gemini' : 'groq');
-  const [availableProviders, setAvailableProviders] = useState<{ groq: boolean; gemini: boolean }>({
-    groq: true,
-    gemini: true,
-  });
 
-  // Fetch available API keys dynamically on mount
-  useEffect(() => {
-    fetch('/api/providers')
-      .then((res) => res.json())
-      .then((data) => {
-        if (data) {
-          setAvailableProviders({
-            groq: Boolean(data.groq),
-            gemini: Boolean(data.gemini),
-          });
-        }
-      })
-      .catch(() => {});
-  }, []);
+  // State
+  const [mode, setMode] = useState<ChatMode>(defaultMode);
+  const [provider, setProvider] = useState<AiProvider>(defaultMode === 'cat-code' ? 'gemini' : 'gemini');
+  const [providerCapabilities, setProviderCapabilities] = useState<{
+    groq: boolean;
+    gemini: boolean;
+    searchAvailable: boolean;
+  }>({ groq: false, gemini: true, searchAvailable: true });
+  const [webSearchEnabled, setWebSearchEnabled] = useState(false);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
-  // Real-time telemetry stats
+  // Messages & Input
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [input, setInput] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
+  const [showExportModal, setShowExportModal] = useState(false);
+
+  // File Upload State
+  const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
+  const [isDraggingOver, setIsDraggingOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Streaming & Telemetry
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const chatBottomRef = useRef<HTMLDivElement>(null);
+  const chatContainerRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [streamStats, setStreamStats] = useState({
     tokenCount: 120,
-    latencyMs: initialChatMode === 'normal' ? 3.2 : 6.5,
+    latencyMs: defaultMode === 'normal' ? 3.2 : 6.5,
   });
 
-  const chatBottomRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const getWelcomeMessage = (selectedMode: ChatMode = 'normal'): ChatMessage => {
+    if (selectedMode === 'normal') {
+      return {
+        id: `welcome-${Date.now()}`,
+        role: 'assistant',
+        content: `Hello! I'm your AI conversational companion in **Normal Talk Mode** powered by **Groq LPU (Llama 3.3 70B)** ⚡ and **Google Gemini** ✨.\n\nAsk me anything — brainstorm ideas, summarize content, search real-time web facts, upload images/documents for analysis, or just talk. What's on your mind?`,
+        timestamp: 'Just now',
+        createdAt: new Date().toISOString(),
+        mode: 'normal',
+        provider: 'groq',
+      };
+    } else {
+      return {
+        id: `welcome-${Date.now()}`,
+        role: 'assistant',
+        content: `Purr-fect timing! 🐾 I am **IntelicatAI**, your Cybernetic Cat Coder in **Cat Code Mode** powered by **Google Gemini 3.8 Flash** ✨.\n\nI catch bugs faster than mice and engineer pristine, production-grade code across TypeScript, Python, Rust, Go, SQL, React, and Systems Architecture. You can paste snippets or upload full files and screenshots for instant analysis! What are we hacking on today?`,
+        timestamp: 'Just now',
+        createdAt: new Date().toISOString(),
+        mode: 'cat-code',
+        provider: 'gemini',
+      };
+    }
+  };
 
-  // Sync mode when defaultMode changes upon modal open
+  // 1. Initial Load of Conversations & Provider Capabilities on Open
   useEffect(() => {
-    if (isOpen) {
-      const targetMode: ChatMode = (defaultMode === 'cat-code') ? 'cat-code' : 'normal';
+    if (!isOpen) return;
+
+    let isMounted = true;
+
+    // Check available backend AI engines and search availability
+    fetch('/api/providers')
+      .then((r) => r.json())
+      .then((data) => {
+        if (!isMounted) return;
+        const groqAvailable = Boolean(data.groq);
+        const geminiAvailable = Boolean(data.gemini);
+        const searchOk = Boolean(data.searchAvailable !== false);
+
+        setProviderCapabilities({
+          groq: groqAvailable,
+          gemini: geminiAvailable,
+          searchAvailable: searchOk,
+        });
+
+        // If currently on Groq but Groq key is absent, auto-switch to Gemini
+        if (!groqAvailable && geminiAvailable) {
+          setProvider('gemini');
+        }
+      })
+      .catch((err) => {
+        console.warn('Could not fetch provider capabilities:', err);
+      });
+
+    const loadData = async () => {
+      if (user?.uid) {
+        const userConvs = await loadUserConversations(user.uid);
+        if (isMounted) {
+          setConversations(userConvs);
+          if (userConvs.length > 0 && !currentConversationId) {
+            // Load most recent conversation
+            const mostRecent = userConvs[0];
+            setCurrentConversationId(mostRecent.id);
+            setMode(mostRecent.mode);
+            setProvider(mostRecent.provider || (mostRecent.mode === 'cat-code' ? 'gemini' : 'gemini'));
+            const msgs = await loadConversationMessages(user.uid, mostRecent.id);
+            if (isMounted) {
+              setMessages(msgs.length > 0 ? msgs : [getWelcomeMessage(mostRecent.mode)]);
+            }
+          } else if (!currentConversationId) {
+            // Fresh conversation
+            setMessages([getWelcomeMessage(mode)]);
+          }
+        }
+      } else {
+        // Guest / Not logged in
+        if (messages.length === 0) {
+          setMessages([getWelcomeMessage(mode)]);
+        }
+      }
+    };
+
+    loadData();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isOpen, user?.uid]);
+
+  // Sync mode changes when defaultMode prop changes
+  useEffect(() => {
+    if (isOpen && !currentConversationId) {
+      const targetMode: ChatMode = defaultMode === 'cat-code' ? 'cat-code' : 'normal';
       setMode(targetMode);
-      setProvider(targetMode === 'normal' ? 'groq' : 'gemini');
+      setProvider(targetMode === 'normal' && providerCapabilities.groq ? 'groq' : 'gemini');
       setStreamStats((s) => ({ ...s, latencyMs: targetMode === 'normal' ? 3.2 : 6.5 }));
       setMessages([getWelcomeMessage(targetMode)]);
     }
-  }, [isOpen, defaultMode]);
+  }, [isOpen, defaultMode, providerCapabilities.groq]);
 
-  const normalPrompts = [
-    'Help me brainstorm creative ideas for a product launch',
-    'Explain the concept of quantum computing in simple terms',
-    'Write a polite and professional follow-up email',
-    'What are some high-impact productivity habits for morning routines?',
-  ];
-
-  const catCodePrompts = [
-    'Write a production-ready TypeScript debounce utility with cancel support',
-    'Debug why my React useEffect is causing infinite re-renders',
-    'Design a scalable Redis rate-limiter using token bucket algorithm',
-    'Write a fast Python async queue processor with graceful shutdown',
-  ];
-
-  // Auto-scroll on new messages
+  // Trigger initial prompt if provided
   useEffect(() => {
-    if (isOpen) {
-      chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-      setTimeout(() => inputRef.current?.focus(), 150);
-    }
-  }, [messages, isOpen, loading]);
-
-  // Handle initial prompt if passed
-  useEffect(() => {
-    if (initialPrompt && isOpen) {
+    if (initialPrompt && isOpen && !loading) {
       handleSend(initialPrompt);
     }
   }, [initialPrompt, isOpen]);
 
-  // Clean up speech synthesis when closing
+  // Clean up speech synthesis on unmount / close
   useEffect(() => {
     if (!isOpen && typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();
@@ -175,83 +227,426 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
     }
   }, [isOpen]);
 
+  // Auto-scroll when messages update (unless user is scrolled up)
+  useEffect(() => {
+    if (isOpen && chatBottomRef.current) {
+      chatBottomRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages, loading]);
+
+  // Adjust textarea height dynamically
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setInput(e.target.value);
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 160)}px`;
+    }
+  };
+
+  // File Upload Handlers
+  const handleFileUpload = (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+
+    if (attachments.length + files.length > 4) {
+      setError('You can attach a maximum of 4 files per message.');
+      return;
+    }
+
+    Array.from(files).forEach((file) => {
+      if (file.size > 5 * 1024 * 1024) {
+        setError(`File "${file.name}" exceeds the 5MB size limit.`);
+        return;
+      }
+
+      const reader = new FileReader();
+      const isImage = file.type.startsWith('image/');
+
+      if (isImage) {
+        reader.readAsDataURL(file);
+      } else {
+        reader.readAsText(file);
+      }
+
+      reader.onload = () => {
+        const rawData = reader.result as string;
+        const newAttachment: ChatAttachment = {
+          id: `att-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          name: file.name,
+          type: file.type || 'text/plain',
+          size: file.size,
+          data: rawData,
+        };
+
+        setAttachments((prev) => [...prev, newAttachment]);
+        // If image attached, auto-switch to Gemini for multimodal vision
+        if (isImage) {
+          setProvider('gemini');
+        }
+      };
+
+      reader.onerror = () => {
+        setError(`Failed to read file ${file.name}`);
+      };
+    });
+  };
+
+  const removeAttachment = (id: string) => {
+    setAttachments((prev) => prev.filter((a) => a.id !== id));
+  };
+
+  // Drag & Drop
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDraggingOver(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDraggingOver(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDraggingOver(false);
+    if (e.dataTransfer.files) {
+      handleFileUpload(e.dataTransfer.files);
+    }
+  };
+
+  // Conversation Management Handlers
+  const handleNewChat = (customMode?: ChatMode) => {
+    if (loading) handleStopGeneration();
+    const nextMode = customMode || mode;
+    setCurrentConversationId(null);
+    setMode(nextMode);
+    setProvider(nextMode === 'normal' && providerCapabilities.groq ? 'groq' : 'gemini');
+    setMessages([getWelcomeMessage(nextMode)]);
+    setAttachments([]);
+    setInput('');
+    setError(null);
+    setIsSidebarOpen(false);
+  };
+
+  const handleSelectConversation = async (convId: string) => {
+    if (convId === currentConversationId) return;
+    if (loading) handleStopGeneration();
+
+    const selectedConv = conversations.find((c) => c.id === convId);
+    if (!selectedConv) return;
+
+    setCurrentConversationId(convId);
+    setMode(selectedConv.mode);
+    setProvider(
+      selectedConv.provider === 'groq' && !providerCapabilities.groq
+        ? 'gemini'
+        : selectedConv.provider || (selectedConv.mode === 'cat-code' ? 'gemini' : (providerCapabilities.groq ? 'groq' : 'gemini'))
+    );
+    setError(null);
+    setAttachments([]);
+
+    if (user?.uid) {
+      const msgs = await loadConversationMessages(user.uid, convId);
+      setMessages(msgs.length > 0 ? msgs : [getWelcomeMessage(selectedConv.mode)]);
+    }
+  };
+
+  const handleRenameConversation = async (convId: string, newTitle: string) => {
+    if (!user?.uid) return;
+    await renameConversation(user.uid, convId, newTitle);
+    setConversations((prev) =>
+      prev.map((c) => (c.id === convId ? { ...c, title: newTitle } : c))
+    );
+  };
+
+  const handleDeleteConversation = async (convId: string) => {
+    if (!user?.uid) return;
+    await deleteConversation(user.uid, convId);
+    setConversations((prev) => prev.filter((c) => c.id !== convId));
+    if (currentConversationId === convId) {
+      handleNewChat();
+    }
+  };
+
+  const handleTogglePin = async (convId: string, currentPinned: boolean) => {
+    if (!user?.uid) return;
+    await togglePinConversation(user.uid, convId, currentPinned);
+    setConversations((prev) => {
+      const updated = prev.map((c) => (c.id === convId ? { ...c, isPinned: !currentPinned } : c));
+      return updated.sort((a, b) => {
+        if (a.isPinned && !b.isPinned) return -1;
+        if (!a.isPinned && b.isPinned) return 1;
+        return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+      });
+    });
+  };
+
+  const handleToggleArchive = async (convId: string, currentArchived: boolean) => {
+    if (!user?.uid) return;
+    await toggleArchiveConversation(user.uid, convId, currentArchived);
+    setConversations((prev) =>
+      prev.map((c) => (c.id === convId ? { ...c, isArchived: !currentArchived } : c))
+    );
+  };
+
+  // Stop Generation Handler
+  const handleStopGeneration = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    setLoading(false);
+  };
+
+  // Mode Switch
   const handleSwitchMode = (newMode: ChatMode) => {
     if (newMode === mode) return;
+    if (loading) handleStopGeneration();
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();
       setSpeakingMessageId(null);
     }
-    const nextProvider: AiProvider = newMode === 'normal' ? 'groq' : 'gemini';
+    const nextProvider: AiProvider = newMode === 'normal'
+      ? (providerCapabilities.groq ? 'groq' : 'gemini')
+      : 'gemini';
     setMode(newMode);
     setProvider(nextProvider);
     setStreamStats((s) => ({ ...s, latencyMs: newMode === 'normal' ? 3.2 : 6.5 }));
-    setMessages([getWelcomeMessage(newMode)]);
     setError(null);
+
+    // If no messages yet, reset welcome message
+    if (messages.length <= 1) {
+      setMessages([getWelcomeMessage(newMode)]);
+    }
   };
 
-  const handleSend = async (textToSend?: string) => {
-    const text = textToSend || input.trim();
-    if (!text || loading) return;
+  // Copy Message Content
+  const handleCopyMessage = (id: string, text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedMessageId(id);
+    setTimeout(() => setCopiedMessageId(null), 2000);
+  };
 
-    // 1. Require Authentication
+  // Export Conversation
+  const handleExport = (format: 'markdown' | 'json') => {
+    const activeConv = conversations.find((c) => c.id === currentConversationId);
+    const title = activeConv?.title || 'intelicatai-chat';
+    const filename = `${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${Date.now()}.${format === 'markdown' ? 'md' : 'json'}`;
+
+    let contentToDownload = '';
+    if (format === 'markdown') {
+      contentToDownload = `# ${title}\n*Exported from IntelicatAI on ${new Date().toLocaleString()}*\n\n---\n\n`;
+      messages.forEach((m) => {
+        const sender = m.role === 'user' ? '👤 User' : `🐾 IntelicatAI (${m.provider || 'AI'})`;
+        contentToDownload += `### ${sender} - ${m.timestamp}\n\n${m.content}\n\n`;
+        if (m.citations && m.citations.length > 0) {
+          contentToDownload += `**Sources:**\n`;
+          m.citations.forEach((c) => {
+            contentToDownload += `- [${c.title}](${c.uri})\n`;
+          });
+          contentToDownload += `\n`;
+        }
+        contentToDownload += `---\n\n`;
+      });
+    } else {
+      contentToDownload = JSON.stringify(
+        {
+          title,
+          exportedAt: new Date().toISOString(),
+          conversationId: currentConversationId,
+          messages,
+        },
+        null,
+        2
+      );
+    }
+
+    const blob = new Blob([contentToDownload], { type: format === 'markdown' ? 'text/markdown' : 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+    setShowExportModal(false);
+  };
+
+  // Speech Synthesis
+  const handleToggleSpeak = (messageId: string, text: string) => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+
+    if (speakingMessageId === messageId) {
+      window.speechSynthesis.cancel();
+      setSpeakingMessageId(null);
+      return;
+    }
+
+    window.speechSynthesis.cancel();
+    // Clean markdown symbols for cleaner speech
+    const cleanText = text
+      .replace(/```[\s\S]*?```/g, 'Code block omitted.')
+      .replace(/`([^`]+)`/g, '$1')
+      .replace(/[#*_~]/g, '');
+
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+    utterance.rate = 1.05;
+    utterance.pitch = mode === 'cat-code' ? 1.15 : 1.0;
+    utterance.onend = () => setSpeakingMessageId(null);
+    utterance.onerror = () => setSpeakingMessageId(null);
+
+    setSpeakingMessageId(messageId);
+    window.speechSynthesis.speak(utterance);
+  };
+
+  // Regenerate Response
+  const handleRegenerate = () => {
+    if (loading || messages.length < 2) return;
+    // Find last user message
+    const lastUserIdx = [...messages].reverse().findIndex((m) => m.role === 'user');
+    if (lastUserIdx === -1) return;
+
+    const actualIdx = messages.length - 1 - lastUserIdx;
+    const lastUserMsg = messages[actualIdx];
+
+    // Remove everything after last user message
+    const trimmed = messages.slice(0, actualIdx);
+    setMessages(trimmed);
+
+    handleSend(lastUserMsg.content, lastUserMsg.attachments, trimmed);
+  };
+
+  // Primary Send & Stream Handler
+  const handleSend = async (
+    textToSend?: string,
+    existingAttachments?: ChatAttachment[],
+    baseMessages?: ChatMessage[]
+  ) => {
+    const text = (textToSend !== undefined ? textToSend : input).trim();
+    const currentAttachments = existingAttachments || attachments;
+
+    if ((!text && currentAttachments.length === 0) || loading) return;
+
+    // 1. Authentication Check
     if (!user) {
       openAuthModal('signin');
-      setError('Please sign in with Google or Email to claim your 15 free AI requests!');
+      setError('Please sign in to save your conversation history and access IntelicatAI.');
       return;
     }
 
-    // 2. Enforce 15 requests Free Tier Limit
+    // 2. Quota Check
     if (!isUnlimitedAccount && isLimitReached) {
-      setError(`Free tier limit reached! You've used all ${maxRequests} requests. Upgrade to VIP for unlimited requests!`);
+      setError(`Free limit reached (${maxRequests} queries used). Upgrade to VIP for unlimited access!`);
       return;
     }
 
-    // 3. Consume 1 request quota from user profile
+    // 3. Consume Quota
     const allowed = await consumeRequest();
     if (!allowed) {
-      setError(`Could not authorize request. Please verify your account status.`);
+      setError('Request could not be authorized. Please check your account quota.');
       return;
     }
 
+    // Stop speaking
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();
       setSpeakingMessageId(null);
     }
 
-    const userMsg: Message = {
-      id: `user-${Date.now()}`,
+    // Prepare User Message
+    const userMsgId = `user-${Date.now()}`;
+    const userMsg: ChatMessage = {
+      id: userMsgId,
+      conversationId: currentConversationId || undefined,
       role: 'user',
       content: text,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      createdAt: new Date().toISOString(),
       mode,
+      attachments: currentAttachments.length > 0 ? [...currentAttachments] : undefined,
     };
 
+    // Prepare Assistant Placeholder
     const assistantMsgId = `assistant-${Date.now()}`;
-    const initialAssistantMsg: Message = {
+    const assistantMsg: ChatMessage = {
       id: assistantMsgId,
+      conversationId: currentConversationId || undefined,
       role: 'assistant',
       content: '',
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      createdAt: new Date().toISOString(),
       mode,
       provider,
     };
 
-    const updatedWithUser = [...messages, userMsg];
-    setMessages([...updatedWithUser, initialAssistantMsg]);
+    const previousHistory = baseMessages || messages;
+    const updatedMessages = [...previousHistory, userMsg];
+
+    setMessages([...updatedMessages, assistantMsg]);
     setInput('');
+    setAttachments([]);
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+    }
     setLoading(true);
     setError(null);
 
+    // 4. Manage Conversation Persistence (Auto-Title & Save)
+    let activeConvId = currentConversationId;
+    if (!activeConvId) {
+      activeConvId = `conv-${Date.now()}`;
+      setCurrentConversationId(activeConvId);
+
+      const newTitle = generateAutomaticTitle(text || 'Image Analysis');
+      const newConv: Conversation = {
+        id: activeConvId,
+        userId: user.uid,
+        title: newTitle,
+        mode,
+        provider,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        lastMessagePreview: text.slice(0, 80),
+      };
+
+      await saveConversation(user.uid, newConv);
+      setConversations((prev) => [newConv, ...prev]);
+    }
+
+    // Save user message to Firestore
+    if (user?.uid && activeConvId) {
+      saveMessage(user.uid, activeConvId, userMsg);
+    }
+
+    // 5. Connect SSE to /api/chat with Memory Context & Grounding
     const startTime = performance.now();
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+
+    // Keep memory of recent context (up to 12 messages)
+    const contextMessages = updatedMessages.slice(-12).map((m) => ({
+      role: m.role,
+      content: m.content,
+      attachments: m.attachments?.map((a) => ({
+        name: a.name,
+        type: a.type,
+        data: a.data,
+      })),
+    }));
 
     try {
       const response = await fetch('/api/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: user.getIdToken ? `Bearer ${await user.getIdToken().catch(() => '')}` : '',
+        },
+        signal: abortController.signal,
         body: JSON.stringify({
-          messages: updatedWithUser.map((m) => ({ role: m.role, content: m.content })),
+          messages: contextMessages,
           mode,
           provider,
+          webSearch: webSearchEnabled,
+          userId: user.uid,
+          isVipOrFounder: isUnlimitedAccount,
         }),
       });
 
@@ -261,7 +656,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
       }
 
       if (!response.body) {
-        throw new Error('ReadableStream not supported.');
+        throw new Error('ReadableStream is not supported by your browser.');
       }
 
       const reader = response.body.getReader();
@@ -270,6 +665,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
       let buffer = '';
       let streamError: string | null = null;
       let streamProvider: AiProvider = provider;
+      const gatheredCitations: CitationSource[] = [];
 
       while (true) {
         const { value, done } = await reader.read();
@@ -301,10 +697,18 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
             streamProvider = parsed.provider;
           }
 
+          if (parsed.citations && Array.isArray(parsed.citations)) {
+            parsed.citations.forEach((cit: CitationSource) => {
+              if (!gatheredCitations.some((existing) => existing.uri === cit.uri)) {
+                gatheredCitations.push(cit);
+              }
+            });
+          }
+
           if (parsed.text) {
             accumulatedContent += parsed.text;
             const currentText = accumulatedContent;
-            
+
             const words = currentText.split(/\s+/).length;
             setStreamStats({
               tokenCount: words * 2,
@@ -314,7 +718,12 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
             setMessages((prev) =>
               prev.map((msg) =>
                 msg.id === assistantMsgId
-                  ? { ...msg, content: currentText, provider: streamProvider }
+                  ? {
+                      ...msg,
+                      content: currentText,
+                      provider: streamProvider,
+                      citations: gatheredCitations.length > 0 ? [...gatheredCitations] : undefined,
+                    }
                   : msg
               )
             );
@@ -327,523 +736,605 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
         throw new Error(streamError);
       }
 
-      if (!accumulatedContent) {
-        throw new Error(
-          streamProvider === 'groq'
-            ? 'No response received from Groq. Please check that GROQ_API_KEY is configured in your Environment Variables or switch to Gemini.'
-            : 'No response received from Gemini. Please check that GEMINI_API_KEY is configured in your Environment Variables or switch to Groq.'
-        );
+      // Save finalized assistant message to Firestore
+      if (user?.uid && activeConvId && accumulatedContent) {
+        const finalizedMsg: ChatMessage = {
+          ...assistantMsg,
+          content: accumulatedContent,
+          provider: streamProvider,
+          citations: gatheredCitations.length > 0 ? gatheredCitations : undefined,
+        };
+        await saveMessage(user.uid, activeConvId, finalizedMsg);
       }
     } catch (err: any) {
-      console.error('Chat error:', err);
-      let errMsg = err.message || 'Unable to connect to AI engine.';
-      try {
-        if (errMsg.includes('{"error"')) {
-          const match = errMsg.match(/\{.*"error".*\}/);
-          if (match) {
-            const parsed = JSON.parse(match[0]);
-            if (parsed.error?.message) {
-              errMsg = parsed.error.message;
-            }
-          }
-        }
-      } catch {}
-      setError(errMsg);
-      setMessages((prev) => prev.filter((m) => m.id !== assistantMsgId || m.content.length > 0));
+      if (err.name === 'AbortError') {
+        // User clicked "Stop Generation", gracefully finalize what was streamed so far
+        console.log('Stream stopped by user.');
+      } else {
+        console.error('Chat error:', err);
+        setError(err.message || 'Unable to connect to AI engine.');
+      }
     } finally {
       setLoading(false);
+      abortControllerRef.current = null;
     }
   };
 
-  const handleReset = () => {
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-      setSpeakingMessageId(null);
-    }
-    setMessages([getWelcomeMessage(mode)]);
-    setError(null);
-  };
+  const activeConversation = conversations.find((c) => c.id === currentConversationId);
 
-  const handleSpeak = (msgId: string, text: string) => {
-    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
-
-    if (speakingMessageId === msgId) {
-      window.speechSynthesis.cancel();
-      setSpeakingMessageId(null);
-      return;
-    }
-
-    window.speechSynthesis.cancel();
-    const cleanText = text.replace(/[*_#`]/g, '');
-    const utterance = new SpeechSynthesisUtterance(cleanText);
-    utterance.rate = 1.05;
-    utterance.pitch = 1.0;
-    utterance.onend = () => setSpeakingMessageId(null);
-    utterance.onerror = () => setSpeakingMessageId(null);
-
-    setSpeakingMessageId(msgId);
-    window.speechSynthesis.speak(utterance);
-  };
-
-  const handleCopy = (text: string) => {
-    navigator.clipboard.writeText(text);
-  };
-
-  const handleDownloadMarkdown = () => {
-    const mdContent = `# AI Chat Export (${mode === 'normal' ? 'Normal Talk' : 'Cat Code'})\nDate: ${new Date().toLocaleString()}\n\n` +
-      messages
-        .map((m) => `### ${m.role === 'user' ? '👤 You' : mode === 'normal' ? '🤖 AI Assistant' : '🐾 IntelicatAI Cat Coder'} (${m.timestamp})\n\n${m.content}\n`)
-        .join('\n---\n\n');
-    
-    const blob = new Blob([mdContent], { type: 'text/markdown' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `chat-${mode}-${Date.now()}.md`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
+  const samplePrompts =
+    mode === 'normal'
+      ? [
+          'Help me brainstorm creative marketing strategies for a launch',
+          'Explain how transformer neural networks work with analogies',
+          'Write a polished follow-up email after a design sprint',
+          'What are high-impact cognitive habits for daily deep work?',
+        ]
+      : [
+          'Write a production-ready TypeScript rate limiter with token bucket',
+          'Debug why my React useEffect is causing infinite re-renders',
+          'Design an async Python worker queue with graceful cancellation',
+          'Write a high-performance SQL query to aggregate monthly active users',
+        ];
 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 lg:p-6 bg-black/90 backdrop-blur-xl overflow-y-auto">
-      <motion.div
-        initial={{ opacity: 0, scale: 0.94, y: 20 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.94, y: 20 }}
-        transition={{ duration: 0.3 }}
-        className={`relative w-full max-w-4xl rounded-[28px] sm:rounded-[36px] bg-[#0c0c10] shadow-[0_0_80px_rgba(239,35,60,0.35)] flex flex-col h-[92vh] max-h-[860px] overflow-hidden text-white border ${
-          mode === 'cat-code' ? 'border-[#EF233C]/40' : 'border-white/20'
-        }`}
-      >
-        {/* Background Ambient Glow */}
-        <RobotBackground mode="cinema" opacity={0.45} />
+    <AnimatePresence>
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 md:p-6 bg-black/80 backdrop-blur-md">
+        {/* Robot Background Grid */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none opacity-40">
+          <RobotBackground />
+        </div>
 
-        {/* Modal Header with the 2-Mode Switcher */}
-        <header className="relative z-20 px-4 sm:px-6 py-3.5 border-b border-white/10 flex flex-wrap items-center justify-between gap-3 bg-black/80 backdrop-blur-md">
-          
-          {/* Left: 2 Modes Selector Tabs */}
-          <div className="flex items-center gap-2">
-            <div className="p-1 rounded-2xl bg-neutral-900/90 border border-white/10 flex items-center shadow-inner">
-              {/* Mode 1: Normal Talk (Groq) */}
-              <button
-                id="mode-normal-btn"
-                onClick={() => handleSwitchMode('normal')}
-                className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
-                  mode === 'normal'
-                    ? 'bg-white text-black shadow-md shadow-white/20 scale-[1.02]'
-                    : 'text-neutral-400 hover:text-white hover:bg-white/5'
-                }`}
-                title="Normal Talk Mode — powered by Groq LPU (Llama 3.3 70B)"
-              >
-                <MessageSquare className={`w-4 h-4 ${mode === 'normal' ? 'text-black' : 'text-neutral-400'}`} />
-                <span>Normal Talk</span>
-                <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded font-bold flex items-center gap-0.5 ${
-                  mode === 'normal'
-                    ? 'bg-black/10 text-neutral-900 border border-black/10'
-                    : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                }`}>
-                  <Zap className="w-2.5 h-2.5 text-amber-500" />
-                  <span>Groq</span>
-                </span>
-              </button>
+        {/* Hidden File Input */}
+        <input
+          type="file"
+          ref={fileInputRef}
+          onChange={(e) => handleFileUpload(e.target.files)}
+          multiple
+          accept="image/*,text/*,.txt,.py,.js,.ts,.tsx,.json,.md,.html,.css"
+          className="hidden"
+        />
 
-              {/* Mode 2: Cat Code (Gemini) */}
-              <button
-                id="mode-catcode-btn"
-                onClick={() => handleSwitchMode('cat-code')}
-                className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
-                  mode === 'cat-code'
-                    ? 'bg-gradient-to-r from-[#EF233C] to-amber-500 text-white shadow-md shadow-red-500/30 scale-[1.02]'
-                    : 'text-neutral-400 hover:text-white hover:bg-white/5'
-                }`}
-                title="Cat Code Mode — powered by Google Gemini 3.6 Flash"
-              >
-                <Cat className={`w-4 h-4 ${mode === 'cat-code' ? 'text-white' : 'text-[#EF233C]'}`} />
-                <span>Cat Code 🐾</span>
-                <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded font-bold flex items-center gap-0.5 ${
-                  mode === 'cat-code'
-                    ? 'bg-white/20 text-white border border-white/20'
-                    : 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
-                }`}>
-                  <Sparkles className="w-2.5 h-2.5 text-blue-300" />
-                  <span>Gemini</span>
-                </span>
-              </button>
+        {/* Main Modal Container */}
+        <motion.div
+          initial={{ opacity: 0, scale: 0.96, y: 15 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.96, y: 15 }}
+          transition={{ duration: 0.2 }}
+          className="relative w-full max-w-6xl h-[94vh] sm:h-[90vh] bg-[#0c0c12] rounded-2xl border border-white/10 shadow-2xl flex overflow-hidden text-neutral-100"
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+        >
+          {/* Drag & Drop Visual Overlay */}
+          {isDraggingOver && (
+            <div className="absolute inset-0 z-50 bg-[#EF233C]/20 border-2 border-dashed border-[#EF233C] rounded-2xl flex flex-col items-center justify-center pointer-events-none backdrop-blur-xs">
+              <Paperclip className="w-12 h-12 text-white animate-bounce mb-3" />
+              <p className="text-white font-bold text-lg">Drop images or code files here to analyze</p>
             </div>
-          </div>
+          )}
 
-          {/* Center/Right: Active AI Engine Status & Manual Override Toggle (Desktop/Tablet) */}
-          <div className="hidden md:flex items-center gap-1 p-1 rounded-2xl bg-neutral-900/90 border border-white/10 text-xs shadow-inner">
-            <button
-              id="engine-groq-btn"
-              type="button"
-              onClick={() => setProvider('groq')}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                provider === 'groq'
-                  ? 'bg-amber-500/25 text-amber-300 border border-amber-500/50 shadow-sm shadow-amber-500/30 scale-[1.02]'
-                  : 'text-neutral-400 hover:text-white hover:bg-white/5'
-              }`}
-              title="Groq LPU: Llama 3.3 70B (Default for Normal Talk)"
-            >
-              <Zap className={`w-3.5 h-3.5 ${provider === 'groq' ? 'text-amber-400 fill-amber-400/30' : 'text-neutral-400'}`} />
-              <span>Groq LPU</span>
-              {mode === 'normal' && (
-                <span className="text-[9px] px-1 py-0.2 rounded bg-amber-400/20 text-amber-300">Default</span>
-              )}
-            </button>
+          {/* Conversations Sidebar */}
+          <ConversationSidebar
+            isOpen={isSidebarOpen}
+            onCloseMobile={() => setIsSidebarOpen(false)}
+            conversations={conversations}
+            activeConversationId={currentConversationId}
+            onSelectConversation={handleSelectConversation}
+            onNewChat={handleNewChat}
+            onRenameConversation={handleRenameConversation}
+            onDeleteConversation={handleDeleteConversation}
+            onTogglePin={handleTogglePin}
+            onToggleArchive={handleToggleArchive}
+          />
 
-            <button
-              id="engine-gemini-btn"
-              type="button"
-              onClick={() => setProvider('gemini')}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                provider === 'gemini'
-                  ? 'bg-blue-500/25 text-blue-300 border border-blue-500/50 shadow-sm shadow-blue-500/30 scale-[1.02]'
-                  : 'text-neutral-400 hover:text-white hover:bg-white/5'
-              }`}
-              title="Google Gemini 3.6 Flash (Default for Cat Code)"
-            >
-              <Sparkles className={`w-3.5 h-3.5 ${provider === 'gemini' ? 'text-blue-400 fill-blue-400/30' : 'text-neutral-400'}`} />
-              <span>Gemini</span>
-              {mode === 'cat-code' && (
-                <span className="text-[9px] px-1 py-0.2 rounded bg-blue-400/20 text-blue-300">Default</span>
-              )}
-            </button>
-          </div>
-
-          {/* Right Controls: Quota Indicator, VIP Pass, Latency, Reset, Export & Close */}
-          <div className="flex items-center gap-1.5 sm:gap-2">
-            {/* Free Tier Quota / Auth Status */}
-            {user ? (
-              <div
-                className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-mono font-bold border ${
-                  isUnlimitedAccount
-                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-                    : isLimitReached
-                    ? 'bg-red-500/25 text-red-300 border-red-500/50 animate-pulse'
-                    : remainingRequests <= 3
-                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-                    : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
-                }`}
-                title={
-                  isUnlimitedAccount
-                    ? 'Unlimited VIP Queries Active'
-                    : `${remainingRequests} of ${maxRequests} free queries remaining`
-                }
-              >
-                <Zap className="w-3 h-3" />
-                <span>{isUnlimitedAccount ? 'Unlimited' : `${remainingRequests}/${maxRequests}`}</span>
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => openAuthModal('signin')}
-                className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-semibold border border-white/20 transition-all cursor-pointer"
-                title="Sign in with Google or Email for 15 free requests"
-              >
-                <User className="w-3 h-3 text-sky-400" />
-                <span>Sign In</span>
-                <span className="text-[10px] text-amber-300 bg-amber-400/20 px-1 py-0.2 rounded font-mono font-bold">
-                  15 Free
-                </span>
-              </button>
-            )}
-
-            {/* VIP Status or Buy */}
-            <button
-              onClick={() => {
-                onClose();
-                onOpenBuyVip?.();
-              }}
-              className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                isFounder
-                  ? 'bg-gradient-to-r from-amber-400 to-yellow-500 text-black border border-amber-300 shadow-[0_0_12px_rgba(245,158,11,0.5)]'
-                  : 'bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300'
-              }`}
-            >
-              <Crown className={`w-3.5 h-3.5 ${isFounder ? 'text-black' : 'text-amber-400'}`} />
-              <span>{isFounder ? '👑 $1B Founder' : isVipMember ? 'VIP Member' : 'Buy VIP'}</span>
-            </button>
-
-            {/* Speed Pill */}
-            <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-black/50 border border-white/10 text-[10px] font-mono text-neutral-300">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
-              <span>{streamStats.latencyMs}ms</span>
-            </div>
-
-            {/* Reset */}
-            <button
-              onClick={handleReset}
-              title="Reset chat"
-              className="p-2 rounded-xl text-neutral-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
-            >
-              <RefreshCw className="w-4 h-4" />
-            </button>
-
-            {/* Export */}
-            <button
-              onClick={handleDownloadMarkdown}
-              title="Export conversation (.md)"
-              className="p-2 rounded-xl text-neutral-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
-            >
-              <Download className="w-4 h-4" />
-            </button>
-
-            {/* Close */}
-            <button
-              onClick={onClose}
-              className="p-2 rounded-xl text-neutral-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-        </header>
-
-        {/* Message Stream */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 relative z-10">
-          {messages.map((m) => {
-            const isUser = m.role === 'user';
-            return (
-              <motion.div
-                key={m.id}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                className={`flex gap-3 max-w-[88%] sm:max-w-[82%] ${
-                  isUser ? 'ml-auto flex-row-reverse' : 'mr-auto'
-                }`}
-              >
-                {/* Avatar */}
-                <div
-                  className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 shadow-md overflow-hidden ${
-                    isUser
-                      ? 'bg-neutral-800 border border-white/15 text-white'
-                      : mode === 'cat-code'
-                      ? 'border border-amber-500/50 bg-black shadow-[0_0_10px_rgba(245,158,11,0.4)]'
-                      : 'bg-white text-black'
-                  }`}
+          {/* Chat Workspace (Right Panel) */}
+          <div className="flex-1 flex flex-col min-w-0 bg-[#0c0c12] relative">
+            {/* Top Bar Header */}
+            <header className="p-3 sm:p-4 border-b border-white/10 bg-black/40 flex items-center justify-between gap-2 shrink-0">
+              <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+                {/* Sidebar Toggle Button */}
+                <button
+                  onClick={() => setIsSidebarOpen((prev) => !prev)}
+                  type="button"
+                  className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-neutral-300 hover:text-white border border-white/10 transition-colors cursor-pointer shrink-0"
+                  title="Toggle Chat History"
                 >
-                  {isUser ? (
-                    <User className="w-4 h-4" />
-                  ) : mode === 'cat-code' ? (
+                  <Menu className="w-4 h-4" />
+                </button>
+
+                {/* Logo & Conversation Title */}
+                <div className="flex items-center gap-2 min-w-0">
+                  <div className="relative w-8 h-8 rounded-xl overflow-hidden bg-gradient-to-tr from-[#EF233C] to-red-600 p-0.5 shrink-0 shadow-md shadow-[#EF233C]/20">
                     <img
                       src={INTELLICAT_LOGO_URL}
-                      alt="IntellicatAI"
-                      referrerPolicy="no-referrer"
-                      className="w-full h-full object-cover"
+                      alt="IntelicatAI Logo"
+                      className="w-full h-full object-cover rounded-[10px]"
                     />
+                  </div>
+                  <div className="min-w-0">
+                    <h1 className="font-bold text-xs sm:text-sm text-white truncate flex items-center gap-1.5">
+                      <span>{activeConversation?.title || 'IntelicatAI Workspace'}</span>
+                    </h1>
+                    <div className="flex items-center gap-2 text-[10px] text-neutral-400">
+                      <span className="flex items-center gap-1 text-emerald-400">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                        Online
+                      </span>
+                      <span>•</span>
+                      <span className="text-neutral-400 uppercase font-mono tracking-wider text-[9px]">
+                        {provider === 'groq' ? 'Groq LPU ⚡' : 'Gemini 3.1 Flash ✨'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Mode Toggle & Actions */}
+              <div className="flex items-center gap-1.5 sm:gap-2">
+                {/* Mode Selector Pill */}
+                <div className="hidden sm:flex bg-black/60 p-1 rounded-xl border border-white/10">
+                  <button
+                    onClick={() => handleSwitchMode('normal')}
+                    type="button"
+                    className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+                      mode === 'normal'
+                        ? 'bg-[#EF233C] text-white shadow-md shadow-[#EF233C]/30'
+                        : 'text-neutral-400 hover:text-white'
+                    }`}
+                  >
+                    <MessageSquare className="w-3.5 h-3.5" />
+                    <span>Talk</span>
+                  </button>
+                  <button
+                    onClick={() => handleSwitchMode('cat-code')}
+                    type="button"
+                    className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+                      mode === 'cat-code'
+                        ? 'bg-amber-500 text-black font-semibold shadow-md shadow-amber-500/30'
+                        : 'text-neutral-400 hover:text-white'
+                    }`}
+                  >
+                    <Cat className="w-3.5 h-3.5" />
+                    <span>Cat Code</span>
+                  </button>
+                </div>
+
+                {/* Quota / VIP Pill */}
+                {isUnlimitedAccount ? (
+                  <div className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-semibold">
+                    <Crown className="w-3.5 h-3.5 text-amber-400" />
+                    <span className="hidden md:inline">VIP Unlimited</span>
+                  </div>
+                ) : (
+                  <button
+                    onClick={onOpenBuyVip}
+                    type="button"
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-neutral-300 hover:text-white text-xs transition-colors cursor-pointer"
+                    title="Click to upgrade for unlimited queries"
+                  >
+                    <Zap className="w-3.5 h-3.5 text-[#EF233C]" />
+                    <span>
+                      {remainingRequests}/{maxRequests} Free
+                    </span>
+                  </button>
+                )}
+
+                {/* Export Chat Button */}
+                <button
+                  onClick={() => setShowExportModal((prev) => !prev)}
+                  type="button"
+                  className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-neutral-300 hover:text-white border border-white/10 transition-colors cursor-pointer"
+                  title="Export Chat"
+                >
+                  <Download className="w-4 h-4" />
+                </button>
+
+                {/* Close Modal Button */}
+                <button
+                  onClick={onClose}
+                  type="button"
+                  className="p-2 rounded-xl bg-white/5 hover:bg-red-500/20 text-neutral-300 hover:text-red-400 border border-white/10 hover:border-red-500/30 transition-colors cursor-pointer"
+                  title="Close Assistant"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </header>
+
+            {/* Export Modal Dropdown */}
+            {showExportModal && (
+              <div className="absolute right-12 top-16 z-50 w-52 bg-[#12121c] rounded-xl border border-white/15 shadow-2xl p-2 space-y-1">
+                <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-neutral-400">
+                  Export Conversation
+                </div>
+                <button
+                  onClick={() => handleExport('markdown')}
+                  type="button"
+                  className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs text-neutral-200 hover:bg-white/10 hover:text-white transition-colors cursor-pointer text-left"
+                >
+                  <FileText className="w-3.5 h-3.5 text-[#EF233C]" />
+                  <span>Download Markdown (.md)</span>
+                </button>
+                <button
+                  onClick={() => handleExport('json')}
+                  type="button"
+                  className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs text-neutral-200 hover:bg-white/10 hover:text-white transition-colors cursor-pointer text-left"
+                >
+                  <Code className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Download JSON (.json)</span>
+                </button>
+              </div>
+            )}
+
+            {/* Error Banner */}
+            {error && (
+              <div className="px-4 py-2 bg-red-950/80 border-b border-red-500/30 flex items-center justify-between text-xs text-red-200">
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-red-500 shrink-0 animate-ping" />
+                  <span>{error}</span>
+                </div>
+                <button
+                  onClick={() => setError(null)}
+                  className="text-red-300 hover:text-white ml-2 p-1"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+
+            {/* Messages Scroll Area */}
+            <div
+              ref={chatContainerRef}
+              className="flex-1 overflow-y-auto p-3 sm:p-6 space-y-5 selection:bg-[#EF233C] selection:text-white"
+            >
+              {messages.map((msg, index) => {
+                const isUser = msg.role === 'user';
+                const isLastAssistant = !isUser && index === messages.length - 1;
+
+                return (
+                  <div
+                    key={msg.id}
+                    className={`flex gap-3 sm:gap-4 max-w-4xl mx-auto ${
+                      isUser ? 'flex-row-reverse' : 'flex-row'
+                    }`}
+                  >
+                    {/* Avatar */}
+                    <div
+                      className={`w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center shrink-0 border shadow-md ${
+                        isUser
+                          ? 'bg-neutral-800 border-white/20 text-neutral-200'
+                          : msg.mode === 'cat-code'
+                          ? 'bg-amber-500/20 border-amber-500/40 text-amber-400'
+                          : 'bg-[#EF233C]/20 border-[#EF233C]/40 text-[#EF233C]'
+                      }`}
+                    >
+                      {isUser ? (
+                        <User className="w-4 h-4" />
+                      ) : msg.mode === 'cat-code' ? (
+                        <Cat className="w-5 h-5" />
+                      ) : (
+                        <Sparkles className="w-4 h-4" />
+                      )}
+                    </div>
+
+                    {/* Message Bubble & Metadata */}
+                    <div className={`flex-1 min-w-0 ${isUser ? 'items-end' : 'items-start'}`}>
+                      {/* Top Bubble Header */}
+                      <div
+                        className={`flex items-center gap-2 mb-1.5 text-[11px] text-neutral-400 ${
+                          isUser ? 'justify-end' : 'justify-start'
+                        }`}
+                      >
+                        <span className="font-semibold text-neutral-300">
+                          {isUser ? 'You' : msg.mode === 'cat-code' ? 'IntelicatAI (Cat Code)' : 'IntelicatAI'}
+                        </span>
+                        <span>•</span>
+                        <span>{msg.timestamp}</span>
+                        {!isUser && msg.provider && (
+                          <span className="px-1.5 py-0.2 rounded bg-white/5 border border-white/10 text-[9px] uppercase font-mono text-neutral-300">
+                            {msg.provider}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Attachments preview if user uploaded files */}
+                      {isUser && msg.attachments && msg.attachments.length > 0 && (
+                        <div className="flex flex-wrap gap-2 mb-2 justify-end">
+                          {msg.attachments.map((att) => (
+                            <div
+                              key={att.id}
+                              className="rounded-xl overflow-hidden border border-white/15 bg-black/40 p-1 max-w-[200px]"
+                            >
+                              {att.type.startsWith('image/') ? (
+                                <img
+                                  src={att.data}
+                                  alt={att.name}
+                                  className="w-36 h-28 object-cover rounded-lg"
+                                />
+                              ) : (
+                                <div className="flex items-center gap-2 p-2 text-xs text-neutral-200">
+                                  <FileText className="w-4 h-4 text-[#EF233C]" />
+                                  <span className="truncate">{att.name}</span>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Bubble Content Body */}
+                      <div
+                        className={`p-3.5 sm:p-4 rounded-2xl text-xs sm:text-sm leading-relaxed border shadow-lg ${
+                          isUser
+                            ? 'bg-[#EF233C]/20 border-[#EF233C]/40 text-white ml-auto rounded-tr-xs max-w-2xl'
+                            : 'bg-white/[0.04] border-white/10 text-neutral-200 rounded-tl-xs backdrop-blur-xs'
+                        }`}
+                      >
+                        {isUser ? (
+                          <p className="whitespace-pre-wrap">{msg.content}</p>
+                        ) : msg.content ? (
+                          <MarkdownRenderer content={msg.content} />
+                        ) : (
+                          <div className="flex items-center gap-2 text-neutral-400 py-1">
+                            <span className="w-2 h-2 rounded-full bg-[#EF233C] animate-ping" />
+                            <span className="text-xs font-mono">
+                              Intelicat is synthesizing response...
+                            </span>
+                          </div>
+                        )}
+
+                        {/* Search Grounding Citations */}
+                        {!isUser && msg.citations && msg.citations.length > 0 && (
+                          <div className="mt-3 pt-3 border-t border-white/10 space-y-1.5">
+                            <div className="flex items-center gap-1.5 text-[11px] font-semibold text-neutral-300">
+                              <Globe className="w-3.5 h-3.5 text-blue-400" />
+                              <span>Verified Web Sources:</span>
+                            </div>
+                            <div className="flex flex-wrap gap-1.5">
+                              {msg.citations.map((cit, cIdx) => (
+                                <a
+                                  key={cIdx}
+                                  href={cit.uri}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-white/5 hover:bg-white/15 border border-white/10 text-[10px] text-blue-300 hover:text-white transition-colors"
+                                >
+                                  <span className="truncate max-w-[160px]">{cit.title}</span>
+                                </a>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Action Bar for Assistant Messages (Listen, Copy, Regenerate) */}
+                      {!isUser && msg.content && (
+                        <div className="flex items-center gap-2 mt-2 text-neutral-400 text-xs">
+                          {/* Copy */}
+                          <button
+                            onClick={() => handleCopyMessage(msg.id, msg.content)}
+                            type="button"
+                            className="flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-white/10 hover:text-white transition-colors cursor-pointer text-[11px]"
+                            title="Copy message"
+                          >
+                            {copiedMessageId === msg.id ? (
+                              <>
+                                <Check className="w-3 h-3 text-emerald-400" />
+                                <span className="text-emerald-400 font-semibold">Copied</span>
+                              </>
+                            ) : (
+                              <>
+                                <Copy className="w-3 h-3" />
+                                <span>Copy</span>
+                              </>
+                            )}
+                          </button>
+
+                          {/* Listen (TTS) */}
+                          <button
+                            onClick={() => handleToggleSpeak(msg.id, msg.content)}
+                            type="button"
+                            className="flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-white/10 hover:text-white transition-colors cursor-pointer text-[11px]"
+                            title="Read aloud"
+                          >
+                            {speakingMessageId === msg.id ? (
+                              <>
+                                <VolumeX className="w-3 h-3 text-[#EF233C]" />
+                                <span className="text-[#EF233C]">Stop audio</span>
+                              </>
+                            ) : (
+                              <>
+                                <Volume2 className="w-3 h-3" />
+                                <span>Listen</span>
+                              </>
+                            )}
+                          </button>
+
+                          {/* Regenerate (only on last assistant message) */}
+                          {isLastAssistant && !loading && (
+                            <button
+                              onClick={handleRegenerate}
+                              type="button"
+                              className="flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-white/10 hover:text-white transition-colors cursor-pointer text-[11px]"
+                              title="Regenerate response"
+                            >
+                              <RefreshCw className="w-3 h-3" />
+                              <span>Regenerate</span>
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+
+              {/* Sample Prompts Suggestion Pills (if only welcome message exists) */}
+              {messages.length <= 1 && (
+                <div className="max-w-3xl mx-auto pt-6 pb-2">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-3 text-center">
+                    Suggested Prompts to Explore
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    {samplePrompts.map((prompt, pIdx) => (
+                      <button
+                        key={pIdx}
+                        onClick={() => handleSend(prompt)}
+                        type="button"
+                        className="text-left p-3 rounded-xl bg-white/[0.03] hover:bg-white/[0.08] border border-white/10 text-neutral-300 hover:text-white text-xs leading-relaxed transition-all cursor-pointer flex items-center justify-between group"
+                      >
+                        <span className="truncate pr-2">{prompt}</span>
+                        <ArrowRight className="w-3.5 h-3.5 text-neutral-500 group-hover:text-[#EF233C] shrink-0 transition-colors" />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div ref={chatBottomRef} />
+            </div>
+
+            {/* Bottom Composer & Controls */}
+            <div className="p-3 sm:p-4 border-t border-white/10 bg-black/50 shrink-0">
+              <div className="max-w-4xl mx-auto space-y-2">
+                {/* Active Attachments Preview Bar */}
+                {attachments.length > 0 && (
+                  <div className="flex flex-wrap gap-2 p-2 bg-white/5 rounded-xl border border-white/10">
+                    {attachments.map((att) => (
+                      <div
+                        key={att.id}
+                        className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-black/60 border border-white/15 text-xs text-neutral-200"
+                      >
+                        {att.type.startsWith('image/') ? (
+                          <ImageIcon className="w-3.5 h-3.5 text-amber-400" />
+                        ) : (
+                          <FileText className="w-3.5 h-3.5 text-[#EF233C]" />
+                        )}
+                        <span className="truncate max-w-[120px] font-mono text-[11px]">{att.name}</span>
+                        <button
+                          onClick={() => removeAttachment(att.id)}
+                          type="button"
+                          className="text-neutral-400 hover:text-red-400 cursor-pointer p-0.5"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Input Controls Container */}
+                <div className="relative flex items-end gap-2 bg-[#12121a] rounded-2xl border border-white/15 p-2 focus-within:border-[#EF233C]/60 transition-colors shadow-xl">
+                  {/* Attach File Button */}
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    type="button"
+                    disabled={loading}
+                    className="p-2 rounded-xl text-neutral-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer shrink-0 disabled:opacity-40"
+                    title="Upload image or code/text file"
+                  >
+                    <Paperclip className="w-4 h-4" />
+                  </button>
+
+                  {/* Web Search Toggle Button */}
+                  <button
+                    onClick={() => {
+                      if (!providerCapabilities.searchAvailable) {
+                        setError('Google Web Search grounding is temporarily on rate-limit cooldown. Standard high-speed Gemini reasoning is active.');
+                        return;
+                      }
+                      setWebSearchEnabled((prev) => !prev);
+                    }}
+                    type="button"
+                    className={`p-2 rounded-xl transition-all cursor-pointer shrink-0 ${
+                      !providerCapabilities.searchAvailable
+                        ? 'opacity-40 text-neutral-500 hover:text-neutral-300'
+                        : webSearchEnabled
+                        ? 'bg-blue-500/20 text-blue-400 border border-blue-500/40'
+                        : 'text-neutral-400 hover:text-white hover:bg-white/10'
+                    }`}
+                    title={
+                      !providerCapabilities.searchAvailable
+                        ? 'Search grounding temporarily on rate-limit cooldown. Direct Gemini generation active.'
+                        : webSearchEnabled
+                        ? 'Google Search Grounding Enabled'
+                        : 'Enable Google Web Search'
+                    }
+                  >
+                    <Globe className="w-4 h-4" />
+                  </button>
+
+                  {/* Auto-Expanding Textarea */}
+                  <textarea
+                    ref={textareaRef}
+                    rows={1}
+                    value={input}
+                    onChange={handleInputChange}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        handleSend();
+                      }
+                    }}
+                    placeholder={
+                      mode === 'cat-code'
+                        ? 'Ask cat coder for algorithms, debugging, or full-stack code...'
+                        : 'Ask anything, brainstorm, or discuss ideas...'
+                    }
+                    className="flex-1 max-h-40 min-h-[38px] py-1.5 px-2 bg-transparent text-neutral-100 placeholder:text-neutral-500 text-xs sm:text-sm focus:outline-none resize-none leading-relaxed"
+                  />
+
+                  {/* Send / Stop Generation Button */}
+                  {loading ? (
+                    <button
+                      onClick={handleStopGeneration}
+                      type="button"
+                      className="p-2 sm:px-3 sm:py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white font-medium text-xs flex items-center gap-1.5 transition-all cursor-pointer shadow-lg shadow-red-600/30 shrink-0"
+                      title="Stop generating"
+                    >
+                      <Square className="w-3.5 h-3.5 fill-white" />
+                      <span className="hidden sm:inline">Stop</span>
+                    </button>
                   ) : (
-                    <MessageSquare className="w-4 h-4" />
+                    <button
+                      onClick={() => handleSend()}
+                      disabled={!input.trim() && attachments.length === 0}
+                      type="button"
+                      className="p-2 sm:px-3 sm:py-2 rounded-xl bg-[#EF233C] hover:bg-red-600 disabled:opacity-40 disabled:hover:bg-[#EF233C] text-white font-medium text-xs flex items-center gap-1.5 transition-all cursor-pointer shadow-lg shadow-[#EF233C]/30 shrink-0"
+                      title="Send message (Enter)"
+                    >
+                      <span>Send</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </button>
                   )}
                 </div>
 
-                {/* Bubble */}
-                <div
-                  className={`rounded-2xl px-4 py-3 text-xs sm:text-sm leading-relaxed border ${
-                    isUser
-                      ? mode === 'cat-code'
-                        ? 'bg-[#EF233C]/20 border-[#EF233C]/40 text-white shadow-md'
-                        : 'bg-white/15 border-white/25 text-white shadow-md'
-                      : 'bg-[#13131a]/95 border-white/10 text-neutral-100 shadow-xl backdrop-blur-md'
-                  }`}
-                >
-                  <div className="space-y-2 whitespace-pre-wrap font-sans">
-                    {m.content ? (
-                      m.content
-                    ) : (
-                      <div className="flex items-center gap-1.5 py-1 text-neutral-400">
-                        <span className="w-2 h-2 rounded-full bg-[#EF233C] animate-bounce" />
-                        <span className="w-2 h-2 rounded-full bg-[#EF233C] animate-bounce [animation-delay:0.2s]" />
-                        <span className="w-2 h-2 rounded-full bg-[#EF233C] animate-bounce [animation-delay:0.4s]" />
-                      </div>
+                {/* Sub-bar Indicators */}
+                <div className="flex items-center justify-between text-[10px] text-neutral-400 px-1 pt-1">
+                  <div className="flex items-center gap-2">
+                    {webSearchEnabled && (
+                      <span className="flex items-center gap-1 text-blue-400">
+                        <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
+                        Web Grounding On
+                      </span>
                     )}
+                    <span>Shift + Enter for new line</span>
                   </div>
 
-                  {/* Actions under AI response */}
-                  {!isUser && m.content && (
-                    <div className="flex flex-wrap items-center justify-between border-t border-white/10 mt-2.5 pt-2 text-[10px] text-neutral-400 gap-2">
-                      <div className="flex items-center gap-2 font-mono shrink-0">
-                        <span>{m.timestamp}</span>
-                        <span className={`px-2 py-0.5 rounded text-[9px] flex items-center gap-1 font-sans font-medium whitespace-nowrap ${
-                          (m.provider || provider) === 'groq'
-                            ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
-                            : 'bg-blue-500/15 text-blue-300 border border-blue-500/30'
-                        }`}>
-                          {(m.provider || provider) === 'groq' ? (
-                            <>
-                              <Zap className="w-2.5 h-2.5 text-amber-400" />
-                              <span>Groq LPU</span>
-                              <span className="hidden sm:inline text-amber-400/70">(Llama 3.3 70B)</span>
-                            </>
-                          ) : (
-                            <>
-                              <Sparkles className="w-2.5 h-2.5 text-blue-400" />
-                              <span>Gemini 3.6</span>
-                              <span className="hidden sm:inline text-blue-400/70">Flash</span>
-                            </>
-                          )}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-3 shrink-0">
-                        <button
-                          onClick={() => handleSpeak(m.id, m.content)}
-                          className="hover:text-white transition-colors cursor-pointer flex items-center gap-1"
-                        >
-                          {speakingMessageId === m.id ? (
-                            <>
-                              <VolumeX className="w-3 h-3 text-[#EF233C]" />
-                              <span className="text-[#EF233C]">Stop</span>
-                            </>
-                          ) : (
-                            <>
-                              <Volume2 className="w-3 h-3" />
-                              <span>Listen</span>
-                            </>
-                          )}
-                        </button>
-                        <button
-                          onClick={() => handleCopy(m.content)}
-                          className="hover:text-white transition-colors cursor-pointer flex items-center gap-1"
-                        >
-                          <Copy className="w-3 h-3" />
-                          <span>Copy</span>
-                        </button>
-                      </div>
-                    </div>
-                  )}
+                  <div className="flex items-center gap-2 font-mono text-[9px]">
+                    <span>{streamStats.tokenCount} tokens</span>
+                    <span>•</span>
+                    <span>~{streamStats.latencyMs}ms/t</span>
+                  </div>
                 </div>
-              </motion.div>
-            );
-          })}
-          <div ref={chatBottomRef} />
-        </div>
-
-        {/* Suggested Quick Prompts based on Mode */}
-        {messages.length <= 2 && (
-          <div className="px-4 sm:px-6 py-2 relative z-10 flex flex-wrap gap-2">
-            {(mode === 'normal' ? normalPrompts : catCodePrompts).map((p, idx) => (
-              <button
-                key={idx}
-                onClick={() => handleSend(p)}
-                className="text-[11px] px-3 py-1.5 rounded-full bg-white/5 hover:bg-white/15 border border-white/10 text-neutral-300 hover:text-white transition-all cursor-pointer flex items-center gap-1.5"
-              >
-                {mode === 'normal' ? (
-                  <MessageSquare className="w-3 h-3 text-neutral-400" />
-                ) : (
-                  <Cat className="w-3 h-3 text-[#EF233C]" />
-                )}
-                <span>{p}</span>
-              </button>
-            ))}
+              </div>
+            </div>
           </div>
-        )}
-
-        {/* Bottom Input Area */}
-        <div className="p-3 sm:p-4 border-t border-white/10 bg-black/80 backdrop-blur-md relative z-20">
-          {/* Guest Sign-In Prompt Banner */}
-          {!user && (
-            <div className="mb-3 p-2.5 rounded-xl bg-gradient-to-r from-sky-500/15 via-[#EF233C]/15 to-amber-500/15 border border-white/15 flex items-center justify-between gap-2 text-xs">
-              <div className="flex items-center gap-2 text-neutral-200">
-                <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
-                <span>
-                  <strong>Free Tier:</strong> Get <strong>15 Free AI Requests</strong> when you sign in with Google or Email.
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={() => openAuthModal('signin')}
-                className="px-3 py-1 rounded-lg bg-white text-black font-bold text-xs hover:bg-neutral-200 transition-all shrink-0 cursor-pointer shadow-sm"
-              >
-                Sign In
-              </button>
-            </div>
-          )}
-
-          {/* Limit Reached Warning Banner */}
-          {user && !isUnlimitedAccount && isLimitReached && (
-            <div className="mb-3 p-2.5 rounded-xl bg-red-500/20 border border-red-500/40 flex items-center justify-between gap-2 text-xs text-red-200">
-              <div className="flex items-center gap-2">
-                <Zap className="w-4 h-4 text-red-400 shrink-0" />
-                <span>
-                  <strong>Free Tier Limit Reached:</strong> You have used all <strong>15 requests</strong>. Upgrade to VIP for unlimited requests!
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  onClose();
-                  onOpenBuyVip?.();
-                }}
-                className="px-3 py-1 rounded-lg bg-gradient-to-r from-amber-400 to-yellow-500 text-black font-bold text-xs hover:opacity-90 transition-all shrink-0 cursor-pointer shadow-md shadow-amber-500/30"
-              >
-                Get VIP Unlimited
-              </button>
-            </div>
-          )}
-
-          {error && (
-            <div className="mb-2 p-2.5 rounded-xl bg-red-500/15 border border-red-500/35 text-red-300 text-xs flex flex-col sm:flex-row items-center justify-between gap-2">
-              <span className="text-center sm:text-left">{error}</span>
-              {error.includes('GROQ_API_KEY') && (
-                <span className="text-[11px] text-amber-300 bg-amber-500/20 px-2 py-0.5 rounded-md border border-amber-500/40 whitespace-nowrap">
-                  ⚡ Tip: Add GROQ_API_KEY in Secrets or console.groq.com
-                </span>
-              )}
-              {error.includes('GEMINI_API_KEY') && (
-                <span className="text-[11px] text-blue-300 bg-blue-500/20 px-2 py-0.5 rounded-md border border-blue-500/40 whitespace-nowrap">
-                  ✨ Tip: Add GEMINI_API_KEY in Secrets
-                </span>
-              )}
-            </div>
-          )}
-
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              handleSend();
-            }}
-            className={`flex items-center gap-2 bg-[#14141c] border rounded-2xl p-1.5 transition-colors ${
-              mode === 'cat-code'
-                ? 'border-white/15 focus-within:border-[#EF233C]'
-                : 'border-white/15 focus-within:border-white'
-            }`}
-          >
-            <input
-              ref={inputRef}
-              type="text"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder={
-                mode === 'normal'
-                  ? 'Chat about anything, ask a question, or brainstorm...'
-                  : 'Ask Cat Coder to write, debug, or architect software...'
-              }
-              disabled={loading}
-              className="flex-1 bg-transparent px-3 py-2 text-xs sm:text-sm text-white placeholder-neutral-500 focus:outline-none"
-            />
-
-            <button
-              type="submit"
-              disabled={!input.trim() || loading}
-              className={`px-4 py-2 rounded-xl font-bold text-xs flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed hover:scale-[1.02] active:scale-95 transition-all cursor-pointer shadow-md ${
-                mode === 'cat-code'
-                  ? 'red-cta-btn text-white shadow-red-600/30'
-                  : 'bg-white text-black hover:bg-neutral-200 shadow-white/20'
-              }`}
-            >
-              {loading ? (
-                <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
-              ) : (
-                <>
-                  <span>Send</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
-                </>
-              )}
-            </button>
-          </form>
-        </div>
-      </motion.div>
-    </div>
+        </motion.div>
+      </div>
+    </AnimatePresence>
   );
 };

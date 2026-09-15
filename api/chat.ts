@@ -1,101 +1,24 @@
-import { GoogleGenAI } from "@google/genai";
-import Groq from "groq-sdk";
-
-let aiClient: GoogleGenAI | null = null;
-function getAiClient(): GoogleGenAI {
-  if (!aiClient) {
-    aiClient = new GoogleGenAI({
-      apiKey: process.env.GEMINI_API_KEY,
-    });
-  }
-  return aiClient;
-}
-
-let groqClient: Groq | null = null;
-function getGroqClient(): Groq {
-  if (!groqClient) {
-    const key = process.env.GROQ_API_KEY;
-    if (!key) {
-      throw new Error("GROQ_API_KEY is not configured. Please add your Groq API key in Secrets or Environment Variables.");
-    }
-    groqClient = new Groq({ apiKey: key });
-  }
-  return groqClient;
-}
-
-const CANDIDATE_GROQ_MODELS = [
-  "llama-3.1-8b-instant",
-  "llama-3.3-70b-versatile",
-  "llama3-8b-8192",
-  "mixtral-8x7b-32768",
-];
-
-async function resolveGroqModel(groq: Groq): Promise<string> {
-  try {
-    const list = await groq.models.list();
-    const available = new Set(list.data.map((m: any) => m.id));
-    for (const candidate of CANDIDATE_GROQ_MODELS) {
-      if (available.has(candidate)) {
-        return candidate;
-      }
-    }
-    const textModel = list.data.find((m: any) => !m.id.includes("whisper"));
-    if (textModel) return textModel.id;
-  } catch (err) {
-    console.warn("Could not list Groq models dynamically, falling back to llama-3.1-8b-instant:", err);
-  }
-  return "llama-3.1-8b-instant";
-}
-
-const GEMINI_CANDIDATE_MODELS = ["gemini-3.6-flash"];
-
-async function streamGeminiWithFallback(
-  ai: GoogleGenAI,
-  formattedContents: any[],
-  systemInstruction: string,
-  temperature: number,
-  onChunk: (text: string, model: string) => void
-) {
-  let lastErr: any = null;
-  for (let attempt = 0; attempt < 2; attempt++) {
-    for (const model of GEMINI_CANDIDATE_MODELS) {
-      try {
-        const responseStream = await ai.models.generateContentStream({
-          model,
-          contents: formattedContents,
-          config: {
-            systemInstruction,
-            temperature,
-          },
-        });
-        let receivedAny = false;
-        for await (const chunk of responseStream) {
-          if (chunk.text) {
-            receivedAny = true;
-            onChunk(chunk.text, model);
-          }
-        }
-        if (receivedAny) return;
-      } catch (err: any) {
-        console.warn(`Gemini model ${model} attempt ${attempt + 1} failed in Vercel function:`, err?.message);
-        lastErr = err;
-        if (attempt === 0) {
-          await new Promise((r) => setTimeout(r, 400));
-        }
-      }
-    }
-  }
-  if (lastErr) throw lastErr;
-}
+import {
+  checkRateLimit,
+  checkAndIncrementServerQuota,
+  validateChatPayload,
+  getAiClient,
+  getGroqClient,
+  resolveGroqModel,
+  GEMINI_MODEL,
+  streamGeminiWithResilience,
+  getSystemInstruction,
+  formatCleanErrorMessage,
+} from "../server/chatCore";
 
 export default async function handler(req: any, res: any) {
-  // Allow CORS if needed
+  // 1. CORS headers
   res.setHeader("Access-Control-Allow-Credentials", "true");
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS,PATCH,DELETE,POST,PUT");
   res.setHeader(
     "Access-Control-Allow-Headers",
-    "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version"
+    "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization"
   );
 
   if (req.method === "OPTIONS") {
@@ -106,7 +29,15 @@ export default async function handler(req: any, res: any) {
     return res.status(405).json({ error: "Method not allowed. Use POST." });
   }
 
+  let clientDisconnected = false;
+  res.on?.("close", () => {
+    if (!res.writableEnded) {
+      clientDisconnected = true;
+    }
+  });
+
   try {
+    // Parse body if passed as string in serverless
     let parsedBody = req.body;
     if (typeof parsedBody === "string") {
       try {
@@ -115,40 +46,50 @@ export default async function handler(req: any, res: any) {
         parsedBody = {};
       }
     }
-    const { messages, mode = "normal", provider = "auto" } = parsedBody || {};
-    if (!messages || !Array.isArray(messages) || messages.length === 0) {
-      return res.status(400).json({ error: "Messages array is required." });
+
+    // 2. IP Rate Limiting
+    const clientIp =
+      (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ||
+      req.socket?.remoteAddress ||
+      "anonymous";
+
+    const rateCheck = checkRateLimit(clientIp);
+    if (!rateCheck.allowed) {
+      return res.status(429).json({
+        error: `Rate limit exceeded. Please wait ${rateCheck.retryAfterSeconds} seconds before sending more requests.`,
+      });
     }
 
-    let systemInstruction = "";
-    let temperature = 0.7;
-
-    if (mode === "normal") {
-      systemInstruction = `You are a helpful, versatile, friendly, and intelligent AI companion.
-You are in "Normal Chat Mode" — designed to have natural, engaging, and thoughtful conversations on any subject.
-- Talk casually, answer general knowledge questions, discuss ideas, help with writing, planning, learning, and storytelling.
-- Be warm, direct, empathetic, and clear.
-- Do NOT force cat puns, gimmicks, or unsolicited code dumps unless the user specifically asks for code.
-- Format responses cleanly with markdown and clear paragraphs.`;
-      temperature = 0.7;
-    } else {
-      // Cat Code Mode
-      systemInstruction = `You are IntelicatAI 🐾, the ultra-smart Cybernetic Cat Coder and AI Software Engineer.
-You are in "Cat Code Mode" — feline agility meets superhuman programming power.
-- Master of software engineering, algorithms, frontend/backend, debugging, system architecture, TypeScript, Python, Rust, React, SQL, and DevOps.
-- Write clean, production-grade, bug-free, modular code with helpful explanations.
-- Have a clever, playful cyber-cat personality (with occasional witty feline puns like "purr-fectly compiled", "catching bugs faster than mice", "fast reflexes").
-- Hunt down errors, optimize algorithms, and deliver high-signal code solutions.`;
-      temperature = 0.3;
+    // 3. Payload Validation
+    const validation = validateChatPayload(parsedBody);
+    if (!validation.isValid || !validation.data) {
+      return res.status(400).json({ error: validation.error || "Invalid request payload." });
     }
 
-    // Determine active provider: Normal Talk uses Groq, Cat Code uses Gemini
-    let activeProvider = provider;
-    if (!activeProvider || activeProvider === "auto") {
-      activeProvider = mode === "normal" ? "groq" : "gemini";
+    const { messages, mode, provider: requestedProvider, webSearch, userId, isVipOrFounder } = validation.data;
+
+    // 4. Server-Side Quota Enforcement
+    if (userId) {
+      const quotaCheck = checkAndIncrementServerQuota(userId, isVipOrFounder);
+      if (!quotaCheck.allowed) {
+        return res.status(403).json({
+          error: "Server quota exceeded: You have used all 15 free queries. Please upgrade to VIP for unlimited requests!",
+        });
+      }
     }
 
-    // Graceful automatic fallback if the selected provider key is missing
+    // 5. Detect multimodal image attachments
+    const hasImageAttachments = messages.some(
+      (m) => m.attachments && m.attachments.some((a) => a.type.startsWith("image/"))
+    );
+
+    let activeProvider = requestedProvider;
+    if (activeProvider === "auto") {
+      activeProvider = hasImageAttachments ? "gemini" : mode === "normal" ? "groq" : "gemini";
+    } else if (hasImageAttachments && activeProvider === "groq") {
+      activeProvider = "gemini";
+    }
+
     const hasGroqKey = Boolean(process.env.GROQ_API_KEY && process.env.GROQ_API_KEY.trim() !== "");
     const hasGeminiKey = Boolean(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim() !== "");
 
@@ -157,20 +98,20 @@ You are in "Cat Code Mode" — feline agility meets superhuman programming power
         activeProvider = "gemini";
       } else {
         return res.status(400).json({
-          error: "GROQ_API_KEY is not configured. Please add GROQ_API_KEY in your Vercel Environment Variables (get a free key at https://console.groq.com) or configure GEMINI_API_KEY.",
+          error: "GROQ_API_KEY is not configured in Vercel Environment Variables. Please add it or configure GEMINI_API_KEY.",
         });
       }
     } else if (activeProvider === "gemini" && !hasGeminiKey) {
-      if (hasGroqKey) {
+      if (hasGroqKey && !hasImageAttachments) {
         activeProvider = "groq";
       } else {
         return res.status(400).json({
-          error: "GEMINI_API_KEY is not configured. Please add GEMINI_API_KEY in your Vercel Environment Variables (get a key at https://aistudio.google.com/app/apikey) or configure GROQ_API_KEY.",
+          error: "GEMINI_API_KEY is not configured in Vercel Environment Variables. Please add it in project settings.",
         });
       }
     }
 
-    // Set headers for Server-Sent Events streaming AFTER key validation
+    // 6. SSE Streaming Headers
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache, no-transform");
     res.setHeader("Connection", "keep-alive");
@@ -180,41 +121,42 @@ You are in "Cat Code Mode" — feline agility meets superhuman programming power
       res.flushHeaders();
     }
 
+    const systemInstruction = getSystemInstruction(mode);
+    const temperature = mode === "cat-code" ? 0.25 : 0.7;
+
     if (activeProvider === "groq") {
       const groq = getGroqClient();
       const groqMessages = [
         { role: "system" as const, content: systemInstruction },
-        ...messages.map((m: { role: string; content: string }) => ({
-          role: (m.role === "assistant" ? "assistant" : "user") as "assistant" | "user",
-          content: m.content,
-        })),
+        ...messages.map((m) => {
+          let content = m.content;
+          if (m.attachments && m.attachments.length > 0) {
+            const textDocs = m.attachments
+              .filter((a) => !a.type.startsWith("image/"))
+              .map((a) => `\n[Attached File: ${a.name}]\n${a.data}\n`)
+              .join("\n");
+            if (textDocs) content = `${textDocs}\n${content}`;
+          }
+          return {
+            role: (m.role === "assistant" ? "assistant" : "user") as "assistant" | "user",
+            content,
+          };
+        }),
       ];
 
       let selectedModel = await resolveGroqModel(groq);
       let streamStarted = false;
 
-      // Attempt Groq with fallback to lighter models or Gemini
       try {
-        let completion: any;
-        try {
-          completion = await groq.chat.completions.create({
-            model: selectedModel,
-            messages: groqMessages,
-            temperature,
-            stream: true,
-          });
-        } catch (modelErr: any) {
-          console.warn(`Groq error with model ${selectedModel}, falling back to llama-3.1-8b-instant:`, modelErr?.message);
-          selectedModel = "llama-3.1-8b-instant";
-          completion = await groq.chat.completions.create({
-            model: selectedModel,
-            messages: groqMessages,
-            temperature,
-            stream: true,
-          });
-        }
+        const completion = await groq.chat.completions.create({
+          model: selectedModel,
+          messages: groqMessages,
+          temperature,
+          stream: true,
+        });
 
         for await (const chunk of completion) {
+          if (clientDisconnected) break;
           const text = chunk.choices[0]?.delta?.content || "";
           if (text) {
             streamStarted = true;
@@ -224,62 +166,90 @@ You are in "Cat Code Mode" — feline agility meets superhuman programming power
             }
           }
         }
-      } catch (groqFailure: any) {
-        console.error("Groq execution failed in Vercel function:", groqFailure);
-        if (!streamStarted && process.env.GEMINI_API_KEY) {
-          console.log("Falling back seamlessly to Gemini Flash...");
-          const formattedContents = messages.map((m: { role: string; content: string }) => ({
-            role: m.role === "assistant" ? "model" : "user",
-            parts: [{ text: m.content }],
-          }));
-          const ai = getAiClient();
-          await streamGeminiWithFallback(
-            ai,
-            formattedContents,
-            systemInstruction,
-            temperature,
-            (text, model) => {
-              res.write(`data: ${JSON.stringify({ text, provider: "gemini", model })}\n\n`);
-              if (typeof (res as any).flush === "function") {
-                (res as any).flush();
-              }
-            }
-          );
+      } catch (groqErr: any) {
+        console.warn("Groq streaming failed in Vercel function, attempting Gemini fallback:", groqErr?.message);
+        if (!streamStarted && hasGeminiKey) {
+          activeProvider = "gemini";
         } else {
-          throw groqFailure;
+          throw groqErr;
         }
       }
-    } else {
-      const formattedContents = messages.map((m: { role: string; content: string }) => ({
-        role: m.role === "assistant" ? "model" : "user",
-        parts: [{ text: m.content }],
-      }));
+    }
 
+    if (activeProvider === "gemini") {
       const ai = getAiClient();
-      await streamGeminiWithFallback(
-        ai,
-        formattedContents,
-        systemInstruction,
-        temperature,
-        (text, model) => {
-          res.write(`data: ${JSON.stringify({ text, provider: "gemini", model })}\n\n`);
-          if (typeof (res as any).flush === "function") {
-            (res as any).flush();
+
+      const formattedContents = messages.map((m) => {
+        const parts: any[] = [];
+        if (m.attachments && m.attachments.length > 0) {
+          for (const att of m.attachments) {
+            if (att.type.startsWith("image/")) {
+              const base64Data = att.data.includes(";base64,")
+                ? att.data.split(";base64,")[1]
+                : att.data;
+              parts.push({
+                inlineData: {
+                  mimeType: att.type,
+                  data: base64Data,
+                },
+              });
+            } else {
+              parts.push({
+                text: `\n[Attached document: ${att.name}]\n${att.data}\n`,
+              });
+            }
           }
         }
+        if (m.content) {
+          parts.push({ text: m.content });
+        }
+        return {
+          role: m.role === "assistant" ? "model" : "user",
+          parts,
+        };
+      });
+
+      const geminiConfig: any = {
+        systemInstruction,
+        temperature,
+      };
+
+      if (webSearch) {
+        geminiConfig.tools = [{ googleSearch: {} }];
+      }
+
+      await streamGeminiWithResilience(
+        ai,
+        formattedContents,
+        geminiConfig,
+        (text, citations, model) => {
+          if (citations.length > 0) {
+            res.write(`data: ${JSON.stringify({ citations })}\n\n`);
+            if (typeof (res as any).flush === "function") {
+              (res as any).flush();
+            }
+          }
+          if (text) {
+            res.write(`data: ${JSON.stringify({ text, provider: "gemini", model })}\n\n`);
+            if (typeof (res as any).flush === "function") {
+              (res as any).flush();
+            }
+          }
+        },
+        () => clientDisconnected
       );
     }
 
     res.write("data: [DONE]\n\n");
     res.end();
   } catch (error: any) {
-    console.error("Vercel Serverless Chat API Error:", error);
+    console.error("Vercel Chat API Error:", error);
+    const safeMessage = formatCleanErrorMessage(error);
+
     if (!res.headersSent) {
-      res.status(500).json({
-        error: error.message || "Failed to generate AI response. Please check your API key configuration.",
-      });
+      res.status(500).json({ error: safeMessage });
     } else {
-      res.write(`data: ${JSON.stringify({ error: error.message || "Stream interrupted" })}\n\n`);
+      res.write(`data: ${JSON.stringify({ error: safeMessage })}\n\n`);
       res.end();
     }
   }

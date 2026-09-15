@@ -44,6 +44,7 @@ interface VipCheckoutModalProps {
   onClose: () => void;
   onVipPurchased?: (vipData: VipData) => void;
   initialTier?: string;
+  onOpenAiAssistant?: (prompt?: string) => void;
 }
 
 export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
@@ -51,6 +52,7 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
   onClose,
   onVipPurchased,
   initialTier = 'pro',
+  onOpenAiAssistant,
 }) => {
   const [selectedTier, setSelectedTier] = useState<string>(initialTier || 'pro');
   const [name, setName] = useState('Alex Rivera');

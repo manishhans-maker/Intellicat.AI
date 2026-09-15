@@ -44,12 +44,113 @@
         }
       },
       "required": ["uid", "email", "requestCount", "maxRequests", "tier", "createdAt", "updatedAt"]
+    },
+    "Conversation": {
+      "title": "User Chat Conversation",
+      "description": "Persistent conversation thread with metadata including title, mode, pinned/archived flags",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique conversation ID"
+        },
+        "userId": {
+          "type": "string",
+          "description": "Owner user ID"
+        },
+        "title": {
+          "type": "string",
+          "description": "Human-readable or auto-generated title"
+        },
+        "mode": {
+          "type": "string",
+          "enum": ["normal", "cat-code"],
+          "description": "Active conversation mode"
+        },
+        "provider": {
+          "type": "string",
+          "enum": ["groq", "gemini"],
+          "description": "Default or selected AI provider"
+        },
+        "isPinned": {
+          "type": "boolean",
+          "description": "Whether conversation is pinned to the top"
+        },
+        "isArchived": {
+          "type": "boolean",
+          "description": "Whether conversation is archived"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "ISO timestamp when conversation was created"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "ISO timestamp of last activity"
+        }
+      },
+      "required": ["id", "userId", "title", "mode", "createdAt", "updatedAt"]
+    },
+    "Message": {
+      "title": "Conversation Message",
+      "description": "Individual turn in a conversation thread with role, content, and optional attachments or search citations",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique message ID"
+        },
+        "conversationId": {
+          "type": "string",
+          "description": "Parent conversation ID"
+        },
+        "userId": {
+          "type": "string",
+          "description": "User ID who owns the conversation"
+        },
+        "role": {
+          "type": "string",
+          "enum": ["user", "assistant"],
+          "description": "Message author role"
+        },
+        "content": {
+          "type": "string",
+          "description": "Message text in Markdown"
+        },
+        "mode": {
+          "type": "string",
+          "enum": ["normal", "cat-code"],
+          "description": "Chat mode when sent"
+        },
+        "provider": {
+          "type": "string",
+          "enum": ["groq", "gemini"],
+          "description": "Model provider that generated this response"
+        },
+        "timestamp": {
+          "type": "string",
+          "description": "Short human-readable time string"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "ISO timestamp of creation"
+        }
+      },
+      "required": ["id", "conversationId", "userId", "role", "content", "createdAt"]
     }
   },
   "firestore": {
     "/users/{userId}": {
       "schema": "User",
       "description": "Stores user profiles, subscription tier, and AI request counts"
+    },
+    "/users/{userId}/conversations/{conversationId}": {
+      "schema": "Conversation",
+      "description": "Stores persistent conversation threads owned by the user"
+    },
+    "/users/{userId}/conversations/{conversationId}/messages/{messageId}": {
+      "schema": "Message",
+      "description": "Stores individual messages within a user conversation"
     }
   }
 }

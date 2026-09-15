@@ -18,5 +18,6 @@ export default function handler(req: any, res: any) {
     groq: hasGroq,
     gemini: hasGemini,
     defaultProvider: hasGroq ? "groq" : hasGemini ? "gemini" : "groq",
+    searchAvailable: hasGemini,
   });
 }
