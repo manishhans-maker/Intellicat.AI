@@ -70,14 +70,9 @@ export default async function handler(req: any, res: any) {
 
     const { messages, mode, provider: requestedProvider, webSearch, userId, isVipOrFounder } = validation.data;
 
-    // 4. Server-Side Quota Enforcement
+    // 4. Server-Side Quota Tracking (Unlimited for all preview users)
     if (userId) {
-      const quotaCheck = checkAndIncrementServerQuota(userId, isVipOrFounder);
-      if (!quotaCheck.allowed) {
-        return res.status(403).json({
-          error: "Server quota exceeded: You have used all 15 free queries. Please upgrade to VIP for unlimited requests!",
-        });
-      }
+      checkAndIncrementServerQuota(userId, isVipOrFounder);
     }
 
     // 5. Detect multimodal image attachments

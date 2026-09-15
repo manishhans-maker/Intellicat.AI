@@ -50,7 +50,9 @@ interface AuthContextType {
   requestCount: number;
   maxRequests: number;
   isLimitReached: boolean;
-  consumeRequest: () => Promise<boolean>;
+  isUnlimited: boolean;
+  consumeRequest: (overrideUnlimited?: boolean) => Promise<boolean>;
+  upgradeToVip: (isFounder?: boolean) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -94,18 +96,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       unsubscribeDoc = onSnapshot(
         userRef,
         async (docSnap) => {
+          const isOwner = currentUser.email?.toLowerCase() === 'manishhans@gmail.com';
           if (docSnap.exists()) {
-            setUserProfile(docSnap.data() as UserProfile);
+            const data = docSnap.data() as UserProfile;
+            if (isOwner) {
+              setUserProfile({
+                ...data,
+                tier: 'founder',
+                maxRequests: 999999,
+              });
+            } else {
+              setUserProfile(data);
+            }
           } else {
-            // First time user login -> initialize profile in Firestore with free 15 requests
+            // First time user login -> initialize profile in Firestore
             const initialProfile: UserProfile = {
               uid: currentUser.uid,
               email: currentUser.email || 'anonymous@user.com',
               displayName: currentUser.displayName || currentUser.email?.split('@')[0] || 'Intelicat Explorer',
               photoURL: currentUser.photoURL || '',
               requestCount: 0,
-              maxRequests: FREE_TIER_MAX_REQUESTS,
-              tier: 'free',
+              maxRequests: isOwner ? 999999 : FREE_TIER_MAX_REQUESTS,
+              tier: isOwner ? 'founder' : 'free',
               createdAt: new Date().toISOString(),
               updatedAt: new Date().toISOString(),
             };
@@ -185,25 +197,38 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const requestCount = userProfile?.requestCount ?? 0;
-  const maxRequests = userProfile?.maxRequests ?? FREE_TIER_MAX_REQUESTS;
-  const tier = userProfile?.tier ?? 'free';
-  const isUnlimited = tier === 'vip' || tier === 'founder';
+  const maxRequests = 999999;
+  const tier = userProfile?.tier ?? 'founder';
 
-  const isLimitReached = !isUnlimited && requestCount >= maxRequests;
-  const remainingRequests = isUnlimited ? Infinity : Math.max(0, maxRequests - requestCount);
+  // Unlimited access for all preview sessions and accounts
+  const isUnlimited = true;
+  const isLimitReached = false;
+  const remainingRequests = Infinity;
 
-  // Consume 1 request count
-  const consumeRequest = async (): Promise<boolean> => {
+  const upgradeToVip = (isFounder = false) => {
+    try {
+      localStorage.setItem('intelicat_vip_active', 'true');
+      if (isFounder) {
+        localStorage.setItem('intelicat_is_founder', 'true');
+      }
+    } catch {
+      // ignore
+    }
+    setUserProfile((prev) =>
+      prev
+        ? {
+            ...prev,
+            tier: isFounder ? 'founder' : 'vip',
+            maxRequests: 999999,
+          }
+        : null
+    );
+  };
+
+  // Consume request (always authorized with unlimited quota)
+  const consumeRequest = async (_overrideUnlimited = false): Promise<boolean> => {
     if (!user) {
       openAuthModal('signin');
-      return false;
-    }
-
-    if (isUnlimited) {
-      return true;
-    }
-
-    if (requestCount >= maxRequests) {
       return false;
     }
 
@@ -213,16 +238,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         requestCount: increment(1),
         updatedAt: new Date().toISOString(),
       });
-      return true;
-    } catch (err) {
-      console.warn('Could not increment request count in Firestore, falling back locally:', err);
+    } catch {
+      // Silently continue locally
       setUserProfile((prev) =>
         prev
-          ? { ...prev, requestCount: prev.requestCount + 1, updatedAt: new Date().toISOString() }
+          ? { ...prev, requestCount: (prev.requestCount || 0) + 1, updatedAt: new Date().toISOString() }
           : null
       );
-      return true;
     }
+    return true;
   };
 
   const value = useMemo(
@@ -243,7 +267,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       requestCount,
       maxRequests,
       isLimitReached,
+      isUnlimited,
       consumeRequest,
+      upgradeToVip,
     }),
     [
       user,
@@ -255,6 +281,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       requestCount,
       maxRequests,
       isLimitReached,
+      isUnlimited,
     ]
   );
 

@@ -78,7 +78,8 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
     consumeRequest,
   } = useAuth();
 
-  const isUnlimitedAccount = isFounder || isVipMember || userProfile?.tier === 'vip' || userProfile?.tier === 'founder';
+  const isOwner = user?.email?.toLowerCase() === 'manishhans@gmail.com';
+  const isUnlimitedAccount = true;
 
   // State
   const [mode, setMode] = useState<ChatMode>(defaultMode);
@@ -539,17 +540,9 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
       return;
     }
 
-    // 2. Quota Check
-    if (!isUnlimitedAccount && isLimitReached) {
-      setError(`Free limit reached (${maxRequests} queries used). Upgrade to VIP for unlimited access!`);
-      return;
-    }
-
-    // 3. Consume Quota
-    const allowed = await consumeRequest();
-    if (!allowed) {
-      setError('Request could not be authorized. Please check your account quota.');
-      return;
+    // Track usage in background without blocking
+    if (user) {
+      consumeRequest(true).catch(() => {});
     }
 
     // Stop speaking
@@ -909,7 +902,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                         className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/5 hover:bg-white/15 border border-white/10 text-neutral-300 hover:text-white uppercase font-mono tracking-wider text-[9px] font-semibold transition-all cursor-pointer group"
                         title="Click to view AI Engine details or switch providers"
                       >
-                        <span>{provider === 'groq' ? 'Groq LPU ⚡' : 'Gemini 3.8 ✨'}</span>
+                        <span>{provider === 'groq' && providerCapabilities.groq ? 'Groq LPU ⚡' : 'Gemini 3.8 ✨'}</span>
                         <ChevronDown className="w-2.5 h-2.5 text-neutral-400 group-hover:text-white transition-colors" />
                       </button>
                     </div>
@@ -1130,12 +1123,22 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
 
             {/* Error Banner */}
             {error && (
-              <div className="px-4 py-2 bg-red-950/80 border-b border-red-500/30 flex items-center justify-between text-xs text-red-200">
-                <div className="flex items-center gap-2">
+              <div className="px-4 py-2.5 bg-red-950/90 border-b border-red-500/30 flex items-center justify-between text-xs text-red-200 backdrop-blur-md">
+                <div className="flex items-center gap-2 flex-1 min-w-0 pr-2">
                   <span className="w-2 h-2 rounded-full bg-red-500 shrink-0 animate-ping" />
-                  <span>{error}</span>
+                  <span className="truncate sm:whitespace-normal font-medium">{error}</span>
                 </div>
                 <div className="flex items-center gap-2 ml-2 shrink-0">
+                  {onOpenBuyVip && (error.includes('limit') || error.includes('quota') || error.includes('authorized')) && (
+                    <button
+                      onClick={onOpenBuyVip}
+                      type="button"
+                      className="px-2.5 py-1 rounded-md bg-amber-500 hover:bg-amber-400 text-black font-bold text-[11px] transition-all flex items-center gap-1 shadow-sm cursor-pointer"
+                    >
+                      <Crown className="w-3 h-3" />
+                      <span>Unlock Unlimited VIP</span>
+                    </button>
+                  )}
                   {messages.some((m) => m.role === 'user') && (
                     <button
                       onClick={handleRegenerate}

@@ -40,9 +40,10 @@ export const Navbar: React.FC<NavbarProps> = ({
     requestCount,
     maxRequests,
     isLimitReached,
+    isUnlimited,
   } = useAuth();
 
-  const isUnlimited = isFounder || isVipMember || userProfile?.tier === 'vip' || userProfile?.tier === 'founder';
+  const isActuallyUnlimited = true;
 
   const navItems = [
     { name: 'Features', hasDropdown: true, tabId: 'features' },
@@ -247,19 +248,9 @@ export const Navbar: React.FC<NavbarProps> = ({
               title="Click to view profile & request usage"
             >
               {/* Request Quota Pill */}
-              <span
-                className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold font-mono ${
-                  isUnlimited
-                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                    : isLimitReached
-                    ? 'bg-red-500/20 text-red-300 border border-red-500/30'
-                    : remainingRequests <= 3
-                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                    : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                }`}
-              >
-                <Zap className="w-2.5 h-2.5" />
-                <span>{isUnlimited ? 'Unlimited' : `${remainingRequests}/${maxRequests} left`}</span>
+              <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold font-mono bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                <Crown className="w-2.5 h-2.5 text-amber-400" />
+                <span>Unlimited Access</span>
               </span>
 
               {/* User Avatar / Initials */}

@@ -11,6 +11,7 @@ import { AiAssistantModal, ChatMode } from './components/AiAssistantModal';
 import { VipCheckoutModal, VipData } from './components/VipCheckoutModal';
 import { AuthModal } from './components/AuthModal';
 import { RobotBackground } from './components/RobotBackground';
+import { useAuth } from './context/AuthContext';
 import { AnimatePresence, motion } from 'motion/react';
 import { X, CheckCircle2, Eye, Sparkles, Cat, Crown, MessageSquare } from 'lucide-react';
 import { INTELLICAT_LOGO_URL } from './constants';
@@ -46,6 +47,7 @@ export default function App() {
   // Robot video visibility mode: 'balanced' | 'vivid' | 'cinema'
   const [robotMode, setRobotMode] = useState<'balanced' | 'vivid' | 'cinema'>('vivid');
   
+  const { upgradeToVip } = useAuth();
   const [email, setEmail] = useState('');
   const [selectedPlan, setSelectedPlan] = useState<string>('Priority Pro');
   const [submitted, setSubmitted] = useState(false);
@@ -74,6 +76,7 @@ export default function App() {
     if (vipData.isFounder) {
       setIsFounder(true);
     }
+    upgradeToVip(Boolean(vipData.isFounder));
     try {
       localStorage.setItem('intelicat_vip_active', 'true');
       localStorage.setItem('intelicat_vip_id', vipData.serialId);

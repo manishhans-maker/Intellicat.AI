@@ -52,20 +52,12 @@ export function checkAndIncrementServerQuota(
   userId: string | undefined,
   isVipOrFounder: boolean
 ): { allowed: boolean; remaining?: number; currentUsage?: number } {
-  if (isVipOrFounder || !userId) {
-    return { allowed: true };
+  // Always allow all requests - unlimited access for all users
+  if (userId) {
+    const current = userUsageMap.get(userId) || 0;
+    userUsageMap.set(userId, current + 1);
   }
-
-  const current = userUsageMap.get(userId) || 0;
-  // Maximum free requests enforced server-side
-  const MAX_FREE_REQUESTS = 15;
-
-  if (current >= MAX_FREE_REQUESTS) {
-    return { allowed: false, remaining: 0, currentUsage: current };
-  }
-
-  userUsageMap.set(userId, current + 1);
-  return { allowed: true, remaining: Math.max(0, MAX_FREE_REQUESTS - (current + 1)), currentUsage: current + 1 };
+  return { allowed: true, remaining: 999999, currentUsage: userUsageMap.get(userId || '') || 0 };
 }
 
 // --- Request Validation ---
@@ -234,25 +226,27 @@ export async function resolveGroqModel(groq: Groq): Promise<string> {
 }
 
 // Track Google Search tool quota state to avoid redundant 429 failures
-let searchQuotaDisabledUntil = 0;
+// Search grounding tool quota is currently unavailable on standard keys, so we default to standard inference
+let searchQuotaDisabledUntil = Date.now() + 24 * 60 * 60 * 1000;
 
 export function isSearchQuotaExhausted(): boolean {
   return Date.now() < searchQuotaDisabledUntil;
 }
 
-export function markSearchQuotaExhausted(durationMs = 15 * 60 * 1000) {
+export function markSearchQuotaExhausted(durationMs = 24 * 60 * 60 * 1000) {
   searchQuotaDisabledUntil = Date.now() + durationMs;
 }
 
 // Candidate Gemini Models with fallback resilience per system skills
-// gemini-3.8-flash provides high-quality text and multimodal reasoning,
-// gemini-3.1-flash-lite provides ultra-low latency, and gemini-flash-latest provides reliable fallback
+// gemini-3.6-flash provides fast, high-quality reasoning
+// gemini-3.1-flash-lite provides ultra-low latency, with gemini-flash-latest and gemini-3.8-flash as fallbacks
 export const GEMINI_CANDIDATE_MODELS = [
-  'gemini-3.8-flash',
+  'gemini-3.6-flash',
   'gemini-3.1-flash-lite',
   'gemini-flash-latest',
+  'gemini-3.8-flash',
 ];
-export const GEMINI_MODEL = 'gemini-3.8-flash';
+export const GEMINI_MODEL = 'gemini-3.6-flash';
 
 /**
  * Format conversation history into compliant Gemini SDK contents structure:
@@ -521,7 +515,7 @@ export function formatCleanErrorMessage(error: any): string {
   }
 
   if (msg.includes("RESOURCE_EXHAUSTED") || msg.includes("quota")) {
-    return "API rate or quota limit reached. Please wait a brief moment before sending another prompt.";
+    return "The AI engine is temporarily busy. Please click Retry to continue.";
   }
   if (msg.includes("503") || msg.includes("UNAVAILABLE") || msg.includes("high demand")) {
     return "The AI model is experiencing temporarily high demand. Please retry in a few seconds.";
