@@ -10,6 +10,7 @@ import {
   getGroqClient,
   resolveGroqModel,
   GEMINI_MODEL,
+  formatGeminiContents,
   streamGeminiWithResilience,
   getSystemInstruction,
   formatCleanErrorMessage,
@@ -24,6 +25,18 @@ async function startServer() {
 
   // Middleware with size limits to protect against payload denial-of-service
   app.use(express.json({ limit: "15mb" }));
+
+  // Middleware for parsing errors (e.g. malformed JSON payloads)
+  app.use((err: any, _req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (err instanceof SyntaxError && "body" in err) {
+      return res.status(400).json({ error: "Malformed JSON in request body." });
+    }
+    if (err) {
+      console.error("Express middleware error:", err);
+      return res.status(500).json({ error: err.message || "Internal server error" });
+    }
+    next();
+  });
 
   // Providers availability check
   app.get("/api/providers", (_req, res) => {
@@ -52,84 +65,83 @@ async function startServer() {
       }
     });
 
-    // 1. IP & Rate Limiting Defense
-    const clientIp =
-      (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ||
-      req.socket.remoteAddress ||
-      "anonymous";
-
-    const rateCheck = checkRateLimit(clientIp);
-    if (!rateCheck.allowed) {
-      return res.status(429).json({
-        error: `Rate limit exceeded. Please wait ${rateCheck.retryAfterSeconds} seconds before sending more messages.`,
-      });
-    }
-
-    // 2. Strict Payload Validation
-    const validation = validateChatPayload(req.body);
-    if (!validation.isValid || !validation.data) {
-      return res.status(400).json({ error: validation.error || "Invalid request payload." });
-    }
-
-    const { messages, mode, provider: requestedProvider, webSearch, userId, isVipOrFounder } = validation.data;
-
-    // 3. Server-side Quota Protection
-    if (userId) {
-      const quotaCheck = checkAndIncrementServerQuota(userId, isVipOrFounder);
-      if (!quotaCheck.allowed) {
-        return res.status(403).json({
-          error: "Server quota exceeded: You have used all 15 free queries. Please upgrade to VIP for unlimited requests!",
-        });
-      }
-    }
-
-    // 4. Detect multimodal attachments (images)
-    const hasImageAttachments = messages.some(
-      (m) => m.attachments && m.attachments.some((a) => a.type.startsWith("image/"))
-    );
-
-    // Determine active provider: If images are attached, route to Gemini natively
-    let activeProvider = requestedProvider;
-    if (activeProvider === "auto") {
-      activeProvider = hasImageAttachments ? "gemini" : mode === "normal" ? "groq" : "gemini";
-    } else if (hasImageAttachments && activeProvider === "groq") {
-      // Groq text models do not accept image inputs; auto-route to Gemini
-      activeProvider = "gemini";
-    }
-
-    // Graceful fallback if key is missing
-    const hasGroqKey = Boolean(process.env.GROQ_API_KEY && process.env.GROQ_API_KEY.trim() !== "");
-    const hasGeminiKey = Boolean(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim() !== "");
-
-    if (activeProvider === "groq" && !hasGroqKey) {
-      if (hasGeminiKey) {
-        activeProvider = "gemini";
-      } else {
-        return res.status(400).json({
-          error: "Neither GROQ_API_KEY nor GEMINI_API_KEY is configured. Please configure at least one API key.",
-        });
-      }
-    } else if (activeProvider === "gemini" && !hasGeminiKey) {
-      if (hasGroqKey && !hasImageAttachments) {
-        activeProvider = "groq";
-      } else {
-        return res.status(400).json({
-          error: "GEMINI_API_KEY is required for image understanding and Google Search grounding. Please add GEMINI_API_KEY.",
-        });
-      }
-    }
-
-    // 5. Initialize SSE Streaming Headers
-    res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache, no-transform");
-    res.setHeader("Connection", "keep-alive");
-    res.setHeader("X-Accel-Buffering", "no");
-    res.flushHeaders?.();
-
-    const systemInstruction = getSystemInstruction(mode);
-    const temperature = mode === "cat-code" ? 0.25 : 0.7;
-
     try {
+      // 1. IP & Rate Limiting Defense
+      const rawFwd = req.headers["x-forwarded-for"];
+      const fwdStr = Array.isArray(rawFwd) ? rawFwd[0] : typeof rawFwd === "string" ? rawFwd : "";
+      const clientIp = fwdStr.split(",")[0]?.trim() || req.socket?.remoteAddress || "anonymous";
+
+      const rateCheck = checkRateLimit(clientIp);
+      if (!rateCheck.allowed) {
+        return res.status(429).json({
+          error: `Rate limit exceeded. Please wait ${rateCheck.retryAfterSeconds} seconds before sending more messages.`,
+        });
+      }
+
+      // 2. Strict Payload Validation
+      const validation = validateChatPayload(req.body);
+      if (!validation.isValid || !validation.data) {
+        return res.status(400).json({ error: validation.error || "Invalid request payload." });
+      }
+
+      const { messages, mode, provider: requestedProvider, webSearch, userId, isVipOrFounder } = validation.data;
+
+      // 3. Server-side Quota Protection
+      if (userId) {
+        const quotaCheck = checkAndIncrementServerQuota(userId, isVipOrFounder);
+        if (!quotaCheck.allowed) {
+          return res.status(403).json({
+            error: "Server quota exceeded: You have used all 15 free queries. Please upgrade to VIP for unlimited requests!",
+          });
+        }
+      }
+
+      // 4. Detect multimodal attachments (images)
+      const hasImageAttachments = messages.some(
+        (m) => m.attachments && m.attachments.some((a) => a.type.startsWith("image/"))
+      );
+
+      // Determine active provider: If images are attached, route to Gemini natively
+      let activeProvider = requestedProvider;
+      if (activeProvider === "auto") {
+        activeProvider = hasImageAttachments ? "gemini" : mode === "normal" ? "groq" : "gemini";
+      } else if (hasImageAttachments && activeProvider === "groq") {
+        // Groq text models do not accept image inputs; auto-route to Gemini
+        activeProvider = "gemini";
+      }
+
+      // Graceful fallback if key is missing
+      const hasGroqKey = Boolean(process.env.GROQ_API_KEY && process.env.GROQ_API_KEY.trim() !== "");
+      const hasGeminiKey = Boolean(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim() !== "");
+
+      if (activeProvider === "groq" && !hasGroqKey) {
+        if (hasGeminiKey) {
+          activeProvider = "gemini";
+        } else {
+          return res.status(400).json({
+            error: "Neither GROQ_API_KEY nor GEMINI_API_KEY is configured. Please configure at least one API key.",
+          });
+        }
+      } else if (activeProvider === "gemini" && !hasGeminiKey) {
+        if (hasGroqKey && !hasImageAttachments) {
+          activeProvider = "groq";
+        } else {
+          return res.status(400).json({
+            error: "GEMINI_API_KEY is required for image understanding and Google Search grounding. Please add GEMINI_API_KEY.",
+          });
+        }
+      }
+
+      // 5. Initialize SSE Streaming Headers
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache, no-transform");
+      res.setHeader("Connection", "keep-alive");
+      res.setHeader("X-Accel-Buffering", "no");
+      res.flushHeaders?.();
+
+      const systemInstruction = getSystemInstruction(mode);
+      const temperature = mode === "cat-code" ? 0.25 : 0.7;
+
       if (activeProvider === "groq") {
         const groq = getGroqClient();
         const groqMessages = [
@@ -182,36 +194,7 @@ async function startServer() {
       // Gemini generation (either primary or fallback)
       if (activeProvider === "gemini") {
         const ai = getAiClient();
-
-        const formattedContents = messages.map((m) => {
-          const parts: any[] = [];
-          if (m.attachments && m.attachments.length > 0) {
-            for (const att of m.attachments) {
-              if (att.type.startsWith("image/")) {
-                const base64Data = att.data.includes(";base64,")
-                  ? att.data.split(";base64,")[1]
-                  : att.data;
-                parts.push({
-                  inlineData: {
-                    mimeType: att.type,
-                    data: base64Data,
-                  },
-                });
-              } else {
-                parts.push({
-                  text: `\n[Attached document: ${att.name}]\n${att.data}\n`,
-                });
-              }
-            }
-          }
-          if (m.content) {
-            parts.push({ text: m.content });
-          }
-          return {
-            role: m.role === "assistant" ? "model" : "user",
-            parts,
-          };
-        });
+        const formattedContents = formatGeminiContents(messages);
 
         const geminiConfig: any = {
           systemInstruction,
@@ -243,9 +226,13 @@ async function startServer() {
     } catch (error: any) {
       console.error("Chat streaming failure:", error);
       const safeMessage = formatCleanErrorMessage(error);
+      const statusCode =
+        typeof error?.status === "number" && error.status >= 400 && error.status < 600
+          ? error.status
+          : 500;
 
       if (!res.headersSent) {
-        res.status(500).json({ error: safeMessage });
+        res.status(statusCode).json({ error: safeMessage });
       } else {
         res.write(`data: ${JSON.stringify({ error: safeMessage })}\n\n`);
         res.end();

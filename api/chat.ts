@@ -6,6 +6,7 @@ import {
   getGroqClient,
   resolveGroqModel,
   GEMINI_MODEL,
+  formatGeminiContents,
   streamGeminiWithResilience,
   getSystemInstruction,
   formatCleanErrorMessage,
@@ -178,36 +179,7 @@ export default async function handler(req: any, res: any) {
 
     if (activeProvider === "gemini") {
       const ai = getAiClient();
-
-      const formattedContents = messages.map((m) => {
-        const parts: any[] = [];
-        if (m.attachments && m.attachments.length > 0) {
-          for (const att of m.attachments) {
-            if (att.type.startsWith("image/")) {
-              const base64Data = att.data.includes(";base64,")
-                ? att.data.split(";base64,")[1]
-                : att.data;
-              parts.push({
-                inlineData: {
-                  mimeType: att.type,
-                  data: base64Data,
-                },
-              });
-            } else {
-              parts.push({
-                text: `\n[Attached document: ${att.name}]\n${att.data}\n`,
-              });
-            }
-          }
-        }
-        if (m.content) {
-          parts.push({ text: m.content });
-        }
-        return {
-          role: m.role === "assistant" ? "model" : "user",
-          parts,
-        };
-      });
+      const formattedContents = formatGeminiContents(messages);
 
       const geminiConfig: any = {
         systemInstruction,
@@ -245,9 +217,13 @@ export default async function handler(req: any, res: any) {
   } catch (error: any) {
     console.error("Vercel Chat API Error:", error);
     const safeMessage = formatCleanErrorMessage(error);
+    const statusCode =
+      typeof error?.status === "number" && error.status >= 400 && error.status < 600
+        ? error.status
+        : 500;
 
     if (!res.headersSent) {
-      res.status(500).json({ error: safeMessage });
+      res.status(statusCode).json({ error: safeMessage });
     } else {
       res.write(`data: ${JSON.stringify({ error: safeMessage })}\n\n`);
       res.end();

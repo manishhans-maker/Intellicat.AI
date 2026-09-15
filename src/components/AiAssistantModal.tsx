@@ -499,7 +499,8 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
 
   // Regenerate Response
   const handleRegenerate = () => {
-    if (loading || messages.length < 2) return;
+    if (loading || messages.length === 0) return;
+    setError(null);
     // Find last user message
     const lastUserIdx = [...messages].reverse().findIndex((m) => m.role === 'user');
     if (lastUserIdx === -1) return;
@@ -651,8 +652,25 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
       });
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `Server error: ${response.status}`);
+        let errMsg = `Server error: ${response.status}`;
+        try {
+          const errorData = await response.json();
+          if (errorData?.error) {
+            errMsg = errorData.error;
+          }
+        } catch {
+          const rawText = await response.text().catch(() => '');
+          if (rawText) {
+            const stripped = rawText.replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ').trim();
+            if (stripped && stripped.length < 150) {
+              errMsg = stripped;
+            }
+          }
+        }
+        if (response.status === 500 || errMsg.includes('500')) {
+          errMsg = 'The AI engine encountered a temporary upstream delay. Please click Retry to continue.';
+        }
+        throw new Error(errMsg);
       }
 
       if (!response.body) {
@@ -976,12 +994,28 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                   <span className="w-2 h-2 rounded-full bg-red-500 shrink-0 animate-ping" />
                   <span>{error}</span>
                 </div>
-                <button
-                  onClick={() => setError(null)}
-                  className="text-red-300 hover:text-white ml-2 p-1"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
+                <div className="flex items-center gap-2 ml-2 shrink-0">
+                  {messages.some((m) => m.role === 'user') && (
+                    <button
+                      onClick={handleRegenerate}
+                      disabled={loading}
+                      type="button"
+                      className="px-2.5 py-1 rounded-md bg-red-800/80 hover:bg-red-700 text-white font-medium text-[11px] transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                      title="Retry message"
+                    >
+                      <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
+                      <span>Retry</span>
+                    </button>
+                  )}
+                  <button
+                    onClick={() => setError(null)}
+                    type="button"
+                    className="text-red-300 hover:text-white p-1 cursor-pointer"
+                    title="Dismiss"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
             )}
 

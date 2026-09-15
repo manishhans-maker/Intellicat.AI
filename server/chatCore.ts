@@ -245,15 +245,95 @@ export function markSearchQuotaExhausted(durationMs = 15 * 60 * 1000) {
 }
 
 // Candidate Gemini Models with fallback resilience per system skills
-// gemini-3.1-flash-lite provides ultra-fast latency and high availability
+// gemini-3.8-flash provides high-quality text and multimodal reasoning,
+// gemini-3.1-flash-lite provides ultra-low latency, and gemini-flash-latest provides reliable fallback
 export const GEMINI_CANDIDATE_MODELS = [
-  'gemini-3.1-flash-lite',
   'gemini-3.8-flash',
-  'gemini-3.6-flash',
-  'gemini-3.5-flash',
+  'gemini-3.1-flash-lite',
   'gemini-flash-latest',
 ];
-export const GEMINI_MODEL = 'gemini-3.1-flash-lite';
+export const GEMINI_MODEL = 'gemini-3.8-flash';
+
+/**
+ * Format conversation history into compliant Gemini SDK contents structure:
+ * - Guarantees non-empty parts on every turn
+ * - Merges consecutive same-role turns
+ * - Ensures first turn is role 'user'
+ * - Cleanly parses base64 image strings
+ */
+export function formatGeminiContents(messages: ValidatedMessage[]): any[] {
+  const formatted: { role: 'user' | 'model'; parts: any[] }[] = [];
+
+  for (const m of messages) {
+    const parts: any[] = [];
+
+    if (m.attachments && m.attachments.length > 0) {
+      for (const att of m.attachments) {
+        if (att.type.startsWith('image/')) {
+          const base64Data = att.data.includes(';base64,')
+            ? att.data.split(';base64,')[1]
+            : att.data.includes('base64,')
+            ? att.data.split('base64,')[1]
+            : att.data;
+          const cleanBase64 = base64Data.trim();
+          if (cleanBase64) {
+            parts.push({
+              inlineData: {
+                mimeType: att.type,
+                data: cleanBase64,
+              },
+            });
+          }
+        } else {
+          parts.push({
+            text: `\n[Attached document: ${att.name}]\n${att.data}\n`,
+          });
+        }
+      }
+    }
+
+    const contentText = (m.content || '').trim();
+    if (contentText) {
+      parts.push({ text: contentText });
+    }
+
+    // If both attachments and text were empty, skip or provide fallback
+    if (parts.length === 0) {
+      if (m.role === 'user') {
+        parts.push({ text: 'Hello' });
+      } else {
+        continue; // skip empty assistant turns
+      }
+    }
+
+    const role: 'user' | 'model' = m.role === 'assistant' ? 'model' : 'user';
+
+    // Merge consecutive turns with the same role (required by Gemini API)
+    if (formatted.length > 0 && formatted[formatted.length - 1].role === role) {
+      formatted[formatted.length - 1].parts.push(...parts);
+    } else {
+      formatted.push({ role, parts });
+    }
+  }
+
+  // Ensure first turn is from 'user'
+  if (formatted.length > 0 && formatted[0].role === 'model') {
+    formatted.unshift({
+      role: 'user',
+      parts: [{ text: 'Hello, IntelicatAI.' }],
+    });
+  }
+
+  // If completely empty, add a default user message
+  if (formatted.length === 0) {
+    formatted.push({
+      role: 'user',
+      parts: [{ text: 'Hello' }],
+    });
+  }
+
+  return formatted;
+}
 
 export async function streamGeminiWithResilience(
   ai: GoogleGenAI,
@@ -389,7 +469,15 @@ export function formatCleanErrorMessage(error: any): string {
   if (msg.includes("503") || msg.includes("UNAVAILABLE") || msg.includes("high demand")) {
     return "The AI model is experiencing temporarily high demand. Please retry in a few seconds.";
   }
-  if (msg.includes("API_KEY")) {
+  if (
+    msg.includes("500") ||
+    msg.includes("Internal Server Error") ||
+    msg.includes("INTERNAL") ||
+    msg.includes("internal error")
+  ) {
+    return "The AI engine encountered a temporary upstream hiccup. Please click Retry to continue.";
+  }
+  if (msg.includes("API_KEY") || msg.includes("API key not valid")) {
     return "API key authentication issue. Please check your configured keys in Settings.";
   }
 
