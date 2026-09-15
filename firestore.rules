@@ -33,8 +33,8 @@ service cloud.firestore {
         data.tier is string && (data.tier == 'free' || data.tier == 'vip' || data.tier == 'founder') &&
         data.createdAt is string && data.createdAt.size() <= 64 &&
         data.updatedAt is string && data.updatedAt.size() <= 64 &&
-        (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 128)) &&
-        (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 1024));
+        (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 256)) &&
+        (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 2048));
     }
 
     function isValidConversation(data, userId) {
@@ -47,7 +47,8 @@ service cloud.firestore {
         data.updatedAt is string && data.updatedAt.size() <= 64 &&
         (!('isPinned' in data) || data.isPinned is bool) &&
         (!('isArchived' in data) || data.isArchived is bool) &&
-        (!('provider' in data) || data.provider is string);
+        (!('provider' in data) || data.provider is string) &&
+        (!('lastMessagePreview' in data) || (data.lastMessagePreview is string && data.lastMessagePreview.size() <= 1000));
     }
 
     function isValidMessage(data, userId, convId) {
@@ -57,7 +58,16 @@ service cloud.firestore {
         data.userId == userId &&
         data.role is string && (data.role == 'user' || data.role == 'assistant') &&
         data.content is string && data.content.size() <= 100000 &&
-        data.createdAt is string && data.createdAt.size() <= 64;
+        data.createdAt is string && data.createdAt.size() <= 64 &&
+        (!('timestamp' in data) || (data.timestamp is string && data.timestamp.size() <= 64)) &&
+        (!('mode' in data) || (data.mode is string && data.mode.size() <= 32)) &&
+        (!('provider' in data) || (data.provider is string && data.provider.size() <= 32));
+    }
+
+    // Public health and connectivity check
+    match /public/{docId} {
+      allow read: if true;
+      allow write: if false;
     }
 
     // User collection rules

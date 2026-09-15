@@ -25,13 +25,19 @@ export const db = firestoreDbId && firestoreDbId !== '(default)'
   : getFirestore(app);
 
 // Connection test as required by Firebase integration skill
-export async function testConnection() {
+export async function testConnection(): Promise<boolean> {
   try {
-    await getDocFromServer(doc(db, 'test', 'connection'));
-  } catch (error) {
+    await getDocFromServer(doc(db, 'public', 'status'));
+    return true;
+  } catch (error: any) {
+    // Both successful doc read and permission-denied confirm the database is reachable online
+    if (error?.code === 'permission-denied') {
+      return true;
+    }
     if (error instanceof Error && error.message.includes('the client is offline')) {
       console.warn('Firebase client is offline or connecting...');
     }
+    return false;
   }
 }
 

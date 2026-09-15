@@ -12,6 +12,7 @@ import {
   Eye,
   EyeOff,
   Zap,
+  ExternalLink,
 } from 'lucide-react';
 import { useAuth, FREE_TIER_MAX_REQUESTS } from '../context/AuthContext';
 import { INTELLICAT_LOGO_URL } from '../constants';
@@ -56,12 +57,21 @@ export const AuthModal: React.FC = () => {
       await signInWithGoogle();
       closeAuthModal();
     } catch (err: any) {
+      console.warn('Firebase Google Auth error:', err);
       if (err.code === 'auth/popup-closed-by-user') {
         setError('Sign-in popup was closed before completing.');
       } else if (err.code === 'auth/cancelled-popup-request') {
         // Ignored
+      } else if (err.code === 'auth/unauthorized-domain') {
+        setError(
+          'Google Sign-in is restricted on this preview domain. You can sign in immediately using Email & Password below, or open this app in a new tab.'
+        );
+      } else if (err.code === 'auth/popup-blocked') {
+        setError(
+          'Popups were blocked by your browser. Please allow popups or use Email & Password below.'
+        );
       } else {
-        setError(err.message || 'Failed to sign in with Google.');
+        setError(err.message || 'Failed to sign in with Google. Try using Email & Password.');
       }
     } finally {
       setGoogleLoading(false);
@@ -245,6 +255,19 @@ export const AuthModal: React.FC = () => {
           )}
           <span>Continue with Google</span>
         </button>
+
+        {typeof window !== 'undefined' && window.self !== window.top && (
+          <div className="mt-2 text-center">
+            <button
+              type="button"
+              onClick={() => window.open(window.location.href, '_blank')}
+              className="inline-flex items-center gap-1 text-[11px] text-neutral-400 hover:text-amber-400 transition-colors cursor-pointer"
+            >
+              <span>Popups blocked in preview? Open app in new tab</span>
+              <ExternalLink className="w-3 h-3" />
+            </button>
+          </div>
+        )}
 
         {/* Divider */}
         <div className="relative my-5">
