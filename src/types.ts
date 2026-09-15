@@ -35,6 +35,8 @@ export interface ChatMessage {
   provider?: AiProvider;
   attachments?: ChatAttachment[];
   citations?: CitationSource[];
+  isError?: boolean;
+  errorMessage?: string;
 }
 
 export interface Conversation {

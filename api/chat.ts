@@ -7,6 +7,7 @@ import {
   resolveGroqModel,
   GEMINI_MODEL,
   formatGeminiContents,
+  formatGroqMessages,
   streamGeminiWithResilience,
   getSystemInstruction,
   formatCleanErrorMessage,
@@ -127,23 +128,7 @@ export default async function handler(req: any, res: any) {
 
     if (activeProvider === "groq") {
       const groq = getGroqClient();
-      const groqMessages = [
-        { role: "system" as const, content: systemInstruction },
-        ...messages.map((m) => {
-          let content = m.content;
-          if (m.attachments && m.attachments.length > 0) {
-            const textDocs = m.attachments
-              .filter((a) => !a.type.startsWith("image/"))
-              .map((a) => `\n[Attached File: ${a.name}]\n${a.data}\n`)
-              .join("\n");
-            if (textDocs) content = `${textDocs}\n${content}`;
-          }
-          return {
-            role: (m.role === "assistant" ? "assistant" : "user") as "assistant" | "user",
-            content,
-          };
-        }),
-      ];
+      const groqMessages = formatGroqMessages(messages, systemInstruction);
 
       let selectedModel = await resolveGroqModel(groq);
       let streamStarted = false;

@@ -335,6 +335,63 @@ export function formatGeminiContents(messages: ValidatedMessage[]): any[] {
   return formatted;
 }
 
+/**
+ * Format conversation history into compliant OpenAI/Groq messages structure:
+ * - Injects system instruction
+ * - Pre-filters empty assistant messages from interrupted or failed runs
+ * - Pre-appends text attachments
+ * - Merges consecutive same-role turns to avoid provider validation failures
+ * - Guarantees non-empty content strings
+ */
+export function formatGroqMessages(
+  messages: ValidatedMessage[],
+  systemInstruction: string
+): Array<{ role: 'system' | 'user' | 'assistant'; content: string }> {
+  const result: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
+    { role: 'system', content: systemInstruction },
+  ];
+
+  for (const m of messages) {
+    let content = m.content || '';
+    if (m.attachments && m.attachments.length > 0) {
+      const textDocs = m.attachments
+        .filter((a) => !a.type.startsWith('image/'))
+        .map((a) => `\n[Attached File: ${a.name}]\n${a.data}\n`)
+        .join('\n');
+      if (textDocs) {
+        content = `${textDocs}\n${content}`;
+      }
+    }
+
+    const trimmed = content.trim();
+    if (!trimmed) {
+      if (m.role === 'assistant') {
+        // Skip empty assistant turns (prevents 400 'empty string not allowed')
+        continue;
+      } else {
+        content = 'Hello';
+      }
+    }
+
+    const role = m.role === 'assistant' ? 'assistant' : 'user';
+
+    // Merge consecutive same-role turns
+    const lastMsg = result[result.length - 1];
+    if (lastMsg && lastMsg.role === role) {
+      lastMsg.content = `${lastMsg.content}\n\n${content}`;
+    } else {
+      result.push({ role, content });
+    }
+  }
+
+  // Ensure there is at least one user message after system
+  if (result.length <= 1) {
+    result.push({ role: 'user', content: 'Hello' });
+  }
+
+  return result;
+}
+
 export async function streamGeminiWithResilience(
   ai: GoogleGenAI,
   formattedContents: any[],

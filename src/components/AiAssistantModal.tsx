@@ -24,6 +24,11 @@ import {
   FileText,
   Trash2,
   Share2,
+  ChevronDown,
+  AlertCircle,
+  Cpu,
+  ExternalLink,
+  CheckCircle2,
 } from 'lucide-react';
 import { RobotBackground } from './RobotBackground';
 import { INTELLICAT_LOGO_URL } from '../constants';
@@ -96,6 +101,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [showExportModal, setShowExportModal] = useState(false);
+  const [showEngineModal, setShowEngineModal] = useState(false);
 
   // File Upload State
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
@@ -578,8 +584,11 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
       provider,
     };
 
-    const previousHistory = baseMessages || messages;
-    const updatedMessages = [...previousHistory, userMsg];
+    // Clean history: remove empty/failed assistant placeholders so they don't break LLM context
+    const sanitizedHistory = (baseMessages || messages).filter(
+      (m) => m.content.trim() !== '' || (m.attachments && m.attachments.length > 0)
+    );
+    const updatedMessages = [...sanitizedHistory, userMsg];
 
     setMessages([...updatedMessages, assistantMsg]);
     setInput('');
@@ -622,16 +631,19 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
     const abortController = new AbortController();
     abortControllerRef.current = abortController;
 
-    // Keep memory of recent context (up to 12 messages)
-    const contextMessages = updatedMessages.slice(-12).map((m) => ({
-      role: m.role,
-      content: m.content,
-      attachments: m.attachments?.map((a) => ({
-        name: a.name,
-        type: a.type,
-        data: a.data,
-      })),
-    }));
+    // Keep memory of recent context (up to 12 valid messages)
+    const contextMessages = updatedMessages
+      .filter((m) => m.content.trim() !== '' || (m.attachments && m.attachments.length > 0))
+      .slice(-12)
+      .map((m) => ({
+        role: m.role,
+        content: m.content,
+        attachments: m.attachments?.map((a) => ({
+          name: a.name,
+          type: a.type,
+          data: a.data,
+        })),
+      }));
 
     try {
       const response = await fetch('/api/chat', {
@@ -770,7 +782,16 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
         console.log('Stream stopped by user.');
       } else {
         console.error('Chat error:', err);
-        setError(err.message || 'Unable to connect to AI engine.');
+        const errMsg = err.message || 'Unable to connect to AI engine.';
+        setError(errMsg);
+        // Mark the assistant message as errored so it transitions to an inline retry card
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === assistantMsgId && !msg.content.trim()
+              ? { ...msg, isError: true, errorMessage: errMsg }
+              : msg
+          )
+        );
       }
     } finally {
       setLoading(false);
@@ -882,9 +903,15 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                         Online
                       </span>
                       <span>•</span>
-                      <span className="text-neutral-400 uppercase font-mono tracking-wider text-[9px]">
-                        {provider === 'groq' ? 'Groq LPU ⚡' : 'Gemini 3.1 Flash ✨'}
-                      </span>
+                      <button
+                        onClick={() => setShowEngineModal(true)}
+                        type="button"
+                        className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/5 hover:bg-white/15 border border-white/10 text-neutral-300 hover:text-white uppercase font-mono tracking-wider text-[9px] font-semibold transition-all cursor-pointer group"
+                        title="Click to view AI Engine details or switch providers"
+                      >
+                        <span>{provider === 'groq' ? 'Groq LPU ⚡' : 'Gemini 3.8 ✨'}</span>
+                        <ChevronDown className="w-2.5 h-2.5 text-neutral-400 group-hover:text-white transition-colors" />
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -984,6 +1011,120 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                   <Code className="w-3.5 h-3.5 text-amber-400" />
                   <span>Download JSON (.json)</span>
                 </button>
+              </div>
+            )}
+
+            {/* AI Engine Selector & Info Modal */}
+            {showEngineModal && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+                <div className="w-full max-w-md bg-[#13131f] border border-white/20 rounded-2xl p-5 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
+                  <div className="flex items-center justify-between pb-3 border-b border-white/10">
+                    <div className="flex items-center gap-2">
+                      <div className="p-1.5 rounded-lg bg-[#EF233C]/20 border border-[#EF233C]/40 text-[#EF233C]">
+                        <Cpu className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h3 className="font-bold text-sm text-white">AI Inference Engines</h3>
+                        <p className="text-[11px] text-neutral-400">Dual-Engine Architecture Overview</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setShowEngineModal(false)}
+                      type="button"
+                      className="p-1 rounded-lg text-neutral-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  <div className="space-y-3">
+                    {/* Google Gemini Card */}
+                    <div
+                      onClick={() => {
+                        setProvider('gemini');
+                        setShowEngineModal(false);
+                      }}
+                      className={`p-3.5 rounded-xl border transition-all cursor-pointer ${
+                        provider === 'gemini'
+                          ? 'bg-blue-500/10 border-blue-500/50 ring-1 ring-blue-500/30'
+                          : 'bg-white/[0.03] border-white/10 hover:bg-white/[0.06]'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-xs text-white">Google Gemini 3.8 / Flash</span>
+                            <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 text-[10px] font-mono font-medium">
+                              Active
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-neutral-400 mt-1 leading-relaxed">
+                            Deep multimodal comprehension, image & document parsing, and real-time Google Search grounding.
+                          </p>
+                        </div>
+                        {provider === 'gemini' && (
+                          <CheckCircle2 className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Groq LPU Card */}
+                    <div
+                      onClick={() => {
+                        if (providerCapabilities.groq) {
+                          setProvider('groq');
+                          setShowEngineModal(false);
+                        }
+                      }}
+                      className={`p-3.5 rounded-xl border transition-all ${
+                        providerCapabilities.groq
+                          ? provider === 'groq'
+                            ? 'bg-amber-500/10 border-amber-500/50 ring-1 ring-amber-500/30 cursor-pointer'
+                            : 'bg-white/[0.03] border-white/10 hover:bg-white/[0.06] cursor-pointer'
+                          : 'bg-white/[0.02] border-white/5'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-xs text-white">Groq LPU (LLaMA 3.3 / 3.1)</span>
+                            {providerCapabilities.groq ? (
+                              <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 text-[10px] font-mono font-medium">
+                                Ready ⚡
+                              </span>
+                            ) : (
+                              <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[10px] font-mono font-medium">
+                                Key Required
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-neutral-400 mt-1 leading-relaxed">
+                            Ultra-fast LPUs streaming up to 800 tokens/second for instant conversation turns.
+                          </p>
+                          {!providerCapabilities.groq && (
+                            <div className="mt-2.5 p-2 rounded-lg bg-black/40 border border-amber-500/20 text-[11px] text-amber-200/90 leading-relaxed">
+                              <p className="font-medium text-amber-300 mb-0.5">How to enable Groq:</p>
+                              Add <code className="px-1 py-0.5 rounded bg-white/10 font-mono text-white">GROQ_API_KEY</code> to your environment variables or Vercel settings, then redeploy. In the meantime, Google Gemini is actively processing all queries without interruptions.
+                            </div>
+                          )}
+                        </div>
+                        {provider === 'groq' && providerCapabilities.groq && (
+                          <CheckCircle2 className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="pt-2 flex justify-end">
+                    <button
+                      onClick={() => setShowEngineModal(false)}
+                      type="button"
+                      className="px-4 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-medium transition-colors cursor-pointer"
+                    >
+                      Done
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
 
@@ -1111,6 +1252,22 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                           <p className="whitespace-pre-wrap">{msg.content}</p>
                         ) : msg.content ? (
                           <MarkdownRenderer content={msg.content} />
+                        ) : msg.isError || (!loading && index === messages.length - 1) ? (
+                          <div className="flex flex-col gap-2.5 py-1 text-red-300">
+                            <div className="flex items-center gap-2 text-xs">
+                              <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+                              <span>{msg.errorMessage || 'The AI engine encountered an unexpected delay.'}</span>
+                            </div>
+                            <button
+                              onClick={handleRegenerate}
+                              disabled={loading}
+                              type="button"
+                              className="self-start px-3 py-1.5 rounded-lg bg-red-900/60 hover:bg-red-800 border border-red-500/40 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                            >
+                              <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+                              <span>Retry Response</span>
+                            </button>
+                          </div>
                         ) : (
                           <div className="flex items-center gap-2 text-neutral-400 py-1">
                             <span className="w-2 h-2 rounded-full bg-[#EF233C] animate-ping" />
