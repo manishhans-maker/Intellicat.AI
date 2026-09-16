@@ -639,25 +639,44 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
       }));
 
     try {
-      const response = await fetch('/api/chat', {
+      const requestPayload = {
+        messages: contextMessages,
+        mode,
+        provider,
+        webSearch: webSearchEnabled,
+        userId: user.uid,
+        isVipOrFounder: isUnlimitedAccount,
+      };
+
+      const token = user.getIdToken ? await user.getIdToken().catch(() => '') : '';
+      const authHeaders: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (token) {
+        authHeaders['Authorization'] = `Bearer ${token}`;
+      }
+
+      let response = await fetch('/api/chat', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: user.getIdToken ? `Bearer ${await user.getIdToken().catch(() => '')}` : '',
-        },
+        headers: authHeaders,
         signal: abortController.signal,
-        body: JSON.stringify({
-          messages: contextMessages,
-          mode,
-          provider,
-          webSearch: webSearchEnabled,
-          userId: user.uid,
-          isVipOrFounder: isUnlimitedAccount,
-        }),
+        body: JSON.stringify(requestPayload),
       });
 
+      // Auto-retry once on transient failure with safe auto failover
+      if (!response.ok && !abortController.signal.aborted) {
+        console.warn(`/api/chat initial attempt failed (${response.status}), running auto-recovery...`);
+        await new Promise((r) => setTimeout(r, 800));
+        response = await fetch('/api/chat', {
+          method: 'POST',
+          headers: authHeaders,
+          signal: abortController.signal,
+          body: JSON.stringify({ ...requestPayload, provider: 'auto', webSearch: false }),
+        });
+      }
+
       if (!response.ok) {
-        let errMsg = `Server error: ${response.status}`;
+        let errMsg = `Server error (${response.status})`;
         try {
           const errorData = await response.json();
           if (errorData?.error) {
@@ -667,13 +686,10 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
           const rawText = await response.text().catch(() => '');
           if (rawText) {
             const stripped = rawText.replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ').trim();
-            if (stripped && stripped.length < 150) {
+            if (stripped && stripped.length < 120 && !stripped.includes('<!DOCTYPE') && !stripped.includes('<html')) {
               errMsg = stripped;
             }
           }
-        }
-        if (response.status === 500 || errMsg.includes('500')) {
-          errMsg = 'The AI engine encountered a temporary upstream delay. Please click Retry to continue.';
         }
         throw new Error(errMsg);
       }
@@ -776,8 +792,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
       } else {
         console.error('Chat error:', err);
         const errMsg = err.message || 'Unable to connect to AI engine.';
-        setError(errMsg);
-        // Mark the assistant message as errored so it transitions to an inline retry card
+        // Mark the assistant message as errored with inline retry
         setMessages((prev) =>
           prev.map((msg) =>
             msg.id === assistantMsgId && !msg.content.trim()
