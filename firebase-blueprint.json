@@ -137,6 +137,91 @@
         }
       },
       "required": ["id", "conversationId", "userId", "role", "content", "createdAt"]
+    },
+    "Memory": {
+      "title": "Persistent User Memory",
+      "description": "Custom user memories, preferences, and facts to customize AI context",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique memory ID"
+        },
+        "userId": {
+          "type": "string",
+          "description": "Owner user ID"
+        },
+        "key": {
+          "type": "string",
+          "description": "Memory key or label"
+        },
+        "value": {
+          "type": "string",
+          "description": "Memory content"
+        },
+        "category": {
+          "type": "string",
+          "enum": ["preference", "profile", "study", "general"],
+          "description": "Memory category"
+        },
+        "isEnabled": {
+          "type": "boolean",
+          "description": "Whether this memory is active"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "ISO timestamp of creation"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "ISO timestamp of update"
+        }
+      },
+      "required": ["id", "userId", "key", "value", "isEnabled", "createdAt", "updatedAt"]
+    },
+    "Space": {
+      "title": "IntelicatAI Project Space",
+      "description": "Project space containing notes, custom instructions, and context",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique space ID"
+        },
+        "userId": {
+          "type": "string",
+          "description": "Owner user ID"
+        },
+        "title": {
+          "type": "string",
+          "description": "Space title"
+        },
+        "description": {
+          "type": "string",
+          "description": "Short description of the space"
+        },
+        "icon": {
+          "type": "string",
+          "description": "Icon name or emoji"
+        },
+        "customInstructions": {
+          "type": "string",
+          "description": "Space-specific system instructions"
+        },
+        "notes": {
+          "type": "string",
+          "description": "Scratchpad and documentation notes"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "ISO timestamp of creation"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "ISO timestamp of update"
+        }
+      },
+      "required": ["id", "userId", "title", "createdAt", "updatedAt"]
     }
   },
   "firestore": {
@@ -151,6 +236,14 @@
     "/users/{userId}/conversations/{conversationId}/messages/{messageId}": {
       "schema": "Message",
       "description": "Stores individual messages within a user conversation"
+    },
+    "/users/{userId}/memories/{memoryId}": {
+      "schema": "Memory",
+      "description": "Stores persistent memories and preferences owned by the user"
+    },
+    "/users/{userId}/spaces/{spaceId}": {
+      "schema": "Space",
+      "description": "Stores project spaces, instructions, and notes owned by the user"
     }
   }
 }

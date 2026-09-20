@@ -48,16 +48,27 @@ setInterval(() => {
 // Tracks total requests per user on server as secondary defense against frontend tampering
 const userUsageMap = new Map<string, number>();
 
+const TIER_LIMITS_MAP: Record<string, number> = {
+  free: 15,
+  vip: 100,
+  founder: 250,
+};
+
 export function checkAndIncrementServerQuota(
   userId: string | undefined,
-  isVipOrFounder: boolean
-): { allowed: boolean; remaining?: number; currentUsage?: number } {
-  // Always allow all requests - unlimited access for all users
-  if (userId) {
-    const current = userUsageMap.get(userId) || 0;
-    userUsageMap.set(userId, current + 1);
+  isVipOrFounder: boolean,
+  tier: "free" | "vip" | "founder" = isVipOrFounder ? "vip" : "free"
+): { allowed: boolean; remaining?: number; currentUsage?: number; max?: number } {
+  if (!userId) {
+    return { allowed: true, remaining: 15, currentUsage: 0, max: 15 };
   }
-  return { allowed: true, remaining: 999999, currentUsage: userUsageMap.get(userId || '') || 0 };
+  const max = TIER_LIMITS_MAP[tier] || 15;
+  const current = userUsageMap.get(userId) || 0;
+  if (current >= max) {
+    return { allowed: false, remaining: 0, currentUsage: current, max };
+  }
+  userUsageMap.set(userId, current + 1);
+  return { allowed: true, remaining: Math.max(0, max - (current + 1)), currentUsage: current + 1, max };
 }
 
 // --- Request Validation ---
@@ -190,22 +201,19 @@ export function getAiClient(): GoogleGenAI {
 }
 
 let groqClient: Groq | null = null;
-export function getGroqClient(): Groq {
-  if (!groqClient) {
-    const key = process.env.GROQ_API_KEY;
-    if (!key) {
-      throw new Error('GROQ_API_KEY is not configured. Please add it to your environment variables or secrets.');
-    }
-    groqClient = new Groq({ apiKey: key });
+export function getGroqClient(customKey?: string): Groq {
+  const key = customKey?.trim() || process.env.GROQ_API_KEY?.trim();
+  if (!key) {
+    throw new Error('GROQ_API_KEY is not configured. Please add it to your environment variables or Settings.');
   }
-  return groqClient;
+  return new Groq({ apiKey: key });
 }
 
 const CANDIDATE_GROQ_MODELS = [
-  'llama-3.1-8b-instant',
   'llama-3.3-70b-versatile',
-  'llama3-8b-8192',
+  'llama-3.1-8b-instant',
   'mixtral-8x7b-32768',
+  'gemma2-9b-it',
 ];
 
 export async function resolveGroqModel(groq: Groq): Promise<string> {
@@ -537,12 +545,16 @@ export function formatCleanErrorMessage(error: any): string {
 
 // System instructions
 export function getSystemInstruction(mode: 'normal' | 'cat-code'): string {
+  const symbolDirective = `\n\n[Formatting Directives]:
+- Output clean Unicode symbols directly for arrows, transitions, and math (e.g. →, ⇒, ←, ↔, ×, ÷, ±, ≤, ≥, ≠, ≈, °, ², ³, √(x)) instead of raw LaTeX code like $\\rightarrow$ or $\\times$.
+- Never output raw unrendered LaTeX markers for simple arrows or equations.`;
+
   if (mode === 'normal') {
     return `You are IntelicatAI in "Normal Talk Mode" — a helpful, versatile, friendly, and ultra-fast conversational companion.
 - Designed to have natural, engaging, and thoughtful discussions on any topic (writing, ideas, science, philosophy, planning, brainstorming, and learning).
 - Speak with warm intelligence, clarity, and empathy.
 - When search results are available, incorporate up-to-date facts smoothly.
-- Format responses cleanly with Markdown, clear paragraphs, and bullet points.`;
+- Format responses cleanly with Markdown, clear paragraphs, and bullet points.${symbolDirective}`;
   } else {
     return `You are IntelicatAI 🐾, the legendary Cybernetic Cat Coder and AI Software Architect.
 You are in "Cat Code Mode" — supreme feline agility meets world-class software engineering.
@@ -551,6 +563,6 @@ Core Directives:
 - Elite master of TypeScript, JavaScript, Python, Rust, Go, SQL, React, Node.js, Next.js, Algorithms, and Distributed Systems.
 - You produce production-grade, modular, robust, bug-free code with precise explanations and clear best practices.
 - Witty, playful feline cyber-cat persona (occasional sharp cat puns like "purr-fectly compiled", "catching bugs faster than mice", "razor-sharp reflexes", but always extraordinarily intelligent and technically profound).
-- Hunt down bugs, optimize algorithmic bottlenecks, and deliver high-signal code solutions with syntax-highlighted codeblocks.`;
+- Hunt down bugs, optimize algorithmic bottlenecks, and deliver high-signal code solutions with syntax-highlighted codeblocks.${symbolDirective}`;
   }
 }

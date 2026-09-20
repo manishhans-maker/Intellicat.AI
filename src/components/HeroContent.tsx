@@ -50,7 +50,7 @@ export const HeroContent: React.FC<HeroContentProps> = ({
         initial={{ opacity: 0, y: 15 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.6, delay: 0.1 }}
-        className="text-[44px] sm:text-[64px] lg:text-[76px] xl:text-[84px] font-bold text-white tracking-[-0.03em] leading-[1.05] sm:leading-[1.02] mb-6 select-none"
+        className="text-[34px] xs:text-[40px] sm:text-[64px] lg:text-[76px] xl:text-[84px] font-bold text-white tracking-[-0.03em] leading-[1.08] sm:leading-[1.02] mb-5 sm:mb-6 select-none"
       >
         <span className="block font-sans font-extrabold">Technology</span>
         <span className="block font-sans font-extrabold">

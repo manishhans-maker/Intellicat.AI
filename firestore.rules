@@ -64,6 +64,31 @@ service cloud.firestore {
         (!('provider' in data) || (data.provider is string && data.provider.size() <= 32));
     }
 
+    function isValidMemory(data, userId) {
+      return data.keys().hasAll(['id', 'userId', 'key', 'value', 'isEnabled', 'createdAt', 'updatedAt']) &&
+        data.id is string && data.id.size() > 0 && data.id.size() <= 128 &&
+        data.userId == userId &&
+        data.key is string && data.key.size() > 0 && data.key.size() <= 128 &&
+        data.value is string && data.value.size() > 0 && data.value.size() <= 5000 &&
+        data.isEnabled is bool &&
+        data.createdAt is string && data.createdAt.size() <= 64 &&
+        data.updatedAt is string && data.updatedAt.size() <= 64 &&
+        (!('category' in data) || (data.category is string && data.category.size() <= 64));
+    }
+
+    function isValidSpace(data, userId) {
+      return data.keys().hasAll(['id', 'userId', 'title', 'createdAt', 'updatedAt']) &&
+        data.id is string && data.id.size() > 0 && data.id.size() <= 128 &&
+        data.userId == userId &&
+        data.title is string && data.title.size() > 0 && data.title.size() <= 128 &&
+        data.createdAt is string && data.createdAt.size() <= 64 &&
+        data.updatedAt is string && data.updatedAt.size() <= 64 &&
+        (!('description' in data) || (data.description is string && data.description.size() <= 2000)) &&
+        (!('icon' in data) || (data.icon is string && data.icon.size() <= 64)) &&
+        (!('customInstructions' in data) || (data.customInstructions is string && data.customInstructions.size() <= 10000)) &&
+        (!('notes' in data) || (data.notes is string && data.notes.size() <= 50000));
+    }
+
     // Public health and connectivity check
     match /public/{docId} {
       allow read: if true;
@@ -124,6 +149,22 @@ service cloud.firestore {
           allow update: if isSignedIn() && request.auth.uid == userId && isValidId(messageId) && isValidMessage(incoming(), userId, conversationId);
           allow delete: if isSignedIn() && request.auth.uid == userId;
         }
+      }
+
+      // Memories subcollection
+      match /memories/{memoryId} {
+        allow read: if isSignedIn() && request.auth.uid == userId;
+        allow create: if isSignedIn() && request.auth.uid == userId && isValidId(memoryId) && isValidMemory(incoming(), userId);
+        allow update: if isSignedIn() && request.auth.uid == userId && isValidId(memoryId) && isValidMemory(incoming(), userId);
+        allow delete: if isSignedIn() && request.auth.uid == userId;
+      }
+
+      // Spaces subcollection
+      match /spaces/{spaceId} {
+        allow read: if isSignedIn() && request.auth.uid == userId;
+        allow create: if isSignedIn() && request.auth.uid == userId && isValidId(spaceId) && isValidSpace(incoming(), userId);
+        allow update: if isSignedIn() && request.auth.uid == userId && isValidId(spaceId) && isValidSpace(incoming(), userId);
+        allow delete: if isSignedIn() && request.auth.uid == userId;
       }
     }
   }

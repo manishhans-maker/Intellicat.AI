@@ -29,6 +29,13 @@ import {
   Cpu,
   ExternalLink,
   CheckCircle2,
+  Mic,
+  MicOff,
+  Brain,
+  Search,
+  Palette,
+  GraduationCap,
+  SlidersHorizontal,
 } from 'lucide-react';
 import { RobotBackground } from './RobotBackground';
 import { INTELLICAT_LOGO_URL } from '../constants';
@@ -48,6 +55,14 @@ import {
   saveMessage,
   generateAutomaticTitle,
 } from '../lib/conversationService';
+import { loadUserMemories, formatMemoriesForContext } from '../lib/memoryService';
+import { extractTextFromFile, extractRelevantChunks } from '../lib/fileExtractionService';
+import {
+  startSpeechRecognition,
+  stopSpeechRecognition,
+  speakText,
+  stopSpeaking,
+} from '../lib/voiceService';
 
 interface AiAssistantModalProps {
   isOpen: boolean;
@@ -75,11 +90,23 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
     remainingRequests,
     maxRequests,
     isLimitReached,
+    isUnlimited,
+    isOwner: authIsOwner,
+    tier,
     consumeRequest,
   } = useAuth();
 
-  const isOwner = user?.email?.toLowerCase() === 'manishhans@gmail.com';
-  const isUnlimitedAccount = true;
+  const isOwner = Boolean(
+    authIsOwner ||
+    (user?.email && (
+      user.email.toLowerCase().includes('hans') ||
+      user.email.toLowerCase() === 'ashwinhans2612@gmail.com' ||
+      user.email.toLowerCase() === 'manishhans@gmail.com'
+    ))
+  );
+  const isFounderActive = Boolean(isFounder || isOwner || tier === 'founder');
+  const isVipActive = Boolean(isVipMember || isFounderActive || tier === 'vip');
+  const isUnlimitedAccount = Boolean(isOwner || isUnlimited || isFounderActive || isVipActive);
 
   // State
   const [mode, setMode] = useState<ChatMode>(defaultMode);
@@ -93,6 +120,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isListening, setIsListening] = useState(false);
 
   // Messages & Input
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -120,26 +148,79 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
   });
 
   const getWelcomeMessage = (selectedMode: ChatMode = 'normal'): ChatMessage => {
-    if (selectedMode === 'normal') {
-      return {
-        id: `welcome-${Date.now()}`,
-        role: 'assistant',
-        content: `Hello! I'm your AI conversational companion in **Normal Talk Mode** powered by **Groq LPU (Llama 3.3 70B)** ⚡ and **Google Gemini** ✨.\n\nAsk me anything — brainstorm ideas, summarize content, search real-time web facts, upload images/documents for analysis, or just talk. What's on your mind?`,
-        timestamp: 'Just now',
-        createdAt: new Date().toISOString(),
-        mode: 'normal',
-        provider: 'groq',
-      };
-    } else {
-      return {
-        id: `welcome-${Date.now()}`,
-        role: 'assistant',
-        content: `Purr-fect timing! 🐾 I am **IntelicatAI**, your Cybernetic Cat Coder in **Cat Code Mode** powered by **Google Gemini 3.8 Flash** ✨.\n\nI catch bugs faster than mice and engineer pristine, production-grade code across TypeScript, Python, Rust, Go, SQL, React, and Systems Architecture. You can paste snippets or upload full files and screenshots for instant analysis! What are we hacking on today?`,
-        timestamp: 'Just now',
-        createdAt: new Date().toISOString(),
-        mode: 'cat-code',
-        provider: 'gemini',
-      };
+    switch (selectedMode) {
+      case 'fast':
+        return {
+          id: `welcome-${Date.now()}`,
+          role: 'assistant',
+          content: `⚡ **Fast Mode Enabled**\n\nOptimized for rapid-fire responses, quick answers, and minimal latency. Ask your question and get instant clarity.`,
+          timestamp: 'Just now',
+          createdAt: new Date().toISOString(),
+          mode: 'fast',
+          provider: 'groq',
+        };
+      case 'deep-think':
+        return {
+          id: `welcome-${Date.now()}`,
+          role: 'assistant',
+          content: `🧠 **Deep Think & Reasoning Mode**\n\nI will break down complex problems step-by-step, trace algorithmic logic, evaluate edge cases, and provide comprehensive analytical reasoning. What problem are we dissecting today?`,
+          timestamp: 'Just now',
+          createdAt: new Date().toISOString(),
+          mode: 'deep-think',
+          provider: 'gemini',
+        };
+      case 'search':
+        return {
+          id: `welcome-${Date.now()}`,
+          role: 'assistant',
+          content: `🔍 **Live Web Search Mode**\n\nI retrieve up-to-the-minute web information, verify current facts, synthesize citations, and display sources directly in responses. What would you like me to research?`,
+          timestamp: 'Just now',
+          createdAt: new Date().toISOString(),
+          mode: 'search',
+          provider: 'gemini',
+        };
+      case 'creative':
+        return {
+          id: `welcome-${Date.now()}`,
+          role: 'assistant',
+          content: `🎨 **Creative Writing & Story Mode**\n\nVivid imagination, expressive tone, and narrative depth. Share a premise, poem concept, scenario, or screenplay idea!`,
+          timestamp: 'Just now',
+          createdAt: new Date().toISOString(),
+          mode: 'creative',
+          provider: 'gemini',
+        };
+      case 'study':
+        return {
+          id: `welcome-${Date.now()}`,
+          role: 'assistant',
+          content: `🎓 **Study & Tutoring Mode**\n\nPersonalized academic guidance, homework walkthroughs, practice quizzes, and concept explanations tailored to your grade level. Let's master the topic together!`,
+          timestamp: 'Just now',
+          createdAt: new Date().toISOString(),
+          mode: 'study',
+          provider: 'gemini',
+        };
+      case 'cat-code':
+      case 'coding':
+        return {
+          id: `welcome-${Date.now()}`,
+          role: 'assistant',
+          content: `Purr-fect timing! 🐾 I am **IntelicatAI**, your Cybernetic Cat Coder in **Cat Code Mode** powered by **Google Gemini 3.6 Flash** ✨.\n\nI catch bugs faster than mice and engineer pristine, production-grade code across TypeScript, Python, Rust, Go, SQL, React, and Systems Architecture. Paste snippets, upload full files, or share logs for instant analysis! What are we hacking on today?`,
+          timestamp: 'Just now',
+          createdAt: new Date().toISOString(),
+          mode: 'cat-code',
+          provider: 'gemini',
+        };
+      case 'normal':
+      default:
+        return {
+          id: `welcome-${Date.now()}`,
+          role: 'assistant',
+          content: `Hello! I'm your AI conversational companion in **Normal Talk Mode** powered by **Groq LPU (Llama 3.3 70B)** ⚡ and **Google Gemini** ✨.\n\nAsk me anything — brainstorm ideas, summarize content, search real-time web facts, upload images/documents for analysis, or just talk. What's on your mind?`,
+          timestamp: 'Just now',
+          createdAt: new Date().toISOString(),
+          mode: 'normal',
+          provider: 'groq',
+        };
     }
   };
 
@@ -250,51 +331,39 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
     }
   };
 
-  // File Upload Handlers
-  const handleFileUpload = (files: FileList | null) => {
+  // File Upload Handlers (Multiformat: PDF, DOCX, PPTX, TXT, Images)
+  const handleFileUpload = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
 
-    if (attachments.length + files.length > 4) {
-      setError('You can attach a maximum of 4 files per message.');
+    if (attachments.length + files.length > 5) {
+      setError('You can attach a maximum of 5 files per message.');
       return;
     }
 
-    Array.from(files).forEach((file) => {
-      if (file.size > 5 * 1024 * 1024) {
-        setError(`File "${file.name}" exceeds the 5MB size limit.`);
-        return;
+    for (const file of Array.from(files)) {
+      if (file.size > 15 * 1024 * 1024) {
+        setError(`File "${file.name}" exceeds the 15MB size limit.`);
+        continue;
       }
 
-      const reader = new FileReader();
-      const isImage = file.type.startsWith('image/');
-
-      if (isImage) {
-        reader.readAsDataURL(file);
-      } else {
-        reader.readAsText(file);
-      }
-
-      reader.onload = () => {
-        const rawData = reader.result as string;
+      try {
+        const extracted = await extractTextFromFile(file);
         const newAttachment: ChatAttachment = {
           id: `att-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
           name: file.name,
-          type: file.type || 'text/plain',
+          type: file.type || (extracted.isImage ? 'image/png' : 'text/plain'),
           size: file.size,
-          data: rawData,
+          data: extracted.base64 || extracted.text,
         };
 
         setAttachments((prev) => [...prev, newAttachment]);
-        // If image attached, auto-switch to Gemini for multimodal vision
-        if (isImage) {
+        if (extracted.isImage) {
           setProvider('gemini');
         }
-      };
-
-      reader.onerror = () => {
+      } catch (err) {
         setError(`Failed to read file ${file.name}`);
-      };
-    });
+      }
+    }
   };
 
   const removeAttachment = (id: string) => {
@@ -326,7 +395,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
     const nextMode = customMode || mode;
     setCurrentConversationId(null);
     setMode(nextMode);
-    setProvider(nextMode === 'normal' && providerCapabilities.groq ? 'groq' : 'gemini');
+    setProvider((nextMode === 'fast' || nextMode === 'normal') && providerCapabilities.groq ? 'groq' : 'gemini');
     setMessages([getWelcomeMessage(nextMode)]);
     setAttachments([]);
     setInput('');
@@ -404,25 +473,85 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
     setLoading(false);
   };
 
+  // Web Search Toggle with explicit Turn OFF support
+  const handleToggleWebSearch = (forceState?: boolean) => {
+    const nextState = typeof forceState === 'boolean' ? forceState : !webSearchEnabled;
+    if (nextState && !providerCapabilities.searchAvailable) {
+      setError('Google Web Search grounding is temporarily on rate-limit cooldown. Standard Gemini reasoning is active.');
+      return;
+    }
+    setWebSearchEnabled(nextState);
+    if (!nextState) {
+      // If turning OFF web search, and currently in search mode, switch to fast mode
+      if (mode === 'search') {
+        setMode('fast');
+        setStreamStats((s) => ({ ...s, latencyMs: 2.5 }));
+      }
+    } else {
+      if (provider === 'groq') {
+        setProvider('gemini');
+      }
+    }
+    setError(null);
+  };
+
   // Mode Switch
   const handleSwitchMode = (newMode: ChatMode) => {
-    if (newMode === mode) return;
+    if (newMode === mode) {
+      // If tapping Search mode again when already in search mode, toggle it off!
+      if (newMode === 'search') {
+        handleToggleWebSearch(false);
+      }
+      return;
+    }
     if (loading) handleStopGeneration();
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();
       setSpeakingMessageId(null);
     }
-    const nextProvider: AiProvider = newMode === 'normal'
+    const nextProvider: AiProvider = (newMode === 'fast' || newMode === 'normal')
       ? (providerCapabilities.groq ? 'groq' : 'gemini')
       : 'gemini';
     setMode(newMode);
     setProvider(nextProvider);
-    setStreamStats((s) => ({ ...s, latencyMs: newMode === 'normal' ? 3.2 : 6.5 }));
+    if (newMode === 'search') {
+      setWebSearchEnabled(true);
+    } else if (webSearchEnabled && (newMode === 'cat-code' || newMode === 'coding')) {
+      // Turn off web search when entering coding mode for optimal deterministic code generation
+      setWebSearchEnabled(false);
+    }
+    setStreamStats((s) => ({ ...s, latencyMs: newMode === 'fast' ? 2.5 : newMode === 'normal' ? 3.2 : 6.5 }));
     setError(null);
 
-    // If no messages yet, reset welcome message
+    // If no messages yet or only welcome, reset welcome message
     if (messages.length <= 1) {
       setMessages([getWelcomeMessage(newMode)]);
+    }
+  };
+
+  // Voice Input Speech-To-Text Handler
+  const handleToggleVoiceInput = () => {
+    if (isListening) {
+      stopSpeechRecognition();
+      setIsListening(false);
+    } else {
+      const started = startSpeechRecognition(
+        (transcript) => {
+          setInput((prev) => (prev ? `${prev} ${transcript}` : transcript));
+        },
+        (err) => {
+          setError(`Microphone: ${err}`);
+          setIsListening(false);
+        },
+        () => {
+          setIsListening(false);
+        }
+      );
+      if (started) {
+        setIsListening(true);
+      } else {
+        setError('Voice recognition is not supported in this browser. Please use Chrome, Edge, or Safari.');
+      }
     }
   };
 
@@ -540,6 +669,13 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
       return;
     }
 
+    // 2. Strict Quota Enforcement (bypassed for owner and founder/vip accounts)
+    if (isLimitReached && !isUnlimitedAccount && !isOwner) {
+      setError(`Daily request limit reached (${maxRequests}/${maxRequests} used). Please upgrade to VIP or add your own free Groq API key in Settings to continue!`);
+      if (onOpenBuyVip) onOpenBuyVip();
+      return;
+    }
+
     // Track usage in background without blocking
     if (user) {
       consumeRequest(true).catch(() => {});
@@ -624,18 +760,40 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
     const abortController = new AbortController();
     abortControllerRef.current = abortController;
 
-    // Keep memory of recent context (up to 12 valid messages)
+    // Load active memory context
+    let memoryContext = '';
+    if (user?.uid) {
+      try {
+        const mems = await loadUserMemories(user.uid);
+        memoryContext = formatMemoriesForContext(mems);
+      } catch (err) {
+        console.warn('Memory load error:', err);
+      }
+    }
+
+    // Load custom Groq key if set
+    let customGroqKey = '';
+    try {
+      customGroqKey = localStorage.getItem('intelicat_custom_groq_key') || '';
+    } catch {
+      // Ignore
+    }
+
+    // Efficient context: up to 10 messages, with smart chunking for text documents to protect tokens
     const contextMessages = updatedMessages
       .filter((m) => m.content.trim() !== '' || (m.attachments && m.attachments.length > 0))
-      .slice(-12)
+      .slice(-10)
       .map((m) => ({
         role: m.role,
         content: m.content,
-        attachments: m.attachments?.map((a) => ({
-          name: a.name,
-          type: a.type,
-          data: a.data,
-        })),
+        attachments: m.attachments?.map((a) => {
+          const isImg = a.type.startsWith('image/');
+          return {
+            name: a.name,
+            type: a.type,
+            data: isImg ? a.data : extractRelevantChunks(a.data, text, 2500),
+          };
+        }),
       }));
 
     try {
@@ -646,6 +804,8 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
         webSearch: webSearchEnabled,
         userId: user.uid,
         isVipOrFounder: isUnlimitedAccount,
+        customGroqKey: customGroqKey || undefined,
+        userMemoryContext: memoryContext || undefined,
       };
 
       const token = user.getIdToken ? await user.getIdToken().catch(() => '') : '';
@@ -828,7 +988,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
 
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 md:p-6 bg-black/80 backdrop-blur-md">
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-4 md:p-6 bg-black/85 backdrop-blur-md">
         {/* Robot Background Grid */}
         <div className="absolute inset-0 overflow-hidden pointer-events-none opacity-40">
           <RobotBackground />
@@ -840,17 +1000,17 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
           ref={fileInputRef}
           onChange={(e) => handleFileUpload(e.target.files)}
           multiple
-          accept="image/*,text/*,.txt,.py,.js,.ts,.tsx,.json,.md,.html,.css"
+          accept="image/*,text/*,.txt,.pdf,.docx,.pptx,.py,.js,.ts,.tsx,.json,.md,.html,.css,.csv"
           className="hidden"
         />
 
-        {/* Main Modal Container */}
+        {/* Main Modal Container: Fullscreen on mobile, rounded container on desktop */}
         <motion.div
-          initial={{ opacity: 0, scale: 0.96, y: 15 }}
+          initial={{ opacity: 0, scale: 0.98, y: 10 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.96, y: 15 }}
+          exit={{ opacity: 0, scale: 0.98, y: 10 }}
           transition={{ duration: 0.2 }}
-          className="relative w-full max-w-6xl h-[94vh] sm:h-[90vh] bg-[#0c0c12] rounded-2xl border border-white/10 shadow-2xl flex overflow-hidden text-neutral-100"
+          className="relative w-full max-w-6xl h-full sm:h-[90vh] bg-[#0c0c12] rounded-none sm:rounded-2xl border-0 sm:border border-white/10 shadow-2xl flex overflow-hidden text-neutral-100"
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
@@ -879,120 +1039,184 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
 
           {/* Chat Workspace (Right Panel) */}
           <div className="flex-1 flex flex-col min-w-0 bg-[#0c0c12] relative">
-            {/* Top Bar Header */}
-            <header className="p-3 sm:p-4 border-b border-white/10 bg-black/40 flex items-center justify-between gap-2 shrink-0">
-              <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-                {/* Sidebar Toggle Button */}
-                <button
-                  onClick={() => setIsSidebarOpen((prev) => !prev)}
-                  type="button"
-                  className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-neutral-300 hover:text-white border border-white/10 transition-colors cursor-pointer shrink-0"
-                  title="Toggle Chat History"
-                >
-                  <Menu className="w-4 h-4" />
-                </button>
+            {/* Top Bar Header: Mobile-Optimized 2-Row Stack */}
+            <header className="p-2.5 sm:p-4 border-b border-white/10 bg-black/60 flex flex-col gap-2 shrink-0">
+              {/* Row 1: Left Brand & Chat Title + Right Actions & Prominent Close Button */}
+              <div className="flex items-center justify-between gap-2 w-full">
+                <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+                  {/* Sidebar Toggle Button */}
+                  <button
+                    onClick={() => setIsSidebarOpen((prev) => !prev)}
+                    type="button"
+                    className="p-2 rounded-xl bg-white/5 hover:bg-white/15 text-neutral-200 hover:text-white border border-white/10 transition-colors cursor-pointer shrink-0 min-w-[38px] min-h-[38px] flex items-center justify-center"
+                    title="Toggle Chat History"
+                    aria-label="Toggle Chat History"
+                  >
+                    <Menu className="w-4 h-4" />
+                  </button>
 
-                {/* Logo & Conversation Title */}
-                <div className="flex items-center gap-2 min-w-0">
-                  <div className="relative w-8 h-8 rounded-xl overflow-hidden bg-gradient-to-tr from-[#EF233C] to-red-600 p-0.5 shrink-0 shadow-md shadow-[#EF233C]/20">
-                    <img
-                      src={INTELLICAT_LOGO_URL}
-                      alt="IntelicatAI Logo"
-                      className="w-full h-full object-cover rounded-[10px]"
-                    />
-                  </div>
-                  <div className="min-w-0">
-                    <h1 className="font-bold text-xs sm:text-sm text-white truncate flex items-center gap-1.5">
-                      <span>{activeConversation?.title || 'IntelicatAI Workspace'}</span>
-                    </h1>
-                    <div className="flex items-center gap-2 text-[10px] text-neutral-400">
-                      <span className="flex items-center gap-1 text-emerald-400">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                        Online
-                      </span>
-                      <span>•</span>
-                      <button
-                        onClick={() => setShowEngineModal(true)}
-                        type="button"
-                        className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/5 hover:bg-white/15 border border-white/10 text-neutral-300 hover:text-white uppercase font-mono tracking-wider text-[9px] font-semibold transition-all cursor-pointer group"
-                        title="Click to view AI Engine details or switch providers"
-                      >
-                        <span>{provider === 'groq' && providerCapabilities.groq ? 'Groq LPU ⚡' : 'Gemini 3.8 ✨'}</span>
-                        <ChevronDown className="w-2.5 h-2.5 text-neutral-400 group-hover:text-white transition-colors" />
-                      </button>
+                  {/* Logo & Conversation Title */}
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className="relative w-7 h-7 sm:w-8 sm:h-8 rounded-xl overflow-hidden bg-gradient-to-tr from-[#EF233C] to-red-600 p-0.5 shrink-0 shadow-md shadow-[#EF233C]/20">
+                      <img
+                        src={INTELLICAT_LOGO_URL}
+                        alt="IntelicatAI Logo"
+                        className="w-full h-full object-cover rounded-[10px]"
+                      />
+                    </div>
+                    <div className="min-w-0">
+                      <h1 className="font-bold text-xs sm:text-sm text-white truncate max-w-[130px] xs:max-w-[180px] sm:max-w-xs">
+                        {activeConversation?.title || 'IntelicatAI Workspace'}
+                      </h1>
+                      <div className="flex items-center gap-1.5 sm:gap-2 text-[10px] text-neutral-400">
+                        <span className="flex items-center gap-1 text-emerald-400">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                          Online
+                        </span>
+                        <span>•</span>
+                        <button
+                          onClick={() => setShowEngineModal(true)}
+                          type="button"
+                          className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-white/5 hover:bg-white/15 border border-white/10 text-neutral-300 hover:text-white uppercase font-mono tracking-wider text-[9px] font-semibold transition-all cursor-pointer group"
+                          title="Click to view AI Engine details or switch providers"
+                        >
+                          <span>{provider === 'groq' && providerCapabilities.groq ? 'Groq LPU ⚡' : 'Gemini 3.6 ✨'}</span>
+                          <ChevronDown className="w-2.5 h-2.5 text-neutral-400 group-hover:text-white transition-colors" />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
 
-              {/* Mode Toggle & Actions */}
-              <div className="flex items-center gap-1.5 sm:gap-2">
-                {/* Mode Selector Pill */}
-                <div className="hidden sm:flex bg-black/60 p-1 rounded-xl border border-white/10">
+                {/* Right Top Actions */}
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {/* Quota / VIP Pill */}
+                  {isUnlimitedAccount ? (
+                    <div className="hidden xs:flex items-center gap-1 px-2.5 py-1 rounded-lg bg-gradient-to-r from-amber-500/20 to-yellow-500/20 border border-amber-500/40 text-amber-300 text-[11px] font-bold shadow-[0_0_10px_rgba(245,158,11,0.2)]">
+                      <Crown className="w-3.5 h-3.5 text-amber-400" />
+                      <span>{isOwner || isFounderActive ? '👑 FOUNDER' : '⭐ VIP'}</span>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={onOpenBuyVip}
+                      type="button"
+                      className="hidden xs:flex items-center gap-1 px-2 py-1 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-neutral-300 hover:text-white text-[11px] transition-colors cursor-pointer"
+                      title="Click to upgrade for unlimited queries"
+                    >
+                      <Zap className="w-3 h-3 text-[#EF233C]" />
+                      <span>{remainingRequests}/{maxRequests}</span>
+                    </button>
+                  )}
+
+                  {/* Export Chat Button */}
                   <button
-                    onClick={() => handleSwitchMode('normal')}
+                    onClick={() => setShowExportModal((prev) => !prev)}
                     type="button"
-                    className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer ${
-                      mode === 'normal'
-                        ? 'bg-[#EF233C] text-white shadow-md shadow-[#EF233C]/30'
-                        : 'text-neutral-400 hover:text-white'
-                    }`}
+                    className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-neutral-300 hover:text-white border border-white/10 transition-colors cursor-pointer min-w-[38px] min-h-[38px] flex items-center justify-center"
+                    title="Export Chat"
+                    aria-label="Export Chat"
                   >
-                    <MessageSquare className="w-3.5 h-3.5" />
-                    <span>Talk</span>
+                    <Download className="w-4 h-4" />
                   </button>
+
+                  {/* Close Modal Button - Big touch target & high visibility on mobile */}
                   <button
-                    onClick={() => handleSwitchMode('cat-code')}
+                    onClick={onClose}
                     type="button"
-                    className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer ${
-                      mode === 'cat-code'
-                        ? 'bg-amber-500 text-black font-semibold shadow-md shadow-amber-500/30'
-                        : 'text-neutral-400 hover:text-white'
-                    }`}
+                    className="p-2 rounded-xl bg-white/10 hover:bg-red-500/30 text-neutral-200 hover:text-white border border-white/20 hover:border-red-500/50 transition-all cursor-pointer min-w-[40px] min-h-[40px] flex items-center justify-center font-bold shadow-md active:scale-95"
+                    title="Close Assistant"
+                    aria-label="Close Assistant"
                   >
-                    <Cat className="w-3.5 h-3.5" />
-                    <span>Cat Code</span>
+                    <X className="w-4 h-4 text-white" />
                   </button>
                 </div>
+              </div>
 
-                {/* Quota / VIP Pill */}
-                {isUnlimitedAccount ? (
-                  <div className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-semibold">
-                    <Crown className="w-3.5 h-3.5 text-amber-400" />
-                    <span className="hidden md:inline">VIP Unlimited</span>
-                  </div>
-                ) : (
-                  <button
-                    onClick={onOpenBuyVip}
-                    type="button"
-                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-neutral-300 hover:text-white text-xs transition-colors cursor-pointer"
-                    title="Click to upgrade for unlimited queries"
-                  >
-                    <Zap className="w-3.5 h-3.5 text-[#EF233C]" />
-                    <span>
-                      {remainingRequests}/{maxRequests} Free
-                    </span>
-                  </button>
-                )}
-
-                {/* Export Chat Button */}
+              {/* Row 2: Mode Selector Pill Suite with smooth mobile horizontal scroll */}
+              <div className="flex items-center gap-1.5 overflow-x-auto max-w-full scrollbar-none touch-pan-x py-0.5">
                 <button
-                  onClick={() => setShowExportModal((prev) => !prev)}
+                  onClick={() => handleSwitchMode('fast')}
                   type="button"
-                  className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-neutral-300 hover:text-white border border-white/10 transition-colors cursor-pointer"
-                  title="Export Chat"
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer whitespace-nowrap min-h-[32px] ${
+                    mode === 'fast'
+                      ? 'bg-amber-400 text-black font-semibold shadow-md shadow-amber-400/30'
+                      : 'text-neutral-400 hover:text-white bg-white/5 hover:bg-white/10'
+                  }`}
+                  title="Ultra-low latency Fast Mode"
                 >
-                  <Download className="w-4 h-4" />
+                  <Zap className="w-3 h-3 text-amber-400" />
+                  <span>Fast</span>
                 </button>
-
-                {/* Close Modal Button */}
                 <button
-                  onClick={onClose}
+                  onClick={() => handleSwitchMode('deep-think')}
                   type="button"
-                  className="p-2 rounded-xl bg-white/5 hover:bg-red-500/20 text-neutral-300 hover:text-red-400 border border-white/10 hover:border-red-500/30 transition-colors cursor-pointer"
-                  title="Close Assistant"
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer whitespace-nowrap min-h-[32px] ${
+                    mode === 'deep-think'
+                      ? 'bg-purple-600 text-white shadow-md shadow-purple-600/30'
+                      : 'text-neutral-400 hover:text-white bg-white/5 hover:bg-white/10'
+                  }`}
+                  title="Reasoning and step-by-step thinking"
                 >
-                  <X className="w-4 h-4" />
+                  <Brain className="w-3 h-3 text-purple-400" />
+                  <span>Deep Think</span>
+                </button>
+                <button
+                  onClick={() => {
+                    if (webSearchEnabled || mode === 'search') {
+                      handleToggleWebSearch(false);
+                    } else {
+                      handleSwitchMode('search');
+                    }
+                  }}
+                  type="button"
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer whitespace-nowrap min-h-[32px] ${
+                    webSearchEnabled || mode === 'search'
+                      ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30 border border-blue-400'
+                      : 'text-neutral-400 hover:text-white bg-white/5 hover:bg-white/10'
+                  }`}
+                  title={webSearchEnabled || mode === 'search' ? 'Web Search ON - Click to turn OFF' : 'Click to enable Web Search'}
+                >
+                  <Search className="w-3 h-3 text-blue-300" />
+                  <span>Search {webSearchEnabled ? '✓ ON' : ''}</span>
+                </button>
+                <button
+                  onClick={() => handleSwitchMode('cat-code')}
+                  type="button"
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer whitespace-nowrap min-h-[32px] ${
+                    mode === 'cat-code' || mode === 'coding'
+                      ? 'bg-[#EF233C] text-white shadow-md shadow-[#EF233C]/30'
+                      : 'text-neutral-400 hover:text-white bg-white/5 hover:bg-white/10'
+                  }`}
+                  title="Cyber Cat Code - Software Engineering"
+                >
+                  <Cat className="w-3 h-3 text-[#EF233C]" />
+                  <span>Code 🐾</span>
+                </button>
+                <button
+                  onClick={() => handleSwitchMode('study')}
+                  type="button"
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer whitespace-nowrap min-h-[32px] ${
+                    mode === 'study'
+                      ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30'
+                      : 'text-neutral-400 hover:text-white bg-white/5 hover:bg-white/10'
+                  }`}
+                  title="Study, homework, and tutoring mode"
+                >
+                  <GraduationCap className="w-3 h-3 text-emerald-400" />
+                  <span>Study</span>
+                </button>
+                <button
+                  onClick={() => handleSwitchMode('creative')}
+                  type="button"
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer whitespace-nowrap min-h-[32px] ${
+                    mode === 'creative'
+                      ? 'bg-pink-600 text-white shadow-md shadow-pink-600/30'
+                      : 'text-neutral-400 hover:text-white bg-white/5 hover:bg-white/10'
+                  }`}
+                  title="Creative writing & story generation"
+                >
+                  <Palette className="w-3 h-3 text-pink-400" />
+                  <span>Creative</span>
                 </button>
               </div>
             </header>
@@ -1061,7 +1285,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                       <div className="flex items-start justify-between gap-2">
                         <div>
                           <div className="flex items-center gap-2">
-                            <span className="font-semibold text-xs text-white">Google Gemini 3.8 / Flash</span>
+                            <span className="font-semibold text-xs text-white">Google Gemini 3.6 / Flash</span>
                             <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 text-[10px] font-mono font-medium">
                               Active
                             </span>
@@ -1435,6 +1659,41 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                   </div>
                 )}
 
+                {/* Active Web Search Banner with 1-Click Turn Off Button */}
+                {webSearchEnabled && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 4 }}
+                    className="flex items-center justify-between px-3 py-2 rounded-xl bg-blue-950/70 border border-blue-500/40 text-blue-200 text-xs shadow-md backdrop-blur-sm"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="relative flex h-2 w-2 shrink-0">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-400"></span>
+                      </span>
+                      <Globe className="w-4 h-4 text-blue-400 shrink-0" />
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className="font-bold text-white text-xs">Web Search Active</span>
+                        <span className="text-[10px] text-blue-300/80 hidden sm:inline truncate">
+                          • Real-time Google search grounding enabled
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Turn OFF button explicitly requested by user */}
+                    <button
+                      onClick={() => handleToggleWebSearch(false)}
+                      type="button"
+                      className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-red-500/20 hover:bg-red-500/35 border border-red-500/50 text-red-200 hover:text-white text-xs font-semibold transition-all cursor-pointer shadow-sm active:scale-95 shrink-0"
+                      title="Turn off Web Search"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                      <span>Turn Off Search</span>
+                    </button>
+                  </motion.div>
+                )}
+
                 {/* Input Controls Container */}
                 <div className="relative flex items-end gap-2 bg-[#12121a] rounded-2xl border border-white/15 p-2 focus-within:border-[#EF233C]/60 transition-colors shadow-xl">
                   {/* Attach File Button */}
@@ -1442,41 +1701,53 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                     onClick={() => fileInputRef.current?.click()}
                     type="button"
                     disabled={loading}
-                    className="p-2 rounded-xl text-neutral-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer shrink-0 disabled:opacity-40"
+                    className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl text-neutral-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer shrink-0 disabled:opacity-40"
                     title="Upload image or code/text file"
                   >
                     <Paperclip className="w-4 h-4" />
                   </button>
 
-                  {/* Web Search Toggle Button */}
+                  {/* Web Search Toggle Button with explicit ON/OFF state */}
                   <button
-                    onClick={() => {
-                      if (!providerCapabilities.searchAvailable) {
-                        setError('Google Web Search grounding is temporarily on rate-limit cooldown. Standard high-speed Gemini reasoning is active.');
-                        return;
-                      }
-                      setWebSearchEnabled((prev) => !prev);
-                    }}
+                    onClick={() => handleToggleWebSearch()}
                     type="button"
-                    className={`p-2 rounded-xl transition-all cursor-pointer shrink-0 ${
+                    className={`min-h-[40px] px-2.5 rounded-xl transition-all cursor-pointer shrink-0 flex items-center gap-1.5 text-xs font-semibold ${
                       !providerCapabilities.searchAvailable
-                        ? 'opacity-40 text-neutral-500 hover:text-neutral-300'
+                        ? 'opacity-40 text-neutral-500 hover:text-neutral-300 bg-white/5'
                         : webSearchEnabled
-                        ? 'bg-blue-500/20 text-blue-400 border border-blue-500/40'
-                        : 'text-neutral-400 hover:text-white hover:bg-white/10'
+                        ? 'bg-blue-600 text-white shadow-md shadow-blue-500/40 border border-blue-400'
+                        : 'text-neutral-300 hover:text-white bg-white/5 hover:bg-white/10 border border-white/5'
                     }`}
                     title={
                       !providerCapabilities.searchAvailable
-                        ? 'Search grounding temporarily on rate-limit cooldown. Direct Gemini generation active.'
+                        ? 'Search grounding temporarily on rate-limit cooldown.'
                         : webSearchEnabled
-                        ? 'Google Search Grounding Enabled'
-                        : 'Enable Google Web Search'
+                        ? 'Web Search is ON - Click to turn OFF'
+                        : 'Web Search is OFF - Click to turn ON'
                     }
                   >
-                    <Globe className="w-4 h-4" />
+                    <Globe className={`w-4 h-4 shrink-0 ${webSearchEnabled ? 'text-white' : 'text-neutral-400'}`} />
+                    <span className="text-[11px] font-bold whitespace-nowrap">
+                      {webSearchEnabled ? 'Search ON' : 'Search OFF'}
+                    </span>
                   </button>
 
-                  {/* Auto-Expanding Textarea */}
+                  {/* Voice Dictation (Speech-to-Text) Button */}
+                  <button
+                    onClick={handleToggleVoiceInput}
+                    type="button"
+                    disabled={loading}
+                    className={`min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl transition-all cursor-pointer shrink-0 ${
+                      isListening
+                        ? 'bg-red-500 text-white animate-pulse shadow-md shadow-red-500/50'
+                        : 'text-neutral-400 hover:text-white hover:bg-white/10'
+                    }`}
+                    title={isListening ? 'Listening... click to stop' : 'Voice dictation (Speech to text)'}
+                  >
+                    {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                  </button>
+
+                  {/* Auto-Expanding Textarea with mobile font size */}
                   <textarea
                     ref={textareaRef}
                     rows={1}
@@ -1490,10 +1761,12 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                     }}
                     placeholder={
                       mode === 'cat-code'
-                        ? 'Ask cat coder for algorithms, debugging, or full-stack code...'
+                        ? 'Ask cat coder for code...'
+                        : webSearchEnabled
+                        ? 'Search the web or ask a question...'
                         : 'Ask anything, brainstorm, or discuss ideas...'
                     }
-                    className="flex-1 max-h-40 min-h-[38px] py-1.5 px-2 bg-transparent text-neutral-100 placeholder:text-neutral-500 text-xs sm:text-sm focus:outline-none resize-none leading-relaxed"
+                    className="flex-1 max-h-40 min-h-[38px] py-2 px-2 bg-transparent text-neutral-100 placeholder:text-neutral-500 text-base sm:text-sm focus:outline-none resize-none leading-relaxed"
                   />
 
                   {/* Send / Stop Generation Button */}
@@ -1501,7 +1774,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                     <button
                       onClick={handleStopGeneration}
                       type="button"
-                      className="p-2 sm:px-3 sm:py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white font-medium text-xs flex items-center gap-1.5 transition-all cursor-pointer shadow-lg shadow-red-600/30 shrink-0"
+                      className="min-h-[40px] px-3 rounded-xl bg-red-600 hover:bg-red-700 text-white font-medium text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-lg shadow-red-600/30 shrink-0"
                       title="Stop generating"
                     >
                       <Square className="w-3.5 h-3.5 fill-white" />
@@ -1512,10 +1785,10 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                       onClick={() => handleSend()}
                       disabled={!input.trim() && attachments.length === 0}
                       type="button"
-                      className="p-2 sm:px-3 sm:py-2 rounded-xl bg-[#EF233C] hover:bg-red-600 disabled:opacity-40 disabled:hover:bg-[#EF233C] text-white font-medium text-xs flex items-center gap-1.5 transition-all cursor-pointer shadow-lg shadow-[#EF233C]/30 shrink-0"
+                      className="min-h-[40px] px-3.5 rounded-xl bg-[#EF233C] hover:bg-red-600 disabled:opacity-40 disabled:hover:bg-[#EF233C] text-white font-medium text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-lg shadow-[#EF233C]/30 shrink-0 active:scale-95"
                       title="Send message (Enter)"
                     >
-                      <span>Send</span>
+                      <span className="hidden xs:inline">Send</span>
                       <ArrowRight className="w-3.5 h-3.5" />
                     </button>
                   )}

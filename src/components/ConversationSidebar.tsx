@@ -151,18 +151,18 @@ export const ConversationSidebar: React.FC<ConversationSidebarProps> = ({
           </div>
         </div>
 
-        {/* Quick Actions (Pin, Rename, Archive, Delete) */}
+        {/* Quick Actions (Pin, Rename, Archive, Delete) - Always visible on mobile */}
         {!isEditing && (
           <div
             className={`flex items-center gap-0.5 shrink-0 transition-opacity ${
-              isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+              isActive ? 'opacity-100' : 'opacity-80 sm:opacity-0 group-hover:opacity-100'
             }`}
             onClick={(e) => e.stopPropagation()}
           >
             <button
               onClick={() => onTogglePin(c.id, Boolean(c.isPinned))}
               type="button"
-              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+              className={`p-1.5 rounded-lg transition-colors cursor-pointer min-w-[28px] min-h-[28px] flex items-center justify-center ${
                 c.isPinned
                   ? 'text-amber-400 hover:bg-amber-500/20'
                   : 'text-neutral-400 hover:text-white hover:bg-white/10'
@@ -175,7 +175,7 @@ export const ConversationSidebar: React.FC<ConversationSidebarProps> = ({
             <button
               onClick={() => startEditing(c)}
               type="button"
-              className="p-1.5 rounded-lg text-neutral-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+              className="p-1.5 rounded-lg text-neutral-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer min-w-[28px] min-h-[28px] flex items-center justify-center"
               title="Rename chat"
             >
               <Edit2 className="w-3 h-3" />
@@ -184,7 +184,7 @@ export const ConversationSidebar: React.FC<ConversationSidebarProps> = ({
             <button
               onClick={() => onToggleArchive(c.id, Boolean(c.isArchived))}
               type="button"
-              className="p-1.5 rounded-lg text-neutral-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+              className="p-1.5 rounded-lg text-neutral-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer min-w-[28px] min-h-[28px] flex items-center justify-center"
               title={c.isArchived ? 'Unarchive chat' : 'Archive chat'}
             >
               {c.isArchived ? (
@@ -220,7 +220,7 @@ export const ConversationSidebar: React.FC<ConversationSidebarProps> = ({
               <button
                 onClick={() => setDeleteConfirmId(c.id)}
                 type="button"
-                className="p-1.5 rounded-lg text-neutral-400 hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer"
+                className="p-1.5 rounded-lg text-neutral-400 hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer min-w-[28px] min-h-[28px] flex items-center justify-center"
                 title="Delete conversation"
               >
                 <Trash2 className="w-3 h-3" />
@@ -237,14 +237,14 @@ export const ConversationSidebar: React.FC<ConversationSidebarProps> = ({
       {/* Mobile Backdrop */}
       {isOpen && (
         <div
-          className="fixed inset-0 bg-black/60 z-30 lg:hidden backdrop-blur-xs"
+          className="fixed inset-0 bg-black/75 z-40 lg:hidden backdrop-blur-xs"
           onClick={onCloseMobile}
         />
       )}
 
       {/* Sidebar Container */}
       <aside
-        className={`fixed lg:static top-0 bottom-0 left-0 z-40 w-72 sm:w-80 bg-[#09090D] border-r border-white/10 flex flex-col transition-transform duration-300 ease-in-out shrink-0 ${
+        className={`fixed lg:static top-0 bottom-0 left-0 z-50 w-[85vw] max-w-xs sm:w-80 bg-[#09090D] border-r border-white/10 flex flex-col transition-transform duration-300 ease-in-out shrink-0 ${
           isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0 lg:w-0 lg:overflow-hidden lg:border-r-0'
         }`}
       >

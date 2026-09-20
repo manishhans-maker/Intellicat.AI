@@ -4,6 +4,8 @@ import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
 import { isSearchQuotaExhausted } from "./server/chatCore";
 import chatHandler from "./api/chat";
+import imageGenHandler from "./api/imageGen";
+import searchServiceHandler from "./api/searchService";
 
 dotenv.config();
 
@@ -46,6 +48,13 @@ async function startServer() {
 
   // Unified API endpoint for Chat
   app.post("/api/chat", chatHandler);
+
+  // Dedicated Image Generation Studio endpoint (Disabled per user request)
+  // app.post("/api/generate-image", imageGenHandler);
+
+  // Dedicated Web Search Service endpoint
+  app.get("/api/search", searchServiceHandler);
+  app.post("/api/search", searchServiceHandler);
 
   // Vite middleware for development vs static build for production
   if (process.env.NODE_ENV !== "production") {

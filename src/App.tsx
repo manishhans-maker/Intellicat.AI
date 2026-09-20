@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Navbar } from './components/Navbar';
 import { HeroContent } from './components/HeroContent';
 import { StatCards } from './components/StatCards';
@@ -11,13 +11,28 @@ import { AiAssistantModal, ChatMode } from './components/AiAssistantModal';
 import { VipCheckoutModal, VipData } from './components/VipCheckoutModal';
 import { AuthModal } from './components/AuthModal';
 import { RobotBackground } from './components/RobotBackground';
+import { StudyModePanel } from './components/StudyModePanel';
+import { SpacesPanel } from './components/SpacesPanel';
+import { SettingsModal } from './components/SettingsModal';
+import { ProjectSpace, StudyGrade, AiMode, AiProvider } from './types';
 import { useAuth } from './context/AuthContext';
 import { AnimatePresence, motion } from 'motion/react';
-import { X, CheckCircle2, Eye, Sparkles, Cat, Crown, MessageSquare } from 'lucide-react';
+import {
+  X,
+  CheckCircle2,
+  Eye,
+  Sparkles,
+  Cat,
+  Crown,
+  MessageSquare,
+  ArrowLeft,
+  GraduationCap,
+  FolderKanban,
+} from 'lucide-react';
 import { INTELLICAT_LOGO_URL } from './constants';
 
 export default function App() {
-  const [currentView, setCurrentView] = useState<'hero' | 'priority'>('hero');
+  const [currentView, setCurrentView] = useState<'hero' | 'priority' | 'study' | 'spaces'>('hero');
   const [aiChatOpen, setAiChatOpen] = useState(false);
   const [chatMode, setChatMode] = useState<ChatMode>('normal');
   const [initialAiPrompt, setInitialAiPrompt] = useState<string | undefined>(undefined);
@@ -26,6 +41,20 @@ export default function App() {
   const [vipCheckoutOpen, setVipCheckoutOpen] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
   const [infoTab, setInfoTab] = useState('features');
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  // Studio, Study, and Spaces State
+  const [studyGrade, setStudyGrade] = useState<StudyGrade>('class-7');
+  const [activeSpace, setActiveSpace] = useState<ProjectSpace | null>(null);
+  const [defaultMode, setDefaultMode] = useState<AiMode>('fast');
+  const [defaultProvider, setDefaultProvider] = useState<AiProvider | 'auto'>('auto');
+  const [groqKey, setGroqKey] = useState<string>(() => {
+    try {
+      return localStorage.getItem('intelicat_custom_groq_key') || '';
+    } catch {
+      return '';
+    }
+  });
   
   // VIP & Founder membership state
   const [isVipMember, setIsVipMember] = useState<boolean>(() => {
@@ -47,7 +76,27 @@ export default function App() {
   // Robot video visibility mode: 'balanced' | 'vivid' | 'cinema'
   const [robotMode, setRobotMode] = useState<'balanced' | 'vivid' | 'cinema'>('vivid');
   
-  const { upgradeToVip } = useAuth();
+  const { user, upgradeToVip, isOwner, tier } = useAuth();
+  
+  useEffect(() => {
+    if (isOwner || tier === 'founder') {
+      setIsFounder(true);
+      setIsVipMember(true);
+      try {
+        localStorage.setItem('intelicat_is_founder', 'true');
+        localStorage.setItem('intelicat_vip_active', 'true');
+      } catch {
+        // ignore
+      }
+    } else if (tier === 'vip') {
+      setIsVipMember(true);
+      try {
+        localStorage.setItem('intelicat_vip_active', 'true');
+      } catch {
+        // ignore
+      }
+    }
+  }, [isOwner, tier]);
   const [email, setEmail] = useState('');
   const [selectedPlan, setSelectedPlan] = useState<string>('Priority Pro');
   const [submitted, setSubmitted] = useState(false);
@@ -69,6 +118,19 @@ export default function App() {
 
   const handleOpenBuyVip = () => {
     setVipCheckoutOpen(true);
+  };
+
+  const handleSaveGroqKey = (key: string) => {
+    setGroqKey(key);
+    try {
+      if (key) {
+        localStorage.setItem('intelicat_custom_groq_key', key);
+      } else {
+        localStorage.removeItem('intelicat_custom_groq_key');
+      }
+    } catch (e) {
+      // Ignore
+    }
   };
 
   const handleVipPurchased = (vipData: VipData) => {
@@ -107,9 +169,9 @@ export default function App() {
   };
 
   return (
-    <main className="min-h-screen w-full bg-black text-white flex items-center justify-center p-2 sm:p-4 lg:p-7 font-sans selection:bg-[#EF233C] selection:text-white relative overflow-hidden">
+    <main className="min-h-screen w-full bg-black text-white flex items-center justify-center p-2 sm:p-4 lg:p-7 pb-20 md:pb-7 font-sans selection:bg-[#EF233C] selection:text-white relative overflow-hidden">
       {/* Outer Card with Neon Red Border matching reference */}
-      <div className="w-full max-w-[1440px] relative rounded-[26px] sm:rounded-[32px] bg-transparent neon-frame overflow-hidden flex flex-col justify-between min-h-[850px] shadow-2xl">
+      <div className="w-full max-w-[1440px] relative rounded-[20px] sm:rounded-[32px] bg-transparent neon-frame overflow-hidden flex flex-col justify-between min-h-[850px] shadow-2xl">
         
         {/* High-Reliability Glowing Robot Background with Video and Poster Fallback */}
         <RobotBackground mode={robotMode} />
@@ -123,6 +185,7 @@ export default function App() {
           onOpenInfo={handleOpenInfo}
           onOpenPremium={handleOpenPremium}
           onOpenBuyVip={handleOpenBuyVip}
+          onOpenSettings={() => setSettingsOpen(true)}
           isVipMember={isVipMember}
           isFounder={isFounder}
         />
@@ -136,7 +199,7 @@ export default function App() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
               transition={{ duration: 0.3 }}
-              className="flex-1 px-6 sm:px-10 lg:px-14 py-6 sm:py-10 flex flex-col justify-between relative z-10"
+              className="flex-1 px-4 sm:px-10 lg:px-14 py-5 sm:py-10 flex flex-col justify-between relative z-10"
             >
               {/* Main Grid: Left Hero Content & Right Impact Widget */}
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-8 items-start mb-auto">
@@ -224,7 +287,7 @@ export default function App() {
                 </div>
               </div>
             </motion.div>
-          ) : (
+          ) : currentView === 'priority' ? (
             <motion.div
               key="priority-view"
               initial={{ opacity: 0, y: 10 }}
@@ -241,6 +304,65 @@ export default function App() {
                 onOpenBuyVip={handleOpenBuyVip}
                 isVipMember={isVipMember}
                 isFounder={isFounder}
+              />
+            </motion.div>
+          ) : currentView === 'study' ? (
+            <motion.div
+              key="study-view"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.3 }}
+              className="flex-1 p-4 sm:p-6 lg:p-8 flex flex-col relative z-10 overflow-y-auto"
+            >
+              <div className="mb-4 flex items-center justify-between">
+                <button
+                  onClick={() => setCurrentView('hero')}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-neutral-300 hover:text-white text-xs font-semibold transition-colors cursor-pointer border border-white/10"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  <span>Back to Overview</span>
+                </button>
+                <div className="text-xs text-amber-400 flex items-center gap-1.5">
+                  <span>Class 7 & Multi-Grade Learning Hub</span>
+                </div>
+              </div>
+              <StudyModePanel
+                currentGrade={studyGrade}
+                onSelectGrade={setStudyGrade}
+                onLaunchStudyChat={(prompt, grade) => {
+                  handleOpenChat('study', prompt);
+                }}
+              />
+            </motion.div>
+          ) : (
+            <motion.div
+              key="spaces-view"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.3 }}
+              className="flex-1 p-4 sm:p-6 lg:p-8 flex flex-col relative z-10 overflow-y-auto"
+            >
+              <div className="mb-4 flex items-center justify-between">
+                <button
+                  onClick={() => setCurrentView('hero')}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-neutral-300 hover:text-white text-xs font-semibold transition-colors cursor-pointer border border-white/10"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  <span>Back to Overview</span>
+                </button>
+                <div className="text-xs text-emerald-400 flex items-center gap-1.5">
+                  <span>Intelicat Project Spaces & Knowledge Base</span>
+                </div>
+              </div>
+              <SpacesPanel
+                userId={user?.uid}
+                activeSpace={activeSpace}
+                onSelectSpace={setActiveSpace}
+                onLaunchSpaceChat={(space) => {
+                  handleOpenChat('normal', `Working in project space "${space.title}": ${space.notes || ''}`);
+                }}
               />
             </motion.div>
           )}
@@ -269,13 +391,13 @@ export default function App() {
         }}
       />
 
-      {/* Floating Action Trigger Bar: 2 Chat Modes & Buy VIP */}
-      <div className="fixed bottom-5 right-5 sm:bottom-8 sm:right-8 z-40 flex items-center gap-2">
+      {/* Desktop Floating Action Trigger Bar: 2 Chat Modes & Buy VIP */}
+      <div className="hidden md:flex fixed bottom-5 right-5 sm:bottom-8 sm:right-8 z-40 items-center gap-2">
         {/* Quick VIP Buy Launcher */}
         <button
           onClick={handleOpenBuyVip}
           title="Buy Alpha VIP Pass"
-          className="hidden md:flex items-center gap-1.5 px-3.5 py-2.5 rounded-full bg-black/85 hover:bg-black border border-amber-500/40 text-amber-300 shadow-xl backdrop-blur-xl hover:scale-105 active:scale-95 transition-all cursor-pointer text-xs font-bold"
+          className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-full bg-black/85 hover:bg-black border border-amber-500/40 text-amber-300 shadow-xl backdrop-blur-xl hover:scale-105 active:scale-95 transition-all cursor-pointer text-xs font-bold"
         >
           <Crown className="w-4 h-4 text-amber-400" />
           <span>{isVipMember ? 'VIP Active' : 'Buy VIP'}</span>
@@ -305,6 +427,49 @@ export default function App() {
         </button>
       </div>
 
+      {/* Native Mobile Bottom Navigation Bar */}
+      <nav
+        aria-label="Mobile Navigation"
+        className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-[#0a0a0f]/95 backdrop-blur-xl border-t border-white/10 px-2 py-1.5 flex items-center justify-around shadow-2xl safe-area-bottom"
+      >
+        <button
+          onClick={() => setCurrentView('hero')}
+          className={`flex flex-col items-center justify-center py-1 px-2.5 rounded-xl transition-all cursor-pointer min-w-[50px] ${
+            currentView === 'hero' ? 'text-[#EF233C]' : 'text-neutral-400 hover:text-white'
+          }`}
+        >
+          <span className="text-sm">🏠</span>
+          <span className="text-[10px] font-bold mt-0.5">Home</span>
+        </button>
+
+        {/* Prominent Center Action: AI Talk */}
+        <button
+          onClick={() => handleOpenChat('normal')}
+          className="flex flex-col items-center justify-center -mt-3.5 py-1.5 px-3.5 rounded-2xl bg-gradient-to-tr from-[#EF233C] to-red-500 text-white shadow-lg shadow-red-600/40 border border-white/25 active:scale-95 transition-all cursor-pointer min-w-[58px]"
+        >
+          <MessageSquare className="w-4 h-4 text-white" />
+          <span className="text-[10px] font-black uppercase mt-0.5 tracking-wider">Chat</span>
+        </button>
+
+        <button
+          onClick={() => setCurrentView('study')}
+          className={`flex flex-col items-center justify-center py-1 px-2.5 rounded-xl transition-all cursor-pointer min-w-[50px] ${
+            currentView === 'study' ? 'text-[#EF233C]' : 'text-neutral-400 hover:text-white'
+          }`}
+        >
+          <GraduationCap className="w-4 h-4" />
+          <span className="text-[10px] font-bold mt-0.5">Study</span>
+        </button>
+
+        <button
+          onClick={() => handleOpenChat('cat-code')}
+          className="flex flex-col items-center justify-center py-1 px-2.5 rounded-xl text-neutral-400 hover:text-[#EF233C] transition-all cursor-pointer min-w-[50px]"
+        >
+          <Cat className="w-4 h-4 text-[#EF233C]" />
+          <span className="text-[10px] font-bold mt-0.5">Code 🐾</span>
+        </button>
+      </nav>
+
       {/* Premium Suite Modal */}
       <PremiumModal
         isOpen={premiumOpen}
@@ -318,6 +483,20 @@ export default function App() {
         isOpen={infoOpen}
         onClose={() => setInfoOpen(false)}
         initialTab={infoTab}
+      />
+
+      {/* Centralized Settings Modal (Memory, Model, Voice, Quotas) */}
+      <SettingsModal
+        isOpen={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        robotMode={robotMode}
+        onSetRobotMode={setRobotMode}
+        defaultMode={defaultMode}
+        onSetDefaultMode={setDefaultMode}
+        defaultProvider={defaultProvider}
+        onSetDefaultProvider={setDefaultProvider}
+        groqKey={groqKey}
+        onSaveGroqKey={handleSaveGroqKey}
       />
 
       {/* User Authentication & Google/Email Sign-In Modal */}
