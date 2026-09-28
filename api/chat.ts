@@ -112,9 +112,10 @@ async function resolveGroqModel(groq: Groq): Promise<string> {
 // Primary lightweight Gemini model cascade to minimize quota footprint and maximize resilience
 const GEMINI_PRIMARY_MODEL = "gemini-3.1-flash-lite";
 const GEMINI_MODELS_CASCADE = [
+  "gemini-3.8-flash",
   "gemini-3.1-flash-lite",
   "gemini-flash-latest",
-  "gemini-3.8-flash",
+  "gemini-3.1-pro-preview",
   "gemini-3.6-flash",
 ];
 
@@ -320,9 +321,13 @@ function getSystemInstruction(
     case "coding":
     case "cat-code":
       baseInstruction = `You are IntelicatAI 🐾, the legendary Cybernetic Cat Coder.
-- Elite master of TypeScript, JavaScript, Python, Rust, Go, SQL, React, Node.js, and Algorithms.
-- Provide clean, robust, production-grade code snippets wrapped in proper markdown code fences with language tags.
-- Highlight edge cases, performance considerations, and clean architecture with playful, sharp cybernetic cat banter.
+- Elite master of TypeScript, JavaScript, Python, Rust, Go, SQL, React, HTML/CSS, UI design, and Algorithms.
+- LIVE ARTIFACT & WEBSITE SYSTEM: The chat interface has an interactive Live Website Artifact engine that automatically renders web apps, games, landing pages, and components in real time!
+- When asked to build, create, or design any website, game, tool, calculator, dashboard, or web app:
+  * Provide the complete, self-contained, fully functioning runnable HTML/CSS/JavaScript or single-file React component in a single code block (e.g. \`\`\`html ... \`\`\` or \`\`\`jsx ... \`\`\`).
+  * Include interactive logic, state, modern Tailwind CSS classes, inline scripts, and nice styling so the user can immediately test, interact with, and play the website you built!
+  * Never use placeholders like "// implement later" or "<!-- add code here -->" — build the real, functioning app.
+- Highlight architectural patterns, edge cases, and performance with playful, sharp cybernetic cat personality.
 - Hunt down bugs with feline precision!`;
       break;
 
@@ -453,6 +458,7 @@ export default async function handler(req: any, res: any) {
       messages = [],
       mode = "normal",
       provider: requestedProvider = "auto",
+      model: requestedModel,
       webSearch = false,
       studyGrade = "class-7",
       spaceContext = "",
@@ -487,8 +493,20 @@ export default async function handler(req: any, res: any) {
       (m: any) => m.attachments && m.attachments.some((a: any) => a.type?.startsWith("image/"))
     );
 
-    // Provider routing logic
+    // Provider routing logic with explicit model matching
     let activeProvider = requestedProvider;
+    if (requestedModel) {
+      if (requestedModel.startsWith("gemini-")) {
+        activeProvider = "gemini";
+      } else if (
+        requestedModel.startsWith("llama-") ||
+        requestedModel.startsWith("mixtral-") ||
+        requestedModel.startsWith("gemma")
+      ) {
+        activeProvider = "groq";
+      }
+    }
+
     if (activeProvider === "auto") {
       // If user is in fast mode or groq is available and no images, prefer Groq to save Gemini quota!
       if (hasImageAttachments) {
@@ -530,7 +548,15 @@ export default async function handler(req: any, res: any) {
       try {
         const groq = getGroqClient(effectiveGroqKey);
         const groqMessages = formatGroqMessages(messages, systemInstruction);
-        const selectedModel = await resolveGroqModel(groq);
+        let selectedModel = await resolveGroqModel(groq);
+        if (
+          requestedModel &&
+          (requestedModel.startsWith("llama-") ||
+            requestedModel.startsWith("mixtral-") ||
+            requestedModel.startsWith("gemma"))
+        ) {
+          selectedModel = requestedModel;
+        }
 
         const completion = await groq.chat.completions.create({
           model: selectedModel,
@@ -580,8 +606,13 @@ export default async function handler(req: any, res: any) {
 
       let lastGeminiError: any = null;
 
-      for (let modelIdx = 0; modelIdx < GEMINI_MODELS_CASCADE.length; modelIdx++) {
-        const candidateModel = GEMINI_MODELS_CASCADE[modelIdx];
+      const candidateModels =
+        requestedModel && requestedModel.startsWith("gemini-")
+          ? [requestedModel, ...GEMINI_MODELS_CASCADE.filter((m) => m !== requestedModel)]
+          : GEMINI_MODELS_CASCADE;
+
+      for (let modelIdx = 0; modelIdx < candidateModels.length; modelIdx++) {
+        const candidateModel = candidateModels[modelIdx];
         try {
           const responseStream = await ai.models.generateContentStream({
             model: candidateModel,
@@ -644,7 +675,7 @@ export default async function handler(req: any, res: any) {
           }
 
           // Brief 300ms pause before trying next candidate
-          if (modelIdx < GEMINI_MODELS_CASCADE.length - 1) {
+          if (modelIdx < candidateModels.length - 1) {
             await new Promise((resolve) => setTimeout(resolve, 300));
           }
         }

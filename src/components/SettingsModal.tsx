@@ -21,7 +21,7 @@ import {
   CheckCircle2,
   Zap,
 } from 'lucide-react';
-import { UserMemory, AiMode, AiProvider } from '../types';
+import { UserMemory, AiMode, AiProvider, AVAILABLE_AI_MODELS } from '../types';
 import {
   loadUserMemories,
   saveUserMemory,
@@ -611,6 +611,36 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       <div className="font-bold">Google Gemini ✨</div>
                       <div className="text-[10px] text-neutral-300 opacity-80 mt-0.5">Vision & Search Grounding</div>
                     </button>
+                  </div>
+                </div>
+
+                {/* Supported AI Models Fleet */}
+                <div className="space-y-2 pt-2">
+                  <label className="text-xs font-bold uppercase tracking-wider text-neutral-400 block">
+                    Supported AI Models (Fleet of 7 Models)
+                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                    {AVAILABLE_AI_MODELS.map((m) => (
+                      <div
+                        key={m.id}
+                        className="p-3 rounded-xl bg-white/[0.03] border border-white/10 hover:border-white/20 transition-all"
+                      >
+                        <div className="flex items-center justify-between gap-1.5 mb-1">
+                          <span className="font-bold text-white text-xs">{m.name}</span>
+                          <span className="px-1.5 py-0.5 rounded bg-white/10 text-[9px] font-mono text-amber-300">
+                            {m.badge || m.speed}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-neutral-400 leading-relaxed mb-2">{m.description}</p>
+                        <div className="flex flex-wrap gap-1">
+                          {m.capabilities.map((c) => (
+                            <span key={c} className="px-1.5 py-0.5 rounded bg-black/40 text-[9px] text-neutral-400">
+                              {c}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               </div>

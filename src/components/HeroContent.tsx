@@ -1,5 +1,5 @@
-import React from 'react';
-import { ArrowRight, Crown, Sparkles, Cat, Code, MessageSquare } from 'lucide-react';
+import React, { useState } from 'react';
+import { ArrowRight, Crown, Sparkles, Cat, Code, MessageSquare, Send } from 'lucide-react';
 import { motion } from 'motion/react';
 import { ChatMode } from './AiAssistantModal';
 import { INTELLICAT_LOGO_URL } from '../constants';
@@ -13,6 +13,15 @@ export const HeroContent: React.FC<HeroContentProps> = ({
   onOpenChat,
   onOpenBuyVip,
 }) => {
+  const [questionInput, setQuestionInput] = useState('');
+
+  const handleAskSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (questionInput.trim()) {
+      onOpenChat?.('normal', questionInput.trim());
+      setQuestionInput('');
+    }
+  };
   return (
     <div className="flex flex-col items-start max-w-2xl relative z-10">
       {/* Top Tagline Badge with Logo */}
@@ -116,6 +125,35 @@ export const HeroContent: React.FC<HeroContentProps> = ({
           <span>Buy VIP Pass</span>
         </button>
       </motion.div>
+
+      {/* Interactive Mobile & Desktop Asking Bar - Type your question directly */}
+      <motion.form
+        initial={{ opacity: 0, y: 15 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.6, delay: 0.28 }}
+        onSubmit={handleAskSubmit}
+        className="w-full max-w-xl mb-6 relative group"
+      >
+        <div className="relative flex items-center bg-[#101018]/90 backdrop-blur-md rounded-2xl border border-white/20 group-hover:border-[#EF233C]/60 focus-within:border-[#EF233C] focus-within:ring-2 focus-within:ring-[#EF233C]/20 transition-all p-1.5 shadow-2xl">
+          <div className="pl-3 pr-2 text-neutral-400">
+            <Sparkles className="w-4 h-4 text-[#EF233C]" />
+          </div>
+          <input
+            type="text"
+            value={questionInput}
+            onChange={(e) => setQuestionInput(e.target.value)}
+            placeholder="Type your question, math problem, or code request..."
+            className="flex-1 bg-transparent py-2.5 px-1 text-sm sm:text-base text-white placeholder-neutral-400 focus:outline-none min-w-0"
+          />
+          <button
+            type="submit"
+            className="px-4 py-2.5 rounded-xl bg-[#EF233C] hover:bg-red-600 text-white font-semibold text-xs sm:text-sm flex items-center gap-1.5 transition-all shadow-md shrink-0 cursor-pointer active:scale-95"
+          >
+            <span>Ask</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </motion.form>
 
       {/* CTA Button & Social Proof */}
       <motion.div

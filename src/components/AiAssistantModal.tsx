@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   X,
@@ -36,13 +36,26 @@ import {
   Palette,
   GraduationCap,
   SlidersHorizontal,
+  Eye,
+  PanelRight,
+  Split,
 } from 'lucide-react';
 import { RobotBackground } from './RobotBackground';
 import { INTELLICAT_LOGO_URL } from '../constants';
 import { useAuth } from '../context/AuthContext';
-import { ChatMessage, ChatMode, AiProvider, ChatAttachment, CitationSource, Conversation } from '../types';
+import {
+  ChatMessage,
+  ChatMode,
+  AiProvider,
+  ChatAttachment,
+  CitationSource,
+  Conversation,
+  AVAILABLE_AI_MODELS,
+  AiModelOption,
+} from '../types';
 export type { ChatMode, AiProvider };
 import { MarkdownRenderer } from './MarkdownRenderer';
+import { ArtifactRunner, isPreviewableArtifact } from './ArtifactRunner';
 import { ConversationSidebar } from './ConversationSidebar';
 import {
   loadUserConversations,
@@ -131,6 +144,34 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [showExportModal, setShowExportModal] = useState(false);
   const [showEngineModal, setShowEngineModal] = useState(false);
+  const [selectedModel, setSelectedModel] = useState<string>(() => {
+    try {
+      return localStorage.getItem('intelicat_selected_model') || 'gemini-3.8-flash';
+    } catch {
+      return 'gemini-3.8-flash';
+    }
+  });
+  const [modelCategoryFilter, setModelCategoryFilter] = useState<'all' | 'gemini' | 'groq'>('all');
+
+  const activeModelObj: AiModelOption =
+    AVAILABLE_AI_MODELS.find((m) => m.id === selectedModel) || AVAILABLE_AI_MODELS[0];
+
+  const handleSelectModel = (modelId: string) => {
+    setSelectedModel(modelId);
+    const found = AVAILABLE_AI_MODELS.find((m) => m.id === modelId);
+    if (found) {
+      setProvider(found.provider);
+    }
+    try {
+      localStorage.setItem('intelicat_selected_model', modelId);
+    } catch {}
+    setShowEngineModal(false);
+  };
+
+  const filteredModels = AVAILABLE_AI_MODELS.filter((m) => {
+    if (modelCategoryFilter === 'all') return true;
+    return m.provider === modelCategoryFilter;
+  });
 
   // File Upload State
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
@@ -146,6 +187,33 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
     tokenCount: 120,
     latencyMs: defaultMode === 'normal' ? 3.2 : 6.5,
   });
+
+  // Dedicated Built Website Artifact Split-Screen View
+  const [isSplitView, setIsSplitView] = useState(false);
+
+  // Automatically find the most recent interactive built website artifact in this conversation
+  const latestArtifact = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i];
+      if (msg.role === 'assistant' && msg.content) {
+        const codeBlockMatch = /```(\w+)?\n([\s\S]*?)```/.exec(msg.content);
+        if (codeBlockMatch) {
+          const lang = codeBlockMatch[1];
+          const code = codeBlockMatch[2];
+          const isMsgCatCode = msg.mode === 'cat-code' || mode === 'cat-code';
+          if (isPreviewableArtifact(lang, code, isMsgCatCode)) {
+            return {
+              language: lang,
+              code,
+              messageId: msg.id,
+              isCatCode: isMsgCatCode,
+            };
+          }
+        }
+      }
+    }
+    return null;
+  }, [messages, mode]);
 
   const getWelcomeMessage = (selectedMode: ChatMode = 'normal'): ChatMessage => {
     switch (selectedMode) {
@@ -204,7 +272,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
         return {
           id: `welcome-${Date.now()}`,
           role: 'assistant',
-          content: `Purr-fect timing! 🐾 I am **IntelicatAI**, your Cybernetic Cat Coder in **Cat Code Mode** powered by **Google Gemini 3.6 Flash** ✨.\n\nI catch bugs faster than mice and engineer pristine, production-grade code across TypeScript, Python, Rust, Go, SQL, React, and Systems Architecture. Paste snippets, upload full files, or share logs for instant analysis! What are we hacking on today?`,
+          content: `Purr-fect timing! 🐾 I am **IntelicatAI**, your Cybernetic Cat Coder in **Cat Code Mode** featuring **Live Website Artifact Previews** ⚡.\n\nAsk me to build any website, web app, interactive game, calculator, or dashboard! I'll write the code and immediately launch the live website right inside the chat with desktop, tablet, and mobile previews. What app or website shall we build?`,
           timestamp: 'Just now',
           createdAt: new Date().toISOString(),
           mode: 'cat-code',
@@ -259,24 +327,16 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
         const userConvs = await loadUserConversations(user.uid);
         if (isMounted) {
           setConversations(userConvs);
-          if (userConvs.length > 0 && !currentConversationId) {
-            // Load most recent conversation
-            const mostRecent = userConvs[0];
-            setCurrentConversationId(mostRecent.id);
-            setMode(mostRecent.mode);
-            setProvider(mostRecent.provider || (mostRecent.mode === 'cat-code' ? 'gemini' : 'gemini'));
-            const msgs = await loadConversationMessages(user.uid, mostRecent.id);
-            if (isMounted) {
-              setMessages(msgs.length > 0 ? msgs : [getWelcomeMessage(mostRecent.mode)]);
-            }
-          } else if (!currentConversationId) {
-            // Fresh conversation
+          // When app is started or loaded, always start fresh from a clean New Chat
+          if (!currentConversationId) {
+            setCurrentConversationId(null);
             setMessages([getWelcomeMessage(mode)]);
           }
         }
       } else {
         // Guest / Not logged in
-        if (messages.length === 0) {
+        if (!currentConversationId || messages.length === 0) {
+          setCurrentConversationId(null);
           setMessages([getWelcomeMessage(mode)]);
         }
       }
@@ -289,13 +349,25 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
     };
   }, [isOpen, user?.uid]);
 
+  // When modal is opened fresh from the app without an explicit custom prompt, start from a new chat
+  useEffect(() => {
+    if (isOpen && !initialPrompt) {
+      setCurrentConversationId(null);
+      setMessages([getWelcomeMessage(defaultMode || mode)]);
+      setInput('');
+      setAttachments([]);
+      setError(null);
+    }
+  }, [isOpen]);
+
   // Sync mode changes when defaultMode prop changes
   useEffect(() => {
     if (isOpen && !currentConversationId) {
-      const targetMode: ChatMode = defaultMode === 'cat-code' ? 'cat-code' : 'normal';
+      const targetMode: ChatMode = (defaultMode as ChatMode) || 'normal';
       setMode(targetMode);
-      setProvider(targetMode === 'normal' && providerCapabilities.groq ? 'groq' : 'gemini');
-      setStreamStats((s) => ({ ...s, latencyMs: targetMode === 'normal' ? 3.2 : 6.5 }));
+      const isGroqFriendly = (targetMode === 'normal' || targetMode === 'fast') && providerCapabilities.groq;
+      setProvider(isGroqFriendly ? 'groq' : 'gemini');
+      setStreamStats((s) => ({ ...s, latencyMs: isGroqFriendly ? 3.2 : 6.5 }));
       setMessages([getWelcomeMessage(targetMode)]);
     }
   }, [isOpen, defaultMode, providerCapabilities.groq]);
@@ -327,7 +399,10 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
     setInput(e.target.value);
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 160)}px`;
+      const isMobile = typeof window !== 'undefined' && window.innerWidth < 640;
+      const minH = isMobile ? 74 : 48;
+      const targetH = Math.max(minH, Math.min(textareaRef.current.scrollHeight, 220));
+      textareaRef.current.style.height = `${targetH}px`;
     }
   };
 
@@ -801,6 +876,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
         messages: contextMessages,
         mode,
         provider,
+        model: selectedModel,
         webSearch: webSearchEnabled,
         userId: user.uid,
         isVipOrFounder: isUnlimitedAccount,
@@ -921,6 +997,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                       ...msg,
                       content: currentText,
                       provider: streamProvider,
+                      model: parsed.model || selectedModel,
                       citations: gatheredCitations.length > 0 ? [...gatheredCitations] : undefined,
                     }
                   : msg
@@ -1010,7 +1087,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.98, y: 10 }}
           transition={{ duration: 0.2 }}
-          className="relative w-full max-w-6xl h-full sm:h-[90vh] bg-[#0c0c12] rounded-none sm:rounded-2xl border-0 sm:border border-white/10 shadow-2xl flex overflow-hidden text-neutral-100"
+          className={`relative w-full ${isSplitView && latestArtifact ? 'max-w-[97vw] h-full sm:h-[95vh]' : 'max-w-6xl h-full sm:h-[90vh]'} bg-[#0c0c12] rounded-none sm:rounded-2xl border-0 sm:border border-white/10 shadow-2xl flex overflow-hidden text-neutral-100 transition-all duration-300`}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
@@ -1077,10 +1154,16 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                         <button
                           onClick={() => setShowEngineModal(true)}
                           type="button"
-                          className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-white/5 hover:bg-white/15 border border-white/10 text-neutral-300 hover:text-white uppercase font-mono tracking-wider text-[9px] font-semibold transition-all cursor-pointer group"
-                          title="Click to view AI Engine details or switch providers"
+                          className="flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-white/10 hover:bg-white/20 border border-white/15 text-white font-medium text-[10px] transition-all cursor-pointer group shadow-sm active:scale-95"
+                          title="Click to switch AI Model (Gemini 3.8 Flash, LLaMA 3.3 70B, etc.)"
                         >
-                          <span>{provider === 'groq' && providerCapabilities.groq ? 'Groq LPU ⚡' : 'Gemini 3.6 ✨'}</span>
+                          <Cpu className="w-3 h-3 text-[#EF233C]" />
+                          <span className="truncate max-w-[95px] xs:max-w-[130px] font-semibold">{activeModelObj.name}</span>
+                          {activeModelObj.badge && (
+                            <span className="hidden sm:inline px-1 py-0.2 rounded bg-white/10 text-[9px] text-amber-300 font-mono">
+                              {activeModelObj.badge}
+                            </span>
+                          )}
                           <ChevronDown className="w-2.5 h-2.5 text-neutral-400 group-hover:text-white transition-colors" />
                         </button>
                       </div>
@@ -1090,6 +1173,34 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
 
                 {/* Right Top Actions */}
                 <div className="flex items-center gap-1.5 shrink-0">
+                  {/* Built Website Artifact Quick Toggle / Jump */}
+                  {latestArtifact && (
+                    <button
+                      onClick={() => {
+                        if (typeof window !== 'undefined' && window.innerWidth >= 1024) {
+                          setIsSplitView((prev) => !prev);
+                        } else {
+                          const artifactEl = document.querySelector('[data-artifact="true"]');
+                          if (artifactEl) {
+                            artifactEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                          }
+                        }
+                      }}
+                      type="button"
+                      className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-md cursor-pointer border ${
+                        isSplitView
+                          ? 'bg-[#EF233C] text-white border-[#EF233C] ring-2 ring-[#EF233C]/40 shadow-[#EF233C]/30'
+                          : 'bg-[#EF233C]/20 hover:bg-[#EF233C]/35 text-[#EF233C] border-[#EF233C]/50'
+                      }`}
+                      title={isSplitView ? 'Close Split View' : 'View Built Website Live Preview'}
+                    >
+                      <Cat className="w-3.5 h-3.5 animate-pulse" />
+                      <span className="hidden xs:inline">{isSplitView ? 'Close Split' : 'Live Website'}</span>
+                      <span className="xs:hidden">Website</span>
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    </button>
+                  )}
+
                   {/* Quota / VIP Pill */}
                   {isUnlimitedAccount ? (
                     <div className="hidden xs:flex items-center gap-1 px-2.5 py-1 rounded-lg bg-gradient-to-r from-amber-500/20 to-yellow-500/20 border border-amber-500/40 text-amber-300 text-[11px] font-bold shadow-[0_0_10px_rgba(245,158,11,0.2)]">
@@ -1246,112 +1357,149 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
               </div>
             )}
 
-            {/* AI Engine Selector & Info Modal */}
+            {/* AI Model & Inference Engine Selector Modal */}
             {showEngineModal && (
-              <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
-                <div className="w-full max-w-md bg-[#13131f] border border-white/20 rounded-2xl p-5 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
-                  <div className="flex items-center justify-between pb-3 border-b border-white/10">
-                    <div className="flex items-center gap-2">
-                      <div className="p-1.5 rounded-lg bg-[#EF233C]/20 border border-[#EF233C]/40 text-[#EF233C]">
-                        <Cpu className="w-4 h-4" />
+              <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/75 backdrop-blur-md">
+                <div className="w-full max-w-xl max-h-[90vh] bg-[#12121e] border border-white/20 rounded-2xl p-4 sm:p-6 shadow-2xl flex flex-col space-y-4 animate-in fade-in zoom-in-95 duration-150 overflow-hidden">
+                  {/* Header */}
+                  <div className="flex items-center justify-between pb-3 border-b border-white/10 shrink-0">
+                    <div className="flex items-center gap-2.5">
+                      <div className="p-2 rounded-xl bg-[#EF233C]/20 border border-[#EF233C]/40 text-[#EF233C]">
+                        <Cpu className="w-5 h-5" />
                       </div>
                       <div>
-                        <h3 className="font-bold text-sm text-white">AI Inference Engines</h3>
-                        <p className="text-[11px] text-neutral-400">Dual-Engine Architecture Overview</p>
+                        <h3 className="font-bold text-sm sm:text-base text-white">Select AI Model</h3>
+                        <p className="text-[11px] text-neutral-400">Choose from 7 dedicated reasoning & high-speed inference models</p>
                       </div>
                     </div>
                     <button
                       onClick={() => setShowEngineModal(false)}
                       type="button"
-                      className="p-1 rounded-lg text-neutral-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                      className="p-1.5 rounded-lg text-neutral-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
                     >
                       <X className="w-4 h-4" />
                     </button>
                   </div>
 
-                  <div className="space-y-3">
-                    {/* Google Gemini Card */}
-                    <div
-                      onClick={() => {
-                        setProvider('gemini');
-                        setShowEngineModal(false);
-                      }}
-                      className={`p-3.5 rounded-xl border transition-all cursor-pointer ${
-                        provider === 'gemini'
-                          ? 'bg-blue-500/10 border-blue-500/50 ring-1 ring-blue-500/30'
-                          : 'bg-white/[0.03] border-white/10 hover:bg-white/[0.06]'
+                  {/* Filter Tabs */}
+                  <div className="flex items-center gap-1.5 shrink-0 border-b border-white/10 pb-2 overflow-x-auto scrollbar-none">
+                    <button
+                      type="button"
+                      onClick={() => setModelCategoryFilter('all')}
+                      className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer whitespace-nowrap ${
+                        modelCategoryFilter === 'all'
+                          ? 'bg-white text-black shadow-md'
+                          : 'text-neutral-400 hover:text-white bg-white/5'
                       }`}
                     >
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-semibold text-xs text-white">Google Gemini 3.6 / Flash</span>
-                            <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 text-[10px] font-mono font-medium">
-                              Active
-                            </span>
-                          </div>
-                          <p className="text-[11px] text-neutral-400 mt-1 leading-relaxed">
-                            Deep multimodal comprehension, image & document parsing, and real-time Google Search grounding.
-                          </p>
-                        </div>
-                        {provider === 'gemini' && (
-                          <CheckCircle2 className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Groq LPU Card */}
-                    <div
-                      onClick={() => {
-                        if (providerCapabilities.groq) {
-                          setProvider('groq');
-                          setShowEngineModal(false);
-                        }
-                      }}
-                      className={`p-3.5 rounded-xl border transition-all ${
-                        providerCapabilities.groq
-                          ? provider === 'groq'
-                            ? 'bg-amber-500/10 border-amber-500/50 ring-1 ring-amber-500/30 cursor-pointer'
-                            : 'bg-white/[0.03] border-white/10 hover:bg-white/[0.06] cursor-pointer'
-                          : 'bg-white/[0.02] border-white/5'
+                      All Models ({AVAILABLE_AI_MODELS.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setModelCategoryFilter('gemini')}
+                      className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center gap-1 whitespace-nowrap ${
+                        modelCategoryFilter === 'gemini'
+                          ? 'bg-blue-600 text-white shadow-md shadow-blue-500/30'
+                          : 'text-neutral-400 hover:text-white bg-white/5'
                       }`}
                     >
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-semibold text-xs text-white">Groq LPU (LLaMA 3.3 / 3.1)</span>
-                            {providerCapabilities.groq ? (
-                              <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 text-[10px] font-mono font-medium">
-                                Ready ⚡
-                              </span>
-                            ) : (
-                              <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[10px] font-mono font-medium">
-                                Key Required
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-[11px] text-neutral-400 mt-1 leading-relaxed">
-                            Ultra-fast LPUs streaming up to 800 tokens/second for instant conversation turns.
-                          </p>
-                          {!providerCapabilities.groq && (
-                            <div className="mt-2.5 p-2 rounded-lg bg-black/40 border border-amber-500/20 text-[11px] text-amber-200/90 leading-relaxed">
-                              <p className="font-medium text-amber-300 mb-0.5">How to enable Groq:</p>
-                              Add <code className="px-1 py-0.5 rounded bg-white/10 font-mono text-white">GROQ_API_KEY</code> to your environment variables or Vercel settings, then redeploy. In the meantime, Google Gemini is actively processing all queries without interruptions.
-                            </div>
-                          )}
-                        </div>
-                        {provider === 'groq' && providerCapabilities.groq && (
-                          <CheckCircle2 className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-                        )}
-                      </div>
-                    </div>
+                      <span>Google Gemini</span>
+                      <span className="text-[10px] opacity-80">(3)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setModelCategoryFilter('groq')}
+                      className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center gap-1 whitespace-nowrap ${
+                        modelCategoryFilter === 'groq'
+                          ? 'bg-amber-500 text-black shadow-md shadow-amber-500/30'
+                          : 'text-neutral-400 hover:text-white bg-white/5'
+                      }`}
+                    >
+                      <span>Groq LPUs ⚡</span>
+                      <span className="text-[10px] opacity-80">(4)</span>
+                    </button>
                   </div>
 
-                  <div className="pt-2 flex justify-end">
+                  {/* Model Cards List */}
+                  <div className="flex-1 overflow-y-auto space-y-2.5 pr-1 scrollbar-thin">
+                    {filteredModels.map((m) => {
+                      const isSelected = selectedModel === m.id;
+
+                      return (
+                        <div
+                          key={m.id}
+                          onClick={() => handleSelectModel(m.id)}
+                          className={`p-3.5 rounded-xl border transition-all cursor-pointer group ${
+                            isSelected
+                              ? 'bg-gradient-to-r from-red-600/15 via-[#EF233C]/10 to-transparent border-[#EF233C]/60 ring-1 ring-[#EF233C]/40 shadow-lg'
+                              : 'bg-white/[0.03] border-white/10 hover:bg-white/[0.07] hover:border-white/20'
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2 flex-wrap mb-1">
+                                <span className="font-bold text-xs sm:text-sm text-white group-hover:text-white">
+                                  {m.name}
+                                </span>
+                                {m.badge && (
+                                  <span
+                                    className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold ${
+                                      m.badge.includes('800')
+                                        ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                                        : m.badge === 'Recommended'
+                                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                                        : 'bg-white/10 text-neutral-300 border border-white/15'
+                                    }`}
+                                  >
+                                    {m.badge}
+                                  </span>
+                                )}
+                                {m.speed && (
+                                  <span className="px-1.5 py-0.5 rounded bg-white/5 border border-white/10 text-[9px] font-mono text-neutral-400">
+                                    {m.speed}
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-[11px] text-neutral-300 leading-relaxed mb-2">
+                                {m.description}
+                              </p>
+                              {/* Capabilities tags */}
+                              <div className="flex flex-wrap gap-1.5">
+                                {m.capabilities.map((cap) => (
+                                  <span
+                                    key={cap}
+                                    className="px-1.5 py-0.5 rounded bg-black/40 border border-white/10 text-[9px] text-neutral-400 font-medium"
+                                  >
+                                    {cap}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+
+                            <div className="shrink-0 flex items-center justify-center pt-1">
+                              {isSelected ? (
+                                <div className="w-6 h-6 rounded-full bg-[#EF233C] text-white flex items-center justify-center shadow-md shadow-[#EF233C]/40">
+                                  <Check className="w-3.5 h-3.5 stroke-[3]" />
+                                </div>
+                              ) : (
+                                <div className="w-6 h-6 rounded-full border border-white/20 group-hover:border-white/40" />
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Footer note */}
+                  <div className="pt-2 border-t border-white/10 flex items-center justify-between shrink-0 text-xs">
+                    <span className="text-[11px] text-neutral-400">
+                      Active Model: <strong className="text-white">{activeModelObj.name}</strong>
+                    </span>
                     <button
                       onClick={() => setShowEngineModal(false)}
                       type="button"
-                      className="px-4 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-medium transition-colors cursor-pointer"
+                      className="px-4 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-semibold transition-colors cursor-pointer"
                     >
                       Done
                     </button>
@@ -1402,9 +1550,13 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
               </div>
             )}
 
-            {/* Messages Scroll Area */}
-            <div
-              ref={chatContainerRef}
+            {/* Center Area: Chat Column + Optional Built Website Artifact Split Panel */}
+            <div className="flex-1 flex overflow-hidden min-h-0 relative">
+              {/* Chat Column */}
+              <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
+                {/* Messages Scroll Area */}
+                <div
+                  ref={chatContainerRef}
               className="flex-1 overflow-y-auto p-3 sm:p-6 space-y-5 selection:bg-[#EF233C] selection:text-white"
             >
               {messages.map((msg, index) => {
@@ -1450,9 +1602,9 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                         </span>
                         <span>•</span>
                         <span>{msg.timestamp}</span>
-                        {!isUser && msg.provider && (
-                          <span className="px-1.5 py-0.2 rounded bg-white/5 border border-white/10 text-[9px] uppercase font-mono text-neutral-300">
-                            {msg.provider}
+                        {!isUser && (msg.model || msg.provider) && (
+                          <span className="px-1.5 py-0.5 rounded bg-white/5 border border-white/10 text-[9px] uppercase font-mono text-neutral-300">
+                            {msg.model || msg.provider}
                           </span>
                         )}
                       </div>
@@ -1493,7 +1645,10 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                         {isUser ? (
                           <p className="whitespace-pre-wrap">{msg.content}</p>
                         ) : msg.content ? (
-                          <MarkdownRenderer content={msg.content} />
+                          <MarkdownRenderer
+                            content={msg.content}
+                            isCatCode={msg.mode === 'cat-code' || mode === 'cat-code'}
+                          />
                         ) : msg.isError || (!loading && index === messages.length - 1) ? (
                           <div className="flex flex-col gap-2.5 py-1 text-red-300">
                             <div className="flex items-center gap-2 text-xs">
@@ -1631,7 +1786,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
             </div>
 
             {/* Bottom Composer & Controls */}
-            <div className="p-3 sm:p-4 border-t border-white/10 bg-black/50 shrink-0">
+            <div className="p-2 sm:p-4 border-t border-white/10 bg-black/50 shrink-0">
               <div className="max-w-4xl mx-auto space-y-2">
                 {/* Active Attachments Preview Bar */}
                 {attachments.length > 0 && (
@@ -1694,104 +1849,126 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                   </motion.div>
                 )}
 
-                {/* Input Controls Container */}
-                <div className="relative flex items-end gap-2 bg-[#12121a] rounded-2xl border border-white/15 p-2 focus-within:border-[#EF233C]/60 transition-colors shadow-xl">
-                  {/* Attach File Button */}
-                  <button
-                    onClick={() => fileInputRef.current?.click()}
-                    type="button"
-                    disabled={loading}
-                    className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl text-neutral-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer shrink-0 disabled:opacity-40"
-                    title="Upload image or code/text file"
-                  >
-                    <Paperclip className="w-4 h-4" />
-                  </button>
-
-                  {/* Web Search Toggle Button with explicit ON/OFF state */}
-                  <button
-                    onClick={() => handleToggleWebSearch()}
-                    type="button"
-                    className={`min-h-[40px] px-2.5 rounded-xl transition-all cursor-pointer shrink-0 flex items-center gap-1.5 text-xs font-semibold ${
-                      !providerCapabilities.searchAvailable
-                        ? 'opacity-40 text-neutral-500 hover:text-neutral-300 bg-white/5'
-                        : webSearchEnabled
-                        ? 'bg-blue-600 text-white shadow-md shadow-blue-500/40 border border-blue-400'
-                        : 'text-neutral-300 hover:text-white bg-white/5 hover:bg-white/10 border border-white/5'
-                    }`}
-                    title={
-                      !providerCapabilities.searchAvailable
-                        ? 'Search grounding temporarily on rate-limit cooldown.'
-                        : webSearchEnabled
-                        ? 'Web Search is ON - Click to turn OFF'
-                        : 'Web Search is OFF - Click to turn ON'
-                    }
-                  >
-                    <Globe className={`w-4 h-4 shrink-0 ${webSearchEnabled ? 'text-white' : 'text-neutral-400'}`} />
-                    <span className="text-[11px] font-bold whitespace-nowrap">
-                      {webSearchEnabled ? 'Search ON' : 'Search OFF'}
-                    </span>
-                  </button>
-
-                  {/* Voice Dictation (Speech-to-Text) Button */}
-                  <button
-                    onClick={handleToggleVoiceInput}
-                    type="button"
-                    disabled={loading}
-                    className={`min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl transition-all cursor-pointer shrink-0 ${
-                      isListening
-                        ? 'bg-red-500 text-white animate-pulse shadow-md shadow-red-500/50'
-                        : 'text-neutral-400 hover:text-white hover:bg-white/10'
-                    }`}
-                    title={isListening ? 'Listening... click to stop' : 'Voice dictation (Speech to text)'}
-                  >
-                    {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-                  </button>
-
-                  {/* Auto-Expanding Textarea with mobile font size */}
-                  <textarea
-                    ref={textareaRef}
-                    rows={1}
-                    value={input}
-                    onChange={handleInputChange}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault();
-                        handleSend();
+                {/* Input Controls Container - Optimized to be much longer & full-width on mobile */}
+                <div className="relative flex flex-col bg-[#12121a] rounded-2xl border border-white/15 p-2 sm:p-2.5 focus-within:border-[#EF233C]/60 focus-within:ring-1 focus-within:ring-[#EF233C]/30 transition-all shadow-xl">
+                  {/* Asking Field: Full width, significantly longer on mobile (min-h 74px) with multi-row space */}
+                  <div className="w-full relative">
+                    <textarea
+                      ref={textareaRef}
+                      rows={2}
+                      value={input}
+                      onChange={handleInputChange}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault();
+                          handleSend();
+                        }
+                      }}
+                      placeholder={
+                        mode === 'cat-code'
+                          ? 'Ask cat coder for code, debug errors, or generate architecture...'
+                          : mode === 'study'
+                          ? 'Ask your study question or math/science problem...'
+                          : webSearchEnabled
+                          ? 'Search the live web or ask a detailed question...'
+                          : 'Ask anything, brainstorm, or type your question...'
                       }
-                    }}
-                    placeholder={
-                      mode === 'cat-code'
-                        ? 'Ask cat coder for code...'
-                        : webSearchEnabled
-                        ? 'Search the web or ask a question...'
-                        : 'Ask anything, brainstorm, or discuss ideas...'
-                    }
-                    className="flex-1 max-h-40 min-h-[38px] py-2 px-2 bg-transparent text-neutral-100 placeholder:text-neutral-500 text-base sm:text-sm focus:outline-none resize-none leading-relaxed"
-                  />
+                      className="w-full min-h-[74px] sm:min-h-[48px] max-h-56 py-2 px-2.5 bg-transparent text-neutral-100 placeholder:text-neutral-500 text-base sm:text-sm focus:outline-none resize-none leading-relaxed block"
+                    />
+                  </div>
 
-                  {/* Send / Stop Generation Button */}
-                  {loading ? (
-                    <button
-                      onClick={handleStopGeneration}
-                      type="button"
-                      className="min-h-[40px] px-3 rounded-xl bg-red-600 hover:bg-red-700 text-white font-medium text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-lg shadow-red-600/30 shrink-0"
-                      title="Stop generating"
-                    >
-                      <Square className="w-3.5 h-3.5 fill-white" />
-                      <span className="hidden sm:inline">Stop</span>
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => handleSend()}
-                      disabled={!input.trim() && attachments.length === 0}
-                      type="button"
-                      className="min-h-[40px] px-3.5 rounded-xl bg-[#EF233C] hover:bg-red-600 disabled:opacity-40 disabled:hover:bg-[#EF233C] text-white font-medium text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-lg shadow-[#EF233C]/30 shrink-0 active:scale-95"
-                      title="Send message (Enter)"
-                    >
-                      <span className="hidden xs:inline">Send</span>
-                      <ArrowRight className="w-3.5 h-3.5" />
-                    </button>
-                  )}
+                  {/* Action Controls & Send Toolbar (neatly positioned below textarea so input has maximum width) */}
+                  <div className="flex items-center justify-between pt-2 border-t border-white/10 mt-1 gap-2">
+                    <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-wrap">
+                      {/* Attach File Button */}
+                      <button
+                        onClick={() => fileInputRef.current?.click()}
+                        type="button"
+                        disabled={loading}
+                        className="h-8 sm:h-9 px-2 sm:px-2.5 rounded-lg flex items-center gap-1.5 text-neutral-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer shrink-0 disabled:opacity-40 text-xs font-medium"
+                        title="Upload image or code/text file"
+                      >
+                        <Paperclip className="w-4 h-4 text-neutral-400" />
+                        <span className="hidden xs:inline text-[11px]">Attach</span>
+                      </button>
+
+                      {/* Web Search Toggle Button */}
+                      <button
+                        onClick={() => handleToggleWebSearch()}
+                        type="button"
+                        className={`h-8 sm:h-9 px-2 sm:px-2.5 rounded-lg transition-all cursor-pointer shrink-0 flex items-center gap-1.5 text-xs font-semibold ${
+                          !providerCapabilities.searchAvailable
+                            ? 'opacity-40 text-neutral-500 bg-white/5'
+                            : webSearchEnabled
+                            ? 'bg-blue-600 text-white shadow-md shadow-blue-500/40 border border-blue-400'
+                            : 'text-neutral-300 hover:text-white bg-white/5 hover:bg-white/10 border border-white/5'
+                        }`}
+                        title={
+                          !providerCapabilities.searchAvailable
+                            ? 'Search grounding temporarily on rate-limit cooldown.'
+                            : webSearchEnabled
+                            ? 'Web Search is ON - Click to turn OFF'
+                            : 'Web Search is OFF - Click to turn ON'
+                        }
+                      >
+                        <Globe className={`w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 ${webSearchEnabled ? 'text-white' : 'text-neutral-400'}`} />
+                        <span className="text-[11px] whitespace-nowrap">
+                          {webSearchEnabled ? 'Search ON' : 'Web Search'}
+                        </span>
+                      </button>
+
+                      {/* Voice Dictation (Speech-to-Text) Button */}
+                      <button
+                        onClick={handleToggleVoiceInput}
+                        type="button"
+                        disabled={loading}
+                        className={`h-8 sm:h-9 px-2 sm:px-2.5 rounded-lg flex items-center gap-1.5 transition-all cursor-pointer shrink-0 text-xs ${
+                          isListening
+                            ? 'bg-red-500 text-white animate-pulse shadow-md shadow-red-500/50'
+                            : 'text-neutral-400 hover:text-white hover:bg-white/10'
+                        }`}
+                        title={isListening ? 'Listening... click to stop' : 'Voice dictation (Speech to text)'}
+                      >
+                        {isListening ? (
+                          <>
+                            <MicOff className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                            <span className="text-[11px] font-semibold text-white animate-pulse">Listening...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Mic className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                            <span className="hidden xs:inline text-[11px]">Voice</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+
+                    {/* Send / Stop Generation Button */}
+                    <div className="flex items-center gap-2 shrink-0">
+                      {loading ? (
+                        <button
+                          onClick={handleStopGeneration}
+                          type="button"
+                          className="h-8 sm:h-9 px-3 rounded-xl bg-red-600 hover:bg-red-700 text-white font-medium text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-lg shadow-red-600/30"
+                          title="Stop generating"
+                        >
+                          <Square className="w-3.5 h-3.5 fill-white" />
+                          <span>Stop</span>
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => handleSend()}
+                          disabled={!input.trim() && attachments.length === 0}
+                          type="button"
+                          className="h-8 sm:h-9 px-3.5 sm:px-4 rounded-xl bg-[#EF233C] hover:bg-red-600 disabled:opacity-40 disabled:hover:bg-[#EF233C] text-white font-semibold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-lg shadow-[#EF233C]/30 active:scale-95"
+                          title="Send message (Enter)"
+                        >
+                          <span>Send</span>
+                          <ArrowRight className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 </div>
 
                 {/* Sub-bar Indicators */}
@@ -1815,7 +1992,39 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
               </div>
             </div>
           </div>
-        </motion.div>
+
+          {/* Side-by-Side Live Built Website Artifact (Split View on Desktop) */}
+          {isSplitView && latestArtifact && (
+            <div className="hidden lg:flex w-1/2 flex-col border-l border-white/10 bg-[#07070e] p-3 overflow-hidden shadow-2xl">
+              <div className="flex items-center justify-between px-1 pb-2 mb-2 border-b border-white/10 shrink-0">
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#EF233C]/20 border border-[#EF233C]/40 text-[#EF233C] text-xs font-bold shadow-sm">
+                    <Cat className="w-3.5 h-3.5 animate-pulse" />
+                    <span>Cat Code Live Website</span>
+                  </div>
+                  <span className="text-[11px] text-neutral-400">Interactive Built Website Sandbox</span>
+                </div>
+                <button
+                  onClick={() => setIsSplitView(false)}
+                  type="button"
+                  className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-neutral-300 hover:text-white transition-colors cursor-pointer"
+                  title="Close Split Screen"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="flex-1 overflow-hidden">
+                <ArtifactRunner
+                  language={latestArtifact.language}
+                  code={latestArtifact.code}
+                  isCatCode={latestArtifact.isCatCode}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </motion.div>
       </div>
     </AnimatePresence>
   );

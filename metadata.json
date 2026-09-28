@@ -1,6 +1,6 @@
 {
   "name": "IntellicatAI",
-  "description": "Cyber Cat Coder AI assistant with VIP priority passes and code intelligence",
+  "description": "Cyber Cat Coder AI assistant with VIP priority passes, dual-intelligence reasoning, project workspaces, and STEM study mode for developers and students.",
   "requestFramePermissions": [
     "microphone"
   ],

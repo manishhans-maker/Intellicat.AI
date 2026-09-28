@@ -1,0 +1,40 @@
+# IntellicatAI
+
+> IntellicatAI is a cyber-themed AI coding assistant, developer workspace, and multi-grade STEM learning platform engineered with dual-intelligence reasoning and VIP priority acceleration.
+
+## Overview
+IntellicatAI provides developers, students, and creators with two conversational modes:
+- **Normal Talk**: Natural, conversational, and versatile problem solving.
+- **Cyber Cat Code Engine**: Hyper-focused technical code generation, debugging, refactoring, and software architecture guidance.
+
+## Core Modules & Features
+
+### 1. Dual Intelligence AI Assistant
+- Ultra-low latency responses with real-time streaming.
+- Dual reasoning engine with switchable Fast (lightweight) and Deep Reasoning (complex logic) execution modes.
+- Code block syntax highlighting, one-click copy, and integrated execution sandboxes.
+- Voice input / speech recognition integration for hands-free coding assistance.
+
+### 2. Project Spaces
+- Cloud-backed multi-file project workspaces.
+- Real-time directory tree management and virtual file system.
+- Code preview and automated workspace-wide intelligence.
+
+### 3. Study Mode
+- Curriculum-tailored learning paths spanning primary to advanced academic tiers:
+  - Class 1 to Class 5 (Foundational logic & math)
+  - Class 6 to Class 10 (Secondary STEM, sciences & algebraic computation)
+  - Class 11 to Class 12 (Advanced calculus, physics, chemistry, and CS)
+  - College & University (Data structures, algorithms, engineering, systems)
+- Step-by-step Socratic breakdowns with interactive quizzes.
+
+### 4. VIP Priority Access & Latency Pipeline
+- Dedicated compute priority with guaranteed sub-100ms first-token latency.
+- Custom API key integration (Groq, Gemini, and open models).
+- Founder serial badges and exclusive priority tier benefits.
+
+## URLs & Navigation
+- Main Application Hub: https://ais-pre-x56frnyxonqmcdpmk4rcdc-523676963863.asia-east1.run.app/
+- Study Mode: https://ais-pre-x56frnyxonqmcdpmk4rcdc-523676963863.asia-east1.run.app/#study
+- Project Spaces: https://ais-pre-x56frnyxonqmcdpmk4rcdc-523676963863.asia-east1.run.app/#spaces
+- VIP Access Passes: https://ais-pre-x56frnyxonqmcdpmk4rcdc-523676963863.asia-east1.run.app/#priority

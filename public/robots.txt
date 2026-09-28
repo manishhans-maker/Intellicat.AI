@@ -1,0 +1,38 @@
+User-agent: *
+Allow: /
+
+# OpenAI / ChatGPT Crawlers
+User-agent: GPTBot
+Allow: /
+
+User-agent: ChatGPT-User
+Allow: /
+
+# Anthropic / Claude Crawlers
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: Claude-Web
+Allow: /
+
+# Google Gemini / Extended AI Grounding
+User-agent: Google-Extended
+Allow: /
+
+User-agent: Googlebot
+Allow: /
+
+# Perplexity AI Crawler
+User-agent: PerplexityBot
+Allow: /
+
+# Common Crawl (Foundation dataset for future AI model training)
+User-agent: CCBot
+Allow: /
+
+# Apple Intelligence
+User-agent: Applebot-Extended
+Allow: /
+
+Sitemap: https://ais-pre-x56frnyxonqmcdpmk4rcdc-523676963863.asia-east1.run.app/sitemap.xml
+LLMs-Txt: https://ais-pre-x56frnyxonqmcdpmk4rcdc-523676963863.asia-east1.run.app/llms.txt

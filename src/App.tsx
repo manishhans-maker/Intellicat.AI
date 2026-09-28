@@ -32,7 +32,17 @@ import {
 import { INTELLICAT_LOGO_URL } from './constants';
 
 export default function App() {
-  const [currentView, setCurrentView] = useState<'hero' | 'priority' | 'study' | 'spaces'>('hero');
+  const [currentView, setCurrentView] = useState<'hero' | 'priority' | 'study' | 'spaces'>(() => {
+    try {
+      const hash = window.location.hash.replace('#', '');
+      if (hash === 'study' || hash === 'spaces' || hash === 'priority') {
+        return hash;
+      }
+    } catch {
+      // fallback
+    }
+    return 'hero';
+  });
   const [aiChatOpen, setAiChatOpen] = useState(false);
   const [chatMode, setChatMode] = useState<ChatMode>('normal');
   const [initialAiPrompt, setInitialAiPrompt] = useState<string | undefined>(undefined);
@@ -97,6 +107,79 @@ export default function App() {
       }
     }
   }, [isOwner, tier]);
+
+  // Dynamic SEO metadata synchronization across sections
+  useEffect(() => {
+    const seoMap: Record<string, { title: string; desc: string }> = {
+      hero: {
+        title: 'IntellicatAI – Cyber Cat AI Coding Assistant & Studio',
+        desc: 'Cyber Cat Coder AI assistant with VIP priority passes, dual-intelligence reasoning, project workspaces, and STEM study mode for developers and students.',
+      },
+      study: {
+        title: 'Study Mode – IntellicatAI Interactive STEM & Academic Learning',
+        desc: 'Explore interactive curriculum-aligned STEM learning, physics, math, and code explanations with IntellicatAI Study Mode.',
+      },
+      spaces: {
+        title: 'Project Spaces – IntellicatAI Real-Time Code Workspaces',
+        desc: 'Build and manage projects with IntellicatAI Spaces: real-time code editor, live file tree, and cyber cat AI assistant integration.',
+      },
+      priority: {
+        title: 'VIP Priority Access & Latency Pipeline – IntellicatAI',
+        desc: 'Unlock ultra-low latency inference, priority VIP queue access, custom models, and dedicated compute passes with IntellicatAI VIP.',
+      },
+    };
+
+    const currentSeo = seoMap[currentView] || seoMap.hero;
+    document.title = currentSeo.title;
+
+    const metaDesc = document.querySelector('meta[name="description"]');
+    if (metaDesc) {
+      metaDesc.setAttribute('content', currentSeo.desc);
+    }
+    const ogTitle = document.querySelector('meta[property="og:title"]');
+    if (ogTitle) {
+      ogTitle.setAttribute('content', currentSeo.title);
+    }
+    const ogDesc = document.querySelector('meta[property="og:description"]');
+    if (ogDesc) {
+      ogDesc.setAttribute('content', currentSeo.desc);
+    }
+    const twitterTitle = document.querySelector('meta[name="twitter:title"]');
+    if (twitterTitle) {
+      twitterTitle.setAttribute('content', currentSeo.title);
+    }
+    const twitterDesc = document.querySelector('meta[name="twitter:description"]');
+    if (twitterDesc) {
+      twitterDesc.setAttribute('content', currentSeo.desc);
+    }
+
+    const targetHash = currentView === 'hero' ? '' : `#${currentView}`;
+    if (window.location.hash !== targetHash) {
+      try {
+        if (targetHash) {
+          window.history.replaceState(null, '', targetHash);
+        } else {
+          window.history.replaceState(null, '', window.location.pathname);
+        }
+      } catch {
+        // ignore
+      }
+    }
+  }, [currentView]);
+
+  // Listen for hash changes from bookmarks or back/forward navigation
+  useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash.replace('#', '');
+      if (hash === 'study' || hash === 'spaces' || hash === 'priority') {
+        setCurrentView(hash);
+      } else if (!hash) {
+        setCurrentView('hero');
+      }
+    };
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
   const [email, setEmail] = useState('');
   const [selectedPlan, setSelectedPlan] = useState<string>('Priority Pro');
   const [submitted, setSubmitted] = useState(false);

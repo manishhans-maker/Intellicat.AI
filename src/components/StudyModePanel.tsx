@@ -221,8 +221,8 @@ export const StudyModePanel: React.FC<StudyModePanelProps> = ({
               value={topicInput}
               onChange={(e) => setTopicInput(e.target.value)}
               placeholder="E.g. Solve: If 3x + 7 = 28, find x. Or: Explain Photosynthesis in plants with equation..."
-              rows={3}
-              className="w-full rounded-xl bg-neutral-900/90 border border-white/15 px-3.5 py-2.5 text-sm text-white placeholder-neutral-500 focus:outline-none focus:border-[#EF233C] transition-all resize-none"
+              rows={4}
+              className="w-full min-h-[100px] sm:min-h-[85px] rounded-xl bg-neutral-900/90 border border-white/15 px-3.5 py-2.5 text-base sm:text-sm text-white placeholder-neutral-500 focus:outline-none focus:border-[#EF233C] transition-all resize-none leading-relaxed"
             />
           </div>
 

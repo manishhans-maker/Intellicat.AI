@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Check, Copy, Download, Terminal, Code2, FileCode } from 'lucide-react';
+import { Check, Copy, Download, Terminal, Code2, FileCode, Eye, Cat, Sparkles } from 'lucide-react';
+import { ArtifactRunner, isPreviewableArtifact } from './ArtifactRunner';
 
 interface MarkdownRendererProps {
   content: string;
+  isCatCode?: boolean;
 }
 
 const EXTENSION_MAP: Record<string, string> = {
@@ -36,13 +38,23 @@ const EXTENSION_MAP: Record<string, string> = {
 const CodeBlock: React.FC<{
   language?: string;
   value: string;
-}> = ({ language, value }) => {
+  isCatCode?: boolean;
+}> = ({ language, value, isCatCode = false }) => {
   const [copied, setCopied] = useState(false);
   const [downloaded, setDownloaded] = useState(false);
+  const [showArtifact, setShowArtifact] = useState(false);
 
   const displayLang = (language || 'code').toLowerCase();
   const ext = EXTENSION_MAP[displayLang] || 'txt';
   const lines = value.split('\n');
+
+  if (showArtifact) {
+    return (
+      <div className="relative">
+        <ArtifactRunner language={language} code={value} isCatCode={isCatCode} />
+      </div>
+    );
+  }
 
   const handleCopy = () => {
     navigator.clipboard.writeText(value);
@@ -83,6 +95,17 @@ const CodeBlock: React.FC<{
         </div>
 
         <div className="flex items-center gap-1.5">
+          {/* Live Preview Button */}
+          <button
+            onClick={() => setShowArtifact(true)}
+            type="button"
+            className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-[#EF233C]/20 hover:bg-[#EF233C]/35 text-[#EF233C] border border-[#EF233C]/40 transition-all cursor-pointer text-[11px] font-semibold"
+            title="Preview as live interactive website/app"
+          >
+            <Eye className="w-3 h-3" />
+            <span>Preview Website</span>
+          </button>
+
           {/* Download code button */}
           <button
             onClick={handleDownload}
@@ -282,7 +305,7 @@ class MarkdownErrorBoundary extends React.Component<
   }
 }
 
-export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content }) => {
+export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, isCatCode = false }) => {
   const sanitizedContent = cleanLatexAndMathSymbols(content);
 
   return (
@@ -296,7 +319,17 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content }) =
             const rawCode = String(children).replace(/\n$/, '');
 
             if (!inline && (match || rawCode.includes('\n'))) {
-              return <CodeBlock language={match ? match[1] : undefined} value={rawCode} />;
+              const lang = match ? match[1] : undefined;
+              if (isPreviewableArtifact(lang, rawCode, isCatCode)) {
+                return (
+                  <ArtifactRunner
+                    language={lang}
+                    code={rawCode}
+                    isCatCode={isCatCode}
+                  />
+                );
+              }
+              return <CodeBlock language={lang} value={rawCode} isCatCode={isCatCode} />;
             }
 
             return (
