@@ -109,14 +109,15 @@ async function resolveGroqModel(groq: Groq): Promise<string> {
   return "llama-3.1-8b-instant";
 }
 
-// Primary lightweight Gemini model cascade to minimize quota footprint and maximize resilience
-const GEMINI_PRIMARY_MODEL = "gemini-3.1-flash-lite";
+// Primary Gemini model cascade: prioritize 3.8 Flash, followed by ultra-stable 3.6 Flash & 3.5 Flash
+const GEMINI_PRIMARY_MODEL = "gemini-3.6-flash";
 const GEMINI_MODELS_CASCADE = [
   "gemini-3.8-flash",
-  "gemini-3.1-flash-lite",
-  "gemini-flash-latest",
-  "gemini-3.1-pro-preview",
   "gemini-3.6-flash",
+  "gemini-3.5-flash",
+  "gemini-flash-lite-latest",
+  "gemini-3.1-flash-lite",
+  "gemini-3.1-pro-preview",
 ];
 
 // --- Message Formatting ---
@@ -465,27 +466,30 @@ export default async function handler(req: any, res: any) {
       memoriesContext = "",
       userId,
       isVipOrFounder = false,
-      userTier = "free",
+      userTier: requestedUserTier,
       groqApiKey: bodyGroqKey,
+      customGroqKey,
     } = parsedBody || {};
 
     if (!Array.isArray(messages) || messages.length === 0) {
       return res.status(400).json({ error: "Messages array is required." });
     }
 
+    const effectiveTier = isVipOrFounder ? "vip" : (requestedUserTier || "free");
+
     // Server-side strict quota check
     if (userId) {
-      const quotaCheck = checkAndIncrementQuota(userId, userTier);
+      const quotaCheck = checkAndIncrementQuota(userId, effectiveTier);
       if (!quotaCheck.allowed) {
         return res.status(403).json({
-          error: `Account query limit reached (${quotaCheck.max} requests for ${userTier} tier). To protect API quota, please wait for reset or use non-AI tools.`,
+          error: `Account query limit reached (${quotaCheck.max} requests for ${effectiveTier} tier). To protect API quota, please wait for reset or use non-AI tools.`,
         });
       }
     }
 
     // Determine custom Groq Key from header or body or env
     const headerGroqKey = (req.headers["x-groq-api-key"] as string) || "";
-    const effectiveGroqKey = (bodyGroqKey || headerGroqKey || process.env.GROQ_API_KEY || "").trim();
+    const effectiveGroqKey = (customGroqKey || bodyGroqKey || headerGroqKey || process.env.GROQ_API_KEY || "").trim();
     const hasGroqKey = effectiveGroqKey.length > 0;
     const hasGeminiKey = Boolean(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim() !== "");
 
@@ -648,6 +652,15 @@ export default async function handler(req: any, res: any) {
 
             const text = chunk.text || "";
             if (text) {
+              if (!streamStarted && requestedModel && candidateModel !== requestedModel) {
+                res.write(
+                  `data: ${JSON.stringify({
+                    text: `*[Notice: ${requestedModel} is currently experiencing temporary high demand on Google's servers. Handed over to ${candidateModel} for zero delay! ⚡]*\n\n`,
+                    provider: "gemini",
+                    model: candidateModel,
+                  })}\n\n`
+                );
+              }
               streamStarted = true;
               res.write(`data: ${JSON.stringify({ text, provider: "gemini", model: candidateModel })}\n\n`);
               if (typeof (res as any).flush === "function") {

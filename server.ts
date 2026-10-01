@@ -46,6 +46,17 @@ async function startServer() {
     res.json({ status: "ok", service: "IntelicatAI Engine", timestamp: new Date().toISOString() });
   });
 
+  // Explicit SEO & Crawler routes to guarantee instant 200 OK delivery to Googlebot & AI agents
+  app.get("/robots.txt", (_req, res) => {
+    res.type("text/plain").sendFile(path.join(process.cwd(), "public", "robots.txt"));
+  });
+  app.get("/sitemap.xml", (_req, res) => {
+    res.type("application/xml").sendFile(path.join(process.cwd(), "public", "sitemap.xml"));
+  });
+  app.get("/llms.txt", (_req, res) => {
+    res.type("text/plain; charset=utf-8").sendFile(path.join(process.cwd(), "public", "llms.txt"));
+  });
+
   // Unified API endpoint for Chat
   app.post("/api/chat", chatHandler);
 

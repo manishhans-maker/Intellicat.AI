@@ -39,6 +39,8 @@ import {
   Eye,
   PanelRight,
   Split,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react';
 import { RobotBackground } from './RobotBackground';
 import { INTELLICAT_LOGO_URL } from '../constants';
@@ -190,6 +192,32 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
 
   // Dedicated Built Website Artifact Split-Screen View
   const [isSplitView, setIsSplitView] = useState(false);
+
+  // Fullscreen / Maximize mode for laptops and smaller displays
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('intelicat_chat_fullscreen');
+      if (saved !== null) return saved === 'true';
+      if (typeof window !== 'undefined' && window.innerHeight <= 860) {
+        return true;
+      }
+    } catch {
+      // ignore
+    }
+    return false;
+  });
+
+  const handleToggleFullscreen = () => {
+    setIsFullscreen((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('intelicat_chat_fullscreen', String(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  };
 
   // Automatically find the most recent interactive built website artifact in this conversation
   const latestArtifact = useMemo(() => {
@@ -880,6 +908,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
         webSearch: webSearchEnabled,
         userId: user.uid,
         isVipOrFounder: isUnlimitedAccount,
+        userTier: tier,
         customGroqKey: customGroqKey || undefined,
         userMemoryContext: memoryContext || undefined,
       };
@@ -892,23 +921,53 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
         authHeaders['Authorization'] = `Bearer ${token}`;
       }
 
-      let response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: authHeaders,
-        signal: abortController.signal,
-        body: JSON.stringify(requestPayload),
-      });
+      // Execute fetch with automatic retry on network drops ("Failed to fetch") or 5xx errors
+      let response: Response | null = null;
+      let lastFetchErr: any = null;
 
-      // Auto-retry once on transient failure with safe auto failover
-      if (!response.ok && !abortController.signal.aborted) {
-        console.warn(`/api/chat initial attempt failed (${response.status}), running auto-recovery...`);
-        await new Promise((r) => setTimeout(r, 800));
-        response = await fetch('/api/chat', {
-          method: 'POST',
-          headers: authHeaders,
-          signal: abortController.signal,
-          body: JSON.stringify({ ...requestPayload, provider: 'auto', webSearch: false }),
-        });
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (abortController.signal.aborted) break;
+        try {
+          const currentPayload = attempt === 0
+            ? requestPayload
+            : { ...requestPayload, provider: 'auto', webSearch: false };
+
+          response = await fetch('/api/chat', {
+            method: 'POST',
+            headers: authHeaders,
+            signal: abortController.signal,
+            body: JSON.stringify(currentPayload),
+          });
+
+          if (response.ok) {
+            break;
+          }
+
+          // If 4xx (except 429), don't retry non-recoverable client errors (like 400, 403)
+          if (response.status >= 400 && response.status < 500 && response.status !== 429) {
+            break;
+          }
+
+          // Transient server error (500, 502, 503, 504) -> retry after backoff
+          await new Promise((r) => setTimeout(r, 600 * (attempt + 1)));
+        } catch (netErr: any) {
+          if (netErr?.name === 'AbortError') {
+            throw netErr;
+          }
+          lastFetchErr = netErr;
+          console.warn(`Attempt ${attempt + 1} network error:`, netErr?.message);
+          if (attempt < 2) {
+            await new Promise((r) => setTimeout(r, 800 * (attempt + 1)));
+          }
+        }
+      }
+
+      if (!response) {
+        throw new Error(
+          lastFetchErr?.message === 'Failed to fetch'
+            ? 'Network connection was interrupted. Please check your internet connection or tap retry.'
+            : lastFetchErr?.message || 'Unable to connect to AI engine.'
+        );
       }
 
       if (!response.ok) {
@@ -1028,7 +1087,10 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
         console.log('Stream stopped by user.');
       } else {
         console.error('Chat error:', err);
-        const errMsg = err.message || 'Unable to connect to AI engine.';
+        let errMsg = err.message || 'Unable to connect to AI engine.';
+        if (errMsg === 'Failed to fetch') {
+          errMsg = 'Network connection interrupted. Please tap retry to regenerate.';
+        }
         // Mark the assistant message as errored with inline retry
         setMessages((prev) =>
           prev.map((msg) =>
@@ -1065,7 +1127,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
 
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-4 md:p-6 bg-black/85 backdrop-blur-md">
+      <div className={`fixed inset-0 z-50 flex items-center justify-center ${isFullscreen ? 'p-0' : 'p-0 sm:p-1.5 md:p-2.5'} bg-black/90 backdrop-blur-md`}>
         {/* Robot Background Grid */}
         <div className="absolute inset-0 overflow-hidden pointer-events-none opacity-40">
           <RobotBackground />
@@ -1087,7 +1149,13 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.98, y: 10 }}
           transition={{ duration: 0.2 }}
-          className={`relative w-full ${isSplitView && latestArtifact ? 'max-w-[97vw] h-full sm:h-[95vh]' : 'max-w-6xl h-full sm:h-[90vh]'} bg-[#0c0c12] rounded-none sm:rounded-2xl border-0 sm:border border-white/10 shadow-2xl flex overflow-hidden text-neutral-100 transition-all duration-300`}
+          className={`relative w-full ${
+            isFullscreen
+              ? 'w-full h-full max-w-none rounded-none border-0'
+              : isSplitView && latestArtifact
+              ? 'max-w-[99vw] h-full sm:h-[97vh] rounded-none sm:rounded-2xl border-0 sm:border border-white/10'
+              : 'max-w-[98vw] 2xl:max-w-7xl h-full sm:h-[96vh] rounded-none sm:rounded-2xl border-0 sm:border border-white/10'
+          } bg-[#0c0c12] shadow-2xl flex overflow-hidden text-neutral-100 transition-all duration-200`}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
@@ -1116,8 +1184,8 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
 
           {/* Chat Workspace (Right Panel) */}
           <div className="flex-1 flex flex-col min-w-0 bg-[#0c0c12] relative">
-            {/* Top Bar Header: Mobile-Optimized 2-Row Stack */}
-            <header className="p-2.5 sm:p-4 border-b border-white/10 bg-black/60 flex flex-col gap-2 shrink-0">
+            {/* Top Bar Header: Mobile-Optimized & Compact on Laptops */}
+            <header className="px-2.5 py-1.5 sm:px-4 sm:py-2 border-b border-white/10 bg-black/60 flex flex-col gap-1.5 shrink-0">
               {/* Row 1: Left Brand & Chat Title + Right Actions & Prominent Close Button */}
               <div className="flex items-center justify-between gap-2 w-full">
                 <div className="flex items-center gap-2 sm:gap-3 min-w-0">
@@ -1125,7 +1193,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                   <button
                     onClick={() => setIsSidebarOpen((prev) => !prev)}
                     type="button"
-                    className="p-2 rounded-xl bg-white/5 hover:bg-white/15 text-neutral-200 hover:text-white border border-white/10 transition-colors cursor-pointer shrink-0 min-w-[38px] min-h-[38px] flex items-center justify-center"
+                    className="p-1.5 sm:p-2 rounded-xl bg-white/5 hover:bg-white/15 text-neutral-200 hover:text-white border border-white/10 transition-colors cursor-pointer shrink-0 min-w-[34px] min-h-[34px] sm:min-w-[38px] sm:min-h-[38px] flex items-center justify-center"
                     title="Toggle Chat History"
                     aria-label="Toggle Chat History"
                   >
@@ -1134,7 +1202,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
 
                   {/* Logo & Conversation Title */}
                   <div className="flex items-center gap-2 min-w-0">
-                    <div className="relative w-7 h-7 sm:w-8 sm:h-8 rounded-xl overflow-hidden bg-gradient-to-tr from-[#EF233C] to-red-600 p-0.5 shrink-0 shadow-md shadow-[#EF233C]/20">
+                    <div className="relative w-6 h-6 sm:w-7 sm:h-7 rounded-xl overflow-hidden bg-gradient-to-tr from-[#EF233C] to-red-600 p-0.5 shrink-0 shadow-md shadow-[#EF233C]/20">
                       <img
                         src={INTELLICAT_LOGO_URL}
                         alt="IntelicatAI Logo"
@@ -1154,7 +1222,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                         <button
                           onClick={() => setShowEngineModal(true)}
                           type="button"
-                          className="flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-white/10 hover:bg-white/20 border border-white/15 text-white font-medium text-[10px] transition-all cursor-pointer group shadow-sm active:scale-95"
+                          className="flex items-center gap-1 px-1.5 py-0.5 rounded-lg bg-white/10 hover:bg-white/20 border border-white/15 text-white font-medium text-[10px] transition-all cursor-pointer group shadow-sm active:scale-95"
                           title="Click to switch AI Model (Gemini 3.8 Flash, LLaMA 3.3 70B, etc.)"
                         >
                           <Cpu className="w-3 h-3 text-[#EF233C]" />
@@ -1172,7 +1240,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                 </div>
 
                 {/* Right Top Actions */}
-                <div className="flex items-center gap-1.5 shrink-0">
+                <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
                   {/* Built Website Artifact Quick Toggle / Jump */}
                   {latestArtifact && (
                     <button
@@ -1203,7 +1271,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
 
                   {/* Quota / VIP Pill */}
                   {isUnlimitedAccount ? (
-                    <div className="hidden xs:flex items-center gap-1 px-2.5 py-1 rounded-lg bg-gradient-to-r from-amber-500/20 to-yellow-500/20 border border-amber-500/40 text-amber-300 text-[11px] font-bold shadow-[0_0_10px_rgba(245,158,11,0.2)]">
+                    <div className="hidden xs:flex items-center gap-1 px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg bg-gradient-to-r from-amber-500/20 to-yellow-500/20 border border-amber-500/40 text-amber-300 text-[11px] font-bold shadow-[0_0_10px_rgba(245,158,11,0.2)]">
                       <Crown className="w-3.5 h-3.5 text-amber-400" />
                       <span>{isOwner || isFounderActive ? '👑 FOUNDER' : '⭐ VIP'}</span>
                     </div>
@@ -1211,7 +1279,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                     <button
                       onClick={onOpenBuyVip}
                       type="button"
-                      className="hidden xs:flex items-center gap-1 px-2 py-1 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-neutral-300 hover:text-white text-[11px] transition-colors cursor-pointer"
+                      className="hidden xs:flex items-center gap-1 px-2 py-0.5 sm:py-1 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-neutral-300 hover:text-white text-[11px] transition-colors cursor-pointer"
                       title="Click to upgrade for unlimited queries"
                     >
                       <Zap className="w-3 h-3 text-[#EF233C]" />
@@ -1223,18 +1291,37 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                   <button
                     onClick={() => setShowExportModal((prev) => !prev)}
                     type="button"
-                    className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-neutral-300 hover:text-white border border-white/10 transition-colors cursor-pointer min-w-[38px] min-h-[38px] flex items-center justify-center"
+                    className="p-1.5 sm:p-2 rounded-xl bg-white/5 hover:bg-white/10 text-neutral-300 hover:text-white border border-white/10 transition-colors cursor-pointer min-w-[34px] min-h-[34px] sm:min-w-[38px] sm:min-h-[38px] flex items-center justify-center"
                     title="Export Chat"
                     aria-label="Export Chat"
                   >
                     <Download className="w-4 h-4" />
                   </button>
 
-                  {/* Close Modal Button - Big touch target & high visibility on mobile */}
+                  {/* Maximize / Fullscreen Toggle Button - Essential for Laptops */}
+                  <button
+                    onClick={handleToggleFullscreen}
+                    type="button"
+                    className={`p-1.5 sm:p-2 rounded-xl transition-all cursor-pointer min-w-[34px] min-h-[34px] sm:min-w-[38px] sm:min-h-[38px] flex items-center justify-center font-bold shadow-md active:scale-95 ${
+                      isFullscreen
+                        ? 'bg-[#EF233C]/20 hover:bg-[#EF233C]/35 text-[#EF233C] border border-[#EF233C]/40'
+                        : 'bg-white/10 hover:bg-white/20 text-neutral-200 hover:text-white border border-white/15'
+                    }`}
+                    title={isFullscreen ? 'Exit Fullscreen' : 'Maximize Fullscreen (Recommended for Laptop screens)'}
+                    aria-label={isFullscreen ? 'Exit Fullscreen' : 'Maximize Fullscreen'}
+                  >
+                    {isFullscreen ? (
+                      <Minimize2 className="w-4 h-4" />
+                    ) : (
+                      <Maximize2 className="w-4 h-4" />
+                    )}
+                  </button>
+
+                  {/* Close Modal Button */}
                   <button
                     onClick={onClose}
                     type="button"
-                    className="p-2 rounded-xl bg-white/10 hover:bg-red-500/30 text-neutral-200 hover:text-white border border-white/20 hover:border-red-500/50 transition-all cursor-pointer min-w-[40px] min-h-[40px] flex items-center justify-center font-bold shadow-md active:scale-95"
+                    className="p-1.5 sm:p-2 rounded-xl bg-white/10 hover:bg-red-500/30 text-neutral-200 hover:text-white border border-white/20 hover:border-red-500/50 transition-all cursor-pointer min-w-[34px] min-h-[34px] sm:min-w-[38px] sm:min-h-[38px] flex items-center justify-center font-bold shadow-md active:scale-95"
                     title="Close Assistant"
                     aria-label="Close Assistant"
                   >
@@ -1244,7 +1331,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
               </div>
 
               {/* Row 2: Mode Selector Pill Suite with smooth mobile horizontal scroll */}
-              <div className="flex items-center gap-1.5 overflow-x-auto max-w-full scrollbar-none touch-pan-x py-0.5">
+              <div className="flex items-center gap-1 sm:gap-1.5 overflow-x-auto max-w-full scrollbar-none touch-pan-x py-0.5">
                 <button
                   onClick={() => handleSwitchMode('fast')}
                   type="button"
@@ -1557,19 +1644,19 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                 {/* Messages Scroll Area */}
                 <div
                   ref={chatContainerRef}
-              className="flex-1 overflow-y-auto p-3 sm:p-6 space-y-5 selection:bg-[#EF233C] selection:text-white"
-            >
-              {messages.map((msg, index) => {
-                const isUser = msg.role === 'user';
-                const isLastAssistant = !isUser && index === messages.length - 1;
+                  className="flex-1 overflow-y-auto p-2.5 sm:p-4 sm:px-6 space-y-3.5 selection:bg-[#EF233C] selection:text-white"
+                >
+                  {messages.map((msg, index) => {
+                    const isUser = msg.role === 'user';
+                    const isLastAssistant = !isUser && index === messages.length - 1;
 
-                return (
-                  <div
-                    key={msg.id}
-                    className={`flex gap-3 sm:gap-4 max-w-4xl mx-auto ${
-                      isUser ? 'flex-row-reverse' : 'flex-row'
-                    }`}
-                  >
+                    return (
+                      <div
+                        key={msg.id}
+                        className={`flex gap-2.5 sm:gap-3.5 max-w-5xl 2xl:max-w-6xl mx-auto ${
+                          isUser ? 'flex-row-reverse' : 'flex-row'
+                        }`}
+                      >
                     {/* Avatar */}
                     <div
                       className={`w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center shrink-0 border shadow-md ${
@@ -1786,8 +1873,8 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
             </div>
 
             {/* Bottom Composer & Controls */}
-            <div className="p-2 sm:p-4 border-t border-white/10 bg-black/50 shrink-0">
-              <div className="max-w-4xl mx-auto space-y-2">
+            <div className="p-2 sm:px-4 sm:py-2.5 border-t border-white/10 bg-black/60 shrink-0">
+              <div className="max-w-5xl 2xl:max-w-6xl mx-auto space-y-1.5">
                 {/* Active Attachments Preview Bar */}
                 {attachments.length > 0 && (
                   <div className="flex flex-wrap gap-2 p-2 bg-white/5 rounded-xl border border-white/10">
@@ -1820,7 +1907,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                     initial={{ opacity: 0, y: 4 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: 4 }}
-                    className="flex items-center justify-between px-3 py-2 rounded-xl bg-blue-950/70 border border-blue-500/40 text-blue-200 text-xs shadow-md backdrop-blur-sm"
+                    className="flex items-center justify-between px-3 py-1.5 rounded-xl bg-blue-950/70 border border-blue-500/40 text-blue-200 text-xs shadow-md backdrop-blur-sm"
                   >
                     <div className="flex items-center gap-2 min-w-0">
                       <span className="relative flex h-2 w-2 shrink-0">
@@ -1849,13 +1936,13 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                   </motion.div>
                 )}
 
-                {/* Input Controls Container - Optimized to be much longer & full-width on mobile */}
-                <div className="relative flex flex-col bg-[#12121a] rounded-2xl border border-white/15 p-2 sm:p-2.5 focus-within:border-[#EF233C]/60 focus-within:ring-1 focus-within:ring-[#EF233C]/30 transition-all shadow-xl">
-                  {/* Asking Field: Full width, significantly longer on mobile (min-h 74px) with multi-row space */}
+                {/* Input Controls Container - Compact on default, auto-expanding on multi-line typing */}
+                <div className="relative flex flex-col bg-[#12121a] rounded-xl sm:rounded-2xl border border-white/15 p-1.5 sm:p-2 focus-within:border-[#EF233C]/60 focus-within:ring-1 focus-within:ring-[#EF233C]/30 transition-all shadow-xl">
+                  {/* Asking Field: Full width, compact default height so reading area stays huge */}
                   <div className="w-full relative">
                     <textarea
                       ref={textareaRef}
-                      rows={2}
+                      rows={1}
                       value={input}
                       onChange={handleInputChange}
                       onKeyDown={(e) => {
@@ -1873,7 +1960,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                           ? 'Search the live web or ask a detailed question...'
                           : 'Ask anything, brainstorm, or type your question...'
                       }
-                      className="w-full min-h-[74px] sm:min-h-[48px] max-h-56 py-2 px-2.5 bg-transparent text-neutral-100 placeholder:text-neutral-500 text-base sm:text-sm focus:outline-none resize-none leading-relaxed block"
+                      className="w-full min-h-[40px] sm:min-h-[44px] max-h-48 py-1.5 sm:py-2 px-2.5 sm:px-3 bg-transparent text-neutral-100 placeholder:text-neutral-500 text-sm focus:outline-none resize-none leading-relaxed block"
                     />
                   </div>
 
