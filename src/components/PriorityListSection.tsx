@@ -24,7 +24,7 @@ export const PriorityListSection: React.FC<PriorityListSectionProps> = ({
   isFounder = false,
 }) => {
   const [email, setEmail] = useState('');
-  const [tier, setTier] = useState<'Priority Pro' | 'Enterprise VIP' | 'Founder Access ($1B)'>('Priority Pro');
+  const [tier, setTier] = useState<'Pro ($10)' | 'Elite ($50)' | 'Founder ($1B)'>('Pro ($10)');
   const [submitted, setSubmitted] = useState(false);
   const [queueSpot, setQueueSpot] = useState(48);
 
@@ -217,12 +217,12 @@ export const PriorityListSection: React.FC<PriorityListSectionProps> = ({
 
             {/* Tier Selector Pills */}
             <div className="grid grid-cols-3 gap-1.5 p-1 rounded-xl bg-black/60 border border-white/10 mb-5">
-              {(['Priority Pro', 'Enterprise VIP', 'Founder Access ($1B)'] as const).map((item) => (
+              {(['Pro ($10)', 'Elite ($50)', 'Founder ($1B)'] as const).map((item) => (
                 <button
                   key={item}
                   onClick={() => {
                     setTier(item);
-                    if (item === 'Founder Access ($1B)') {
+                    if (item.includes('$1B')) {
                       onOpenBuyVip?.();
                     }
                   }}

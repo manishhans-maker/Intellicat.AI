@@ -14,7 +14,7 @@ import { RobotBackground } from './components/RobotBackground';
 import { StudyModePanel } from './components/StudyModePanel';
 import { SpacesPanel } from './components/SpacesPanel';
 import { SettingsModal } from './components/SettingsModal';
-import { ProjectSpace, StudyGrade, AiMode, AiProvider } from './types';
+import { ProjectSpace, StudyGrade, AiMode, AiProvider, UserPlanTier } from './types';
 import { useAuth } from './context/AuthContext';
 import { AnimatePresence, motion } from 'motion/react';
 import {
@@ -86,7 +86,7 @@ export default function App() {
   // Robot video visibility mode: 'balanced' | 'vivid' | 'cinema'
   const [robotMode, setRobotMode] = useState<'balanced' | 'vivid' | 'cinema'>('vivid');
   
-  const { user, upgradeToVip, isOwner, tier } = useAuth();
+  const { user, upgradeToTier, upgradeToVip, isOwner, tier } = useAuth();
   
   useEffect(() => {
     if (isOwner || tier === 'founder') {
@@ -98,7 +98,7 @@ export default function App() {
       } catch {
         // ignore
       }
-    } else if (tier === 'vip') {
+    } else if (tier === 'elite' || tier === 'pro') {
       setIsVipMember(true);
       try {
         localStorage.setItem('intelicat_vip_active', 'true');
@@ -221,11 +221,13 @@ export default function App() {
     if (vipData.isFounder) {
       setIsFounder(true);
     }
-    upgradeToVip(Boolean(vipData.isFounder));
+    const targetTier: UserPlanTier = vipData.isFounder ? 'founder' : vipData.tierId === 'elite' ? 'elite' : 'pro';
+    upgradeToTier(targetTier);
     try {
       localStorage.setItem('intelicat_vip_active', 'true');
       localStorage.setItem('intelicat_vip_id', vipData.serialId);
-      localStorage.setItem('intelicat_vip_tier', vipData.tierId);
+      localStorage.setItem('intelicat_vip_tier', targetTier);
+      localStorage.setItem('intelicat_tier', targetTier);
       if (vipData.isFounder) {
         localStorage.setItem('intelicat_is_founder', 'true');
       }

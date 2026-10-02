@@ -41,6 +41,8 @@ import {
   Split,
   Maximize2,
   Minimize2,
+  Lock,
+  Clock,
 } from 'lucide-react';
 import { RobotBackground } from './RobotBackground';
 import { INTELLICAT_LOGO_URL } from '../constants';
@@ -108,6 +110,10 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
     isUnlimited,
     isOwner: authIsOwner,
     tier,
+    cooldownStage,
+    isRecoveryStage,
+    cooldownRemainingSeconds,
+    cooldownFormatted,
     consumeRequest,
   } = useAuth();
 
@@ -120,8 +126,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
     ))
   );
   const isFounderActive = Boolean(isFounder || isOwner || tier === 'founder');
-  const isVipActive = Boolean(isVipMember || isFounderActive || tier === 'vip');
-  const isUnlimitedAccount = Boolean(isOwner || isUnlimited || isFounderActive || isVipActive);
+  const isUnlimitedAccount = Boolean(isOwner || isUnlimited || isFounderActive || tier === 'founder');
 
   // State
   const [mode, setMode] = useState<ChatMode>(defaultMode);
@@ -146,11 +151,17 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [showExportModal, setShowExportModal] = useState(false);
   const [showEngineModal, setShowEngineModal] = useState(false);
+  const [lockedModelAlert, setLockedModelAlert] = useState<{
+    model: AiModelOption;
+    requiredTierName: string;
+    requiredPrice: string;
+  } | null>(null);
+
   const [selectedModel, setSelectedModel] = useState<string>(() => {
     try {
-      return localStorage.getItem('intelicat_selected_model') || 'gemini-3.8-flash';
+      return localStorage.getItem('intelicat_selected_model') || 'gemini-3.6-flash';
     } catch {
-      return 'gemini-3.8-flash';
+      return 'gemini-3.6-flash';
     }
   });
   const [modelCategoryFilter, setModelCategoryFilter] = useState<'all' | 'gemini' | 'groq'>('all');
@@ -159,11 +170,30 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
     AVAILABLE_AI_MODELS.find((m) => m.id === selectedModel) || AVAILABLE_AI_MODELS[0];
 
   const handleSelectModel = (modelId: string) => {
-    setSelectedModel(modelId);
     const found = AVAILABLE_AI_MODELS.find((m) => m.id === modelId);
-    if (found) {
-      setProvider(found.provider);
+    if (!found) return;
+
+    if (!isUnlimitedAccount) {
+      if (found.requiredTier === 'pro' && tier === 'free') {
+        setLockedModelAlert({
+          model: found,
+          requiredTierName: 'Intelicat Pro',
+          requiredPrice: '$10',
+        });
+        return;
+      }
+      if (found.requiredTier === 'elite' && (tier === 'free' || tier === 'pro')) {
+        setLockedModelAlert({
+          model: found,
+          requiredTierName: 'Intelicat Elite / VIP',
+          requiredPrice: '$50',
+        });
+        return;
+      }
     }
+
+    setSelectedModel(modelId);
+    setProvider(found.provider);
     try {
       localStorage.setItem('intelicat_selected_model', modelId);
     } catch {}
@@ -772,17 +802,19 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
       return;
     }
 
-    // 2. Strict Quota Enforcement (bypassed for owner and founder/vip accounts)
-    if (isLimitReached && !isUnlimitedAccount && !isOwner) {
-      setError(`Daily request limit reached (${maxRequests}/${maxRequests} used). Please upgrade to VIP or add your own free Groq API key in Settings to continue!`);
+    // 2. Strict Quota & Cooldown Enforcement
+    if (!isUnlimitedAccount && (isLimitReached || cooldownRemainingSeconds > 0)) {
+      const cooldownMsg =
+        cooldownStage === 2
+          ? `Extended 6-Hour Cooldown active. Full chats reset in ${cooldownFormatted}. Upgrade to Pro ($10) to skip cooldown!`
+          : `3-Hour Cooldown active. 5 Recovery chats unlock in ${cooldownFormatted}. Upgrade to Pro ($10) to skip cooldown!`;
+      setError(cooldownMsg);
       if (onOpenBuyVip) onOpenBuyVip();
       return;
     }
 
-    // Track usage in background without blocking
-    if (user) {
-      consumeRequest(true).catch(() => {});
-    }
+    // Consume request credit
+    consumeRequest(isUnlimitedAccount).catch(() => {});
 
     // Stop speaking
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
@@ -1234,6 +1266,43 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                           )}
                           <ChevronDown className="w-2.5 h-2.5 text-neutral-400 group-hover:text-white transition-colors" />
                         </button>
+                        <span>•</span>
+                        <button
+                          onClick={() => onOpenBuyVip?.()}
+                          type="button"
+                          className={`flex items-center gap-1 px-1.5 py-0.5 rounded-lg border text-[10px] font-semibold transition-all cursor-pointer shadow-sm active:scale-95 ${
+                            isUnlimitedAccount
+                              ? 'bg-amber-500/15 border-amber-500/40 text-amber-300'
+                              : cooldownRemainingSeconds > 0
+                              ? 'bg-red-500/25 border-red-500/50 text-red-300 animate-pulse'
+                              : isRecoveryStage
+                              ? 'bg-purple-500/20 border-purple-500/40 text-purple-300'
+                              : 'bg-white/10 hover:bg-white/20 border-white/15 text-neutral-300 hover:text-white'
+                          }`}
+                          title={
+                            isUnlimitedAccount
+                              ? 'Unlimited Plan Active'
+                              : cooldownRemainingSeconds > 0
+                              ? `Cooldown active: ${cooldownFormatted} remaining. Upgrade to Pro ($10) to skip cooldown!`
+                              : `${remainingRequests} of ${maxRequests} chats remaining in current window`
+                          }
+                        >
+                          {isUnlimitedAccount ? (
+                            <>
+                              <Crown className="w-2.5 h-2.5 text-amber-400" />
+                              <span>Unlimited 👑</span>
+                            </>
+                          ) : cooldownRemainingSeconds > 0 ? (
+                            <>
+                              <Clock className="w-2.5 h-2.5 text-red-400" />
+                              <span>{cooldownFormatted}</span>
+                            </>
+                          ) : (
+                            <>
+                              <span>{isRecoveryStage ? 'Recovery' : 'Chats'}: {remainingRequests}/{maxRequests}</span>
+                            </>
+                          )}
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -1511,6 +1580,10 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                   <div className="flex-1 overflow-y-auto space-y-2.5 pr-1 scrollbar-thin">
                     {filteredModels.map((m) => {
                       const isSelected = selectedModel === m.id;
+                      const isLocked =
+                        !isUnlimitedAccount &&
+                        ((m.requiredTier === 'pro' && tier === 'free') ||
+                          (m.requiredTier === 'elite' && (tier === 'free' || tier === 'pro')));
 
                       return (
                         <div
@@ -1519,21 +1592,26 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                           className={`p-3.5 rounded-xl border transition-all cursor-pointer group ${
                             isSelected
                               ? 'bg-gradient-to-r from-red-600/15 via-[#EF233C]/10 to-transparent border-[#EF233C]/60 ring-1 ring-[#EF233C]/40 shadow-lg'
+                              : isLocked
+                              ? 'bg-white/[0.02] border-white/10 hover:border-amber-500/30'
                               : 'bg-white/[0.03] border-white/10 hover:bg-white/[0.07] hover:border-white/20'
                           }`}
                         >
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0 flex-1">
                               <div className="flex items-center gap-2 flex-wrap mb-1">
-                                <span className="font-bold text-xs sm:text-sm text-white group-hover:text-white">
+                                <span className="font-bold text-xs sm:text-sm text-white group-hover:text-white flex items-center gap-1.5">
                                   {m.name}
+                                  {isLocked && <Lock className="w-3 h-3 text-amber-400" />}
                                 </span>
                                 {m.badge && (
                                   <span
                                     className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold ${
-                                      m.badge.includes('800')
+                                      isLocked
                                         ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                                        : m.badge === 'Recommended'
+                                        : m.badge.includes('800')
+                                        ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                                        : m.badge === 'Default ⚡'
                                         ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
                                         : 'bg-white/10 text-neutral-300 border border-white/15'
                                     }`}
@@ -1564,7 +1642,12 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                             </div>
 
                             <div className="shrink-0 flex items-center justify-center pt-1">
-                              {isSelected ? (
+                              {isLocked ? (
+                                <div className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-amber-500/20 text-amber-300 border border-amber-500/40 text-xs font-bold shadow-sm group-hover:bg-amber-500/30 transition-colors">
+                                  <Lock className="w-3 h-3 text-amber-400" />
+                                  <span>{m.requiredTier === 'elite' ? 'Elite ($50)' : 'Pro ($10)'}</span>
+                                </div>
+                              ) : isSelected ? (
                                 <div className="w-6 h-6 rounded-full bg-[#EF233C] text-white flex items-center justify-center shadow-md shadow-[#EF233C]/40">
                                   <Check className="w-3.5 h-3.5 stroke-[3]" />
                                 </div>
@@ -1589,6 +1672,77 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                       className="px-4 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-semibold transition-colors cursor-pointer"
                     >
                       Done
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Locked Model Upgrade Alert Modal */}
+            {lockedModelAlert && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+                <div className="w-full max-w-md bg-[#12121e] border border-amber-500/40 rounded-2xl p-5 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
+                  <div className="flex items-center justify-between pb-3 border-b border-white/10">
+                    <div className="flex items-center gap-2 text-amber-400 font-bold text-sm">
+                      <Lock className="w-4 h-4" />
+                      <span>Model Locked on Current Plan</span>
+                    </div>
+                    <button
+                      onClick={() => setLockedModelAlert(null)}
+                      type="button"
+                      className="p-1 rounded-lg text-neutral-400 hover:text-white hover:bg-white/10 cursor-pointer"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-white font-bold text-base">{lockedModelAlert.model.name}</h4>
+                      <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-mono text-[10px] font-bold border border-amber-500/40">
+                        {lockedModelAlert.requiredTierName}
+                      </span>
+                    </div>
+                    <p className="text-neutral-300 text-xs leading-relaxed">
+                      This advanced model requires an upgrade to{' '}
+                      <strong className="text-amber-300">{lockedModelAlert.requiredTierName}</strong> ({lockedModelAlert.requiredPrice}).
+                      Free accounts use <strong className="text-emerald-400">Gemini 3.6 Flash (Default)</strong> with 10 chats per 3-hour window.
+                    </p>
+                    <div className="p-3 rounded-xl bg-white/5 border border-white/10 text-xs text-neutral-300 space-y-1.5">
+                      <div className="flex items-center gap-2 text-emerald-400 font-medium">
+                        <Check className="w-3.5 h-3.5 shrink-0" />
+                        <span>Up to 25–50 high-speed chats per 3 hours</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-emerald-400 font-medium">
+                        <Check className="w-3.5 h-3.5 shrink-0" />
+                        <span>Full flagship reasoning & cybernetic code synthesis</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-emerald-400 font-medium">
+                        <Check className="w-3.5 h-3.5 shrink-0" />
+                        <span>Smaller cooldowns & recovery refill allowance</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row items-center justify-end gap-2 pt-2 border-t border-white/10">
+                    <button
+                      onClick={() => setLockedModelAlert(null)}
+                      type="button"
+                      className="w-full sm:w-auto px-3 py-2 rounded-xl text-neutral-400 hover:text-white text-xs font-medium cursor-pointer"
+                    >
+                      Keep Free (3.6 Flash)
+                    </button>
+                    <button
+                      onClick={() => {
+                        setLockedModelAlert(null);
+                        setShowEngineModal(false);
+                        onOpenBuyVip?.();
+                      }}
+                      type="button"
+                      className="w-full sm:w-auto px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-[#EF233C] text-black font-extrabold text-xs shadow-lg active:scale-95 cursor-pointer flex items-center justify-center gap-1.5"
+                    >
+                      <Crown className="w-3.5 h-3.5 text-black" />
+                      <span>Upgrade to {lockedModelAlert.requiredTierName} ({lockedModelAlert.requiredPrice})</span>
                     </button>
                   </div>
                 </div>
@@ -1936,6 +2090,39 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                   </motion.div>
                 )}
 
+                {/* Live 3-Hour & 6-Hour Cooldown Banner */}
+                {cooldownRemainingSeconds > 0 && !isUnlimitedAccount && (
+                  <div className="mb-2 p-3 rounded-xl border border-amber-500/40 bg-gradient-to-r from-amber-950/40 via-black/60 to-red-950/30 backdrop-blur-md flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xl">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="p-2 rounded-lg bg-amber-500/20 text-amber-400 shrink-0 border border-amber-500/30">
+                        <Clock className="w-4 h-4 animate-spin-slow" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-xs text-white">
+                            {cooldownStage === 2 ? '🛑 Extended 6-Hour Cooldown Active' : '⏳ 3-Hour Rate Limit Active'}
+                          </span>
+                          <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-mono text-[10px] font-bold border border-amber-500/40">
+                            {cooldownFormatted} remaining
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-neutral-300 mt-0.5">
+                          {cooldownStage === 2
+                            ? 'Recovery chats exhausted. Full chats reset after cooldown, or upgrade to Pro ($10) to chat now!'
+                            : `You used all ${maxRequests} chats. A recovery refill unlocks in ${cooldownFormatted}, or upgrade to Pro ($10) to skip cooldown!`}
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => onOpenBuyVip?.()}
+                      type="button"
+                      className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-[#EF233C] hover:from-amber-400 hover:to-red-500 text-black font-extrabold text-xs shadow-lg transition-transform active:scale-95 cursor-pointer whitespace-nowrap shrink-0"
+                    >
+                      Upgrade to Pro ($10) ⚡
+                    </button>
+                  </div>
+                )}
+
                 {/* Input Controls Container - Compact on default, auto-expanding on multi-line typing */}
                 <div className="relative flex flex-col bg-[#12121a] rounded-xl sm:rounded-2xl border border-white/15 p-1.5 sm:p-2 focus-within:border-[#EF233C]/60 focus-within:ring-1 focus-within:ring-[#EF233C]/30 transition-all shadow-xl">
                   {/* Asking Field: Full width, compact default height so reading area stays huge */}
@@ -1944,6 +2131,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                       ref={textareaRef}
                       rows={1}
                       value={input}
+                      disabled={loading || (cooldownRemainingSeconds > 0 && !isUnlimitedAccount)}
                       onChange={handleInputChange}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' && !e.shiftKey) {
@@ -1952,7 +2140,9 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                         }
                       }}
                       placeholder={
-                        mode === 'cat-code'
+                        cooldownRemainingSeconds > 0 && !isUnlimitedAccount
+                          ? `⏳ Cooldown active (${cooldownFormatted} remaining). Upgrade to Pro ($10) to continue now!`
+                          : mode === 'cat-code'
                           ? 'Ask cat coder for code, debug errors, or generate architecture...'
                           : mode === 'study'
                           ? 'Ask your study question or math/science problem...'
@@ -1960,7 +2150,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                           ? 'Search the live web or ask a detailed question...'
                           : 'Ask anything, brainstorm, or type your question...'
                       }
-                      className="w-full min-h-[40px] sm:min-h-[44px] max-h-48 py-1.5 sm:py-2 px-2.5 sm:px-3 bg-transparent text-neutral-100 placeholder:text-neutral-500 text-sm focus:outline-none resize-none leading-relaxed block"
+                      className="w-full min-h-[40px] sm:min-h-[44px] max-h-48 py-1.5 sm:py-2 px-2.5 sm:px-3 bg-transparent text-neutral-100 placeholder:text-neutral-500 text-sm focus:outline-none resize-none leading-relaxed block disabled:opacity-50"
                     />
                   </div>
 
@@ -1971,7 +2161,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                       <button
                         onClick={() => fileInputRef.current?.click()}
                         type="button"
-                        disabled={loading}
+                        disabled={loading || (cooldownRemainingSeconds > 0 && !isUnlimitedAccount)}
                         className="h-8 sm:h-9 px-2 sm:px-2.5 rounded-lg flex items-center gap-1.5 text-neutral-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer shrink-0 disabled:opacity-40 text-xs font-medium"
                         title="Upload image or code/text file"
                       >
@@ -2008,7 +2198,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                       <button
                         onClick={handleToggleVoiceInput}
                         type="button"
-                        disabled={loading}
+                        disabled={loading || (cooldownRemainingSeconds > 0 && !isUnlimitedAccount)}
                         className={`h-8 sm:h-9 px-2 sm:px-2.5 rounded-lg flex items-center gap-1.5 transition-all cursor-pointer shrink-0 text-xs ${
                           isListening
                             ? 'bg-red-500 text-white animate-pulse shadow-md shadow-red-500/50'
@@ -2045,7 +2235,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                       ) : (
                         <button
                           onClick={() => handleSend()}
-                          disabled={!input.trim() && attachments.length === 0}
+                          disabled={(!input.trim() && attachments.length === 0) || (cooldownRemainingSeconds > 0 && !isUnlimitedAccount)}
                           type="button"
                           className="h-8 sm:h-9 px-3.5 sm:px-4 rounded-xl bg-[#EF233C] hover:bg-red-600 disabled:opacity-40 disabled:hover:bg-[#EF233C] text-white font-semibold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-lg shadow-[#EF233C]/30 active:scale-95"
                           title="Send message (Enter)"

@@ -12,6 +12,8 @@ export type ChatMode = 'normal' | 'cat-code' | 'fast' | 'deep-think' | 'search' 
 export type AiMode = 'fast' | 'deep-think' | 'search' | 'creative' | 'coding' | 'study' | 'normal' | 'cat-code';
 export type AiProvider = 'groq' | 'gemini';
 
+export type UserPlanTier = 'free' | 'pro' | 'elite' | 'founder';
+
 export interface AiModelOption {
   id: string;
   name: string;
@@ -20,35 +22,39 @@ export interface AiModelOption {
   badge?: string;
   speed?: string;
   capabilities: string[];
+  requiredTier?: UserPlanTier;
 }
 
 export const AVAILABLE_AI_MODELS: AiModelOption[] = [
   {
+    id: 'gemini-3.6-flash',
+    name: 'Gemini 3.6 Flash (Default)',
+    provider: 'gemini',
+    description: 'Ultra-reliable flagship multimodal reasoning and code generation with 100% uptime. Default for all plans.',
+    badge: 'Default ⚡',
+    speed: '~160 tok/s',
+    capabilities: ['Ultra Reliable', 'High Speed', 'Full Reasoning', 'Code & STEM'],
+    requiredTier: 'free',
+  },
+  {
     id: 'gemini-3.8-flash',
     name: 'Gemini 3.8 Flash',
     provider: 'gemini',
-    description: 'Flagship speed & intelligence with live Google search grounding and cybernetic code synthesis.',
-    badge: 'Experimental',
+    description: 'Flagship speed & intelligence with live Google search grounding and advanced code synthesis.',
+    badge: 'Pro ($10)+ 🔒',
     speed: '~140 tok/s',
     capabilities: ['Search Grounding', 'Vision & Audio', 'Code Synthesis', 'Reasoning'],
-  },
-  {
-    id: 'gemini-3.6-flash',
-    name: 'Gemini 3.6 Flash',
-    provider: 'gemini',
-    description: 'Ultra-reliable flagship multimodal reasoning and code generation with 100% uptime.',
-    badge: 'Recommended ⚡',
-    speed: '~160 tok/s',
-    capabilities: ['Ultra Reliable', 'High Speed', 'Full Reasoning', 'Code & STEM'],
+    requiredTier: 'pro',
   },
   {
     id: 'gemini-3.1-pro-preview',
     name: 'Gemini 3.1 Pro (Preview)',
     provider: 'gemini',
-    description: 'Advanced reasoning, deep logic, full-stack software architectures, and complex problem solving.',
-    badge: 'Deep Pro',
+    description: 'Advanced deep reasoning, full-stack software architectures, and complex STEM logic.',
+    badge: 'Elite ($50)+ 🔒',
     speed: '~90 tok/s',
     capabilities: ['Deep Logic', 'Complex Coding', 'Math & STEM', 'Full Architecture'],
+    requiredTier: 'elite',
   },
   {
     id: 'gemini-3.1-flash-lite',
@@ -58,24 +64,7 @@ export const AVAILABLE_AI_MODELS: AiModelOption[] = [
     badge: 'Eco Speed',
     speed: '~200 tok/s',
     capabilities: ['Quota Efficient', 'Low Latency', 'Document Reading'],
-  },
-  {
-    id: 'gemini-flash-latest',
-    name: 'Gemini Flash Latest',
-    provider: 'gemini',
-    description: 'Always up-to-date Gemini Flash release with continuous performance upgrades.',
-    badge: 'Latest',
-    speed: '~150 tok/s',
-    capabilities: ['Auto-Updating', 'Multimodal', 'Reasoning'],
-  },
-  {
-    id: 'llama-3.3-70b-versatile',
-    name: 'Llama 3.3 70B (Versatile)',
-    provider: 'groq',
-    description: 'Meta premier 70B open model powered by Groq LPUs for advanced reasoning, essays, and debate.',
-    badge: '70B Brain',
-    speed: '~280 tok/s',
-    capabilities: ['70B Reasoning', 'Deep Analysis', 'Long-Form Writing'],
+    requiredTier: 'free',
   },
   {
     id: 'llama-3.1-8b-instant',
@@ -85,6 +74,17 @@ export const AVAILABLE_AI_MODELS: AiModelOption[] = [
     badge: '800+ tok/s ⚡',
     speed: '~800 tok/s',
     capabilities: ['Hyper-Fast', 'Instant Stream', 'Brainstorming'],
+    requiredTier: 'free',
+  },
+  {
+    id: 'llama-3.3-70b-versatile',
+    name: 'Llama 3.3 70B (Versatile)',
+    provider: 'groq',
+    description: 'Meta premier 70B open model powered by Groq LPUs for advanced reasoning, essays, and debate.',
+    badge: 'Pro ($10)+ ⚡',
+    speed: '~280 tok/s',
+    capabilities: ['70B Reasoning', 'Deep Analysis', 'Long-Form Writing'],
+    requiredTier: 'pro',
   },
   {
     id: 'mixtral-8x7b-32768',
@@ -94,6 +94,7 @@ export const AVAILABLE_AI_MODELS: AiModelOption[] = [
     badge: '32k MoE',
     speed: '~450 tok/s',
     capabilities: ['MoE Architecture', '32k Window', 'Technical Data'],
+    requiredTier: 'free',
   },
   {
     id: 'gemma2-9b-it',
@@ -103,6 +104,7 @@ export const AVAILABLE_AI_MODELS: AiModelOption[] = [
     badge: 'Google Open',
     speed: '~500 tok/s',
     capabilities: ['Google Quality', 'Fast Inference', 'STEM / Logic'],
+    requiredTier: 'free',
   },
 ];
 

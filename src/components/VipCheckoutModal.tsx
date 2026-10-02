@@ -2,28 +2,17 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   X,
-  Crown,
   Check,
-  CreditCard,
-  Sparkles,
   ShieldCheck,
   Zap,
+  Crown,
+  CreditCard,
   Download,
   Copy,
-  ArrowRight,
-  Cat,
   Coins,
-  QrCode,
-  CheckCircle2,
-  Rocket,
-  Flame,
-  Globe,
-  Radio,
-  FileText,
-  BadgePercent,
-  Laugh,
-  DollarSign,
-  Share2,
+  ArrowRight,
+  Lock,
+  Building2,
 } from 'lucide-react';
 import { INTELLICAT_LOGO_URL } from '../constants';
 
@@ -43,7 +32,7 @@ interface VipCheckoutModalProps {
   isOpen: boolean;
   onClose: () => void;
   onVipPurchased?: (vipData: VipData) => void;
-  initialTier?: string;
+  initialTier?: 'pro' | 'elite' | 'founder_billion';
   onOpenAiAssistant?: (prompt?: string) => void;
 }
 
@@ -57,9 +46,7 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
   const [selectedTier, setSelectedTier] = useState<string>(initialTier || 'pro');
   const [name, setName] = useState('Alex Rivera');
   const [email, setEmail] = useState('alex@catcode.ai');
-  const [paymentMethod, setPaymentMethod] = useState<
-    'card' | 'apple' | 'crypto' | 'mars_wire' | 'black_card' | 'tokens' | 'paw_iou'
-  >('card');
+  const [paymentMethod, setPaymentMethod] = useState<'card' | 'apple' | 'wire' | 'crypto'>('card');
 
   // Card form state
   const [cardNumber, setCardNumber] = useState('4242 •••• •••• 4242');
@@ -91,79 +78,62 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
 
   const tiers = [
     {
-      id: 'starter',
-      name: 'Cyber Cat VIP',
-      price: 29,
-      displayPrice: '$29',
-      badge: 'Fast Track',
-      description: 'Instant priority access to IntelicatAI Cat Code & smart debugging.',
-      perks: [
-        'Guaranteed Alpha Cohort Spot (#048)',
-        'Unlimited Cyber Cat Code Generation',
-        'Sub-15ms Low-Latency Cloud Compute',
-        'Exclusive Discord Cyber Cat Badge',
-      ],
-      popular: false,
-      isFounderJoke: false,
-    },
-    {
       id: 'pro',
-      name: 'Feline Pro VIP',
-      price: 79,
-      displayPrice: '$79',
-      badge: 'Most Popular',
-      description: 'Full feline coder power with priority GPU streaming & architectural design.',
+      name: 'Intelicat Pro',
+      price: 10,
+      displayPrice: '$10',
+      badge: 'Popular ⚡',
+      description: '25 chats every 3 hours with flagship Gemini 3.8 Flash unlocked!',
       perks: [
-        'Everything in Cyber Cat VIP, plus:',
-        'High-speed Gemini 3.6 Flash streaming token boost',
-        'Multi-language code refactoring engine',
-        'Cryptographic Digital Pass #048 with Verified Hash',
-        'Direct 1-on-1 Developer Support channel',
+        '⚡ 25 chats per 3-hour cycle',
+        '🚀 Unlocks Flagship Gemini 3.8 Flash reasoning',
+        '🛡️ 12 recovery chats after 3-hour cooldown',
+        '🐾 Cyber Cat Code synthesis & live preview',
+        '⚡ Ultra-fast response with high-speed GPU routing',
       ],
       popular: true,
-      isFounderJoke: false,
+      isFounder: false,
     },
     {
-      id: 'lifetime',
-      name: 'Cat Lifetime VIP',
-      price: 199,
-      displayPrice: '$199',
-      badge: 'Lifetime Key',
-      description: 'Permanent VIP status, custom fine-tuning & early drops with zero subscriptions.',
+      id: 'elite',
+      name: 'Intelicat Elite / VIP',
+      price: 50,
+      displayPrice: '$50',
+      badge: 'Power User 👑',
+      description: '50 chats every 3 hours with Gemini 3.8 Flash and Gemini 3.1 Pro unlocked!',
       perks: [
-        'Everything in Feline Pro VIP, plus:',
-        'Permanent Lifetime VIP Status & Zero Subscription',
-        'Custom Intelicat AI system prompt overrides',
-        'Exclusive Holographic Pass with VIP Token',
-        'Priority feature voting & roadmapping input',
+        '⚡ 50 chats per 3-hour cycle',
+        '👑 Unlocks Gemini 3.8 Flash & Gemini 3.1 Pro (Preview)',
+        '🚀 25 recovery chats after 3-hour cooldown',
+        '⚡ Priority GPU queue dispatch ahead of free users',
+        '🌐 Full Google Web Search Grounding & Deep Research',
       ],
       popular: false,
-      isFounderJoke: false,
+      isFounder: false,
     },
     {
       id: 'founder_billion',
-      name: 'Founder God-Tier Access',
+      name: 'Founder Sovereign Partner',
       price: 1000000000,
       displayPrice: '$1,000,000,000',
-      badge: '👑 $1 BILLION (JOKE TIER)',
+      badge: '👑 SOVEREIGN PARTNER',
       description:
-        'Acquire supreme god-tier planetary ownership of the cat metaverse. Includes 51% hypothetical equity in catnip, a direct red rotary telephone to Intellicat, and 24K gold cat ears delivered to your submarine.',
+        'Supreme institutional-grade platform ownership with dedicated enterprise compute and truly unlimited inferences forever.',
       perks: [
-        '✨ 1-on-1 direct dial red rotary hotline to Chief Cyber Cat',
-        '🐱 Solid 24k Gold Cat Ears & Titanium Collar shipped to your secret bunker',
-        '🪙 50.0001% hypothetical controlling stake in intergalactic catnip futures',
-        '⚡ Oregon Cloud Datacenter GPU #001 permanently laser-engraved with your name',
-        '🪐 VIP Priority ahead of Elon Musk, NASA, and the Galactic Cat Federation',
-        '📜 Hand-transcribed thank you poem written in raw binary on authentic papyrus',
-        '🍗 Unlimited digital tuna treats served with 0.0001ms quantum latency',
+        '♾️ Truly UNLIMITED inferences across all current and future AI models',
+        '🏢 Dedicated H100/H200 Cloud GPU Mainframe cluster permanently allocated',
+        '🔐 Sovereign VPC & Private On-Premises Isolated Deployment',
+        '🛠️ Direct 1-on-1 Engineering & AI Architect hotline with 99.999% SLA',
+        '📜 Cryptographically verified Lifetime Founder Certificate #001',
+        '🤝 Custom foundation model fine-tuning & priority governance vote',
       ],
       popular: false,
-      isFounderJoke: true,
+      isFounder: true,
     },
   ];
 
-  const activeTierObj = tiers.find((t) => t.id === selectedTier) || tiers[1];
-  const isFounder = activeTierObj.isFounderJoke;
+  const activeTierObj = tiers.find((t) => t.id === selectedTier) || tiers[0];
+  const isFounder = activeTierObj.isFounder;
   const basePrice = activeTierObj.price;
 
   // Calculate price with discounts
@@ -188,34 +158,31 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
 
   const handleApplyPromo = () => {
     const code = promoCode.trim().toUpperCase();
-    if (code === 'BILLIONAIRE' || code === 'RICH' || code === 'DISCOUNT') {
-      if (isFounder) {
-        setFixedDiscount(999999950); // Leaves $50
-        setPromoApplied(true);
-        setPromoError(null);
-      } else {
-        setDiscountPercent(90);
-        setFixedDiscount(null);
-        setPromoApplied(true);
-        setPromoError(null);
-      }
-    } else if (code === 'JOKE' || code === 'MEOW100' || code === 'FREEPASS' || code === 'FOUNDER') {
-      setDiscountPercent(100);
+    if (!code) return;
+
+    if (isFounder) {
+      setPromoError('Institutional Founder tier is not eligible for coupon discounts.');
+      setPromoApplied(false);
+      setDiscountPercent(0);
+      setFixedDiscount(null);
+      return;
+    }
+
+    if (code === 'CAT10' || code === 'WELCOME10') {
+      setDiscountPercent(10);
       setFixedDiscount(null);
       setPromoApplied(true);
       setPromoError(null);
-    } else if (code === 'CATCODE' || code === 'MEOW' || code === 'VIP50') {
-      setDiscountPercent(50);
-      setFixedDiscount(null);
-      setPromoApplied(true);
-      setPromoError(null);
-    } else if (code === 'ALPHA' || code === 'CAT20') {
+    } else if (code === 'PROMO20' || code === 'VIP20') {
       setDiscountPercent(20);
       setFixedDiscount(null);
       setPromoApplied(true);
       setPromoError(null);
     } else {
-      setPromoError('Invalid promo code. Try "JOKE", "BILLIONAIRE", or "CATCODE"');
+      setPromoError('Invalid coupon code. Try "CAT10" or "PROMO20"');
+      setPromoApplied(false);
+      setDiscountPercent(0);
+      setFixedDiscount(null);
     }
   };
 
@@ -226,18 +193,18 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
     setProcessing(true);
 
     if (isFounder) {
-      setProcessingStep('Contacting the Federal Reserve for $1,000,000,000 clearance...');
+      setProcessingStep('Authenticating Sovereign Founder credentials...');
       setTimeout(() => {
-        setProcessingStep('Minting 24K Solid Gold Holographic Pass #001...');
+        setProcessingStep('Provisioning Dedicated H100/H200 GPU Mainframe #001...');
       }, 700);
       setTimeout(() => {
-        setProcessingStep('Laser-engraving your name onto Oregon GPU Mainframe #001...');
+        setProcessingStep('Minting Cryptographic Lifetime Founder Token #001...');
       }, 1400);
       setTimeout(() => {
-        setProcessingStep('Notifying the Galactic Cat Council of your supreme ownership...');
+        setProcessingStep('Enrolling Sovereign Enterprise SLA & Direct Architect Hotline...');
       }, 2100);
       setTimeout(() => {
-        const serial = `FOUNDER-TRILLION-CAT-#001-GODTIER`;
+        const serial = `SOVEREIGN-FOUNDER-CAT-#001-INSTITUTIONAL`;
         const vipData: VipData = {
           name,
           email,
@@ -249,7 +216,7 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
             day: 'numeric',
             year: 'numeric',
           }),
-          amountPaid: `$1,000,000,000.00 (SIMULATED JOKE)`,
+          amountPaid: `$1,000,000,000.00 (SOVEREIGN INSTITUTIONAL WIRE)`,
           paymentMethod: paymentMethod.toUpperCase().replace('_', ' '),
           isFounder: true,
         };
@@ -293,7 +260,7 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
 
   const handleCopyCredentials = () => {
     if (!purchasedVip) return;
-    const text = `🐾 INTELICATAI VIP VERIFIED CREDENTIAL\nPassholder: ${purchasedVip.name}\nEmail: ${purchasedVip.email}\nTier: ${purchasedVip.tierName}\nVIP Serial: ${purchasedVip.serialId}\nIssuance: ${purchasedVip.purchaseDate}\nStatus: ACTIVE & VERIFIED\nAmount: ${purchasedVip.amountPaid}\nSpecial: ${purchasedVip.isFounder ? '👑 1 BILLION DOLLAR FOUNDER' : 'ALPHA COHORT #048'}`;
+    const text = `🐾 INTELICATAI VIP VERIFIED CREDENTIAL\nPassholder: ${purchasedVip.name}\nEmail: ${purchasedVip.email}\nTier: ${purchasedVip.tierName}\nVIP Serial: ${purchasedVip.serialId}\nIssuance: ${purchasedVip.purchaseDate}\nStatus: ACTIVE & VERIFIED\nAmount: ${purchasedVip.amountPaid}\nSpecial: ${purchasedVip.isFounder ? '👑 SOVEREIGN FOUNDER PARTNER #001' : 'ALPHA COHORT #048'}`;
     navigator.clipboard.writeText(text);
     setCopiedId(true);
     setTimeout(() => setCopiedId(false), 2000);
@@ -315,17 +282,17 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
       `---------------------------------------------------\n` +
       `OFFICIAL PRIVILEGES & PERKS:\n` +
       (purchasedVip.isFounder
-        ? `- 50.0001% hypothetical controlling stake in intergalactic catnip\n- 24K Solid Gold Cat Ears delivered to your bunker\n- Direct red rotary hotline to Chief Cyber Cat\n- Oregon Cloud Datacenter GPU #001 permanently laser-engraved with your name\n- Unlimited 0.0001ms quantum latency Cat Code access\n`
-        : `- Unlimited Cyber Cat Code generation with Gemini 3.6 Flash acceleration\n- Sub-12ms priority inference dispatch\n- Guaranteed Alpha Cohort spot (#048)\n- Verified Discord Cyber Cat Badge\n`) +
+        ? `- Dedicated Private Cloud H100/H200 GPU Mainframe permanently allocated\n- Truly UNLIMITED inferences across all current and future LLM models\n- Sovereign On-Premises & Private VPC Isolation Deployment\n- Direct 1-on-1 AI Architecture & Engineering hotline with 99.999% SLA\n- Permanent Institutional Founder Equity & Platform Governance\n`
+        : `- High-speed Gemini 3.8 Flash acceleration with multi-turn reasoning\n- Sub-12ms priority inference dispatch\n- Guaranteed Alpha Cohort spot (#048)\n- Verified Discord Cyber Cat Badge\n`) +
       `---------------------------------------------------\n` +
       `IntellicatAI Systems • Technology Crafted for AI Not Machines\n` +
-      `Cryptographic Proof Hash: 0xCAT_9971_B1LL10N_FD782`;
+      `Cryptographic Proof Hash: 0xCAT_9971_INSTITUTIONAL_FD782`;
 
     const blob = new Blob([content], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `intellicat-${purchasedVip.isFounder ? 'founder-billion-pass' : 'vip-pass'}-${purchasedVip.serialId}.txt`;
+    a.download = `intellicat-${purchasedVip.isFounder ? 'sovereign-founder-pass' : 'vip-pass'}-${purchasedVip.serialId}.txt`;
     a.click();
     URL.revokeObjectURL(url);
     setDownloadSuccess(true);
@@ -363,20 +330,22 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
                   />
                 </div>
               </div>
-              <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-[#EF233C]/20 border border-[#EF233C]/40 text-[#EF233C] text-xs font-bold uppercase tracking-wider mb-2">
+
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#EF233C]/10 border border-[#EF233C]/30 text-[#EF233C] text-xs font-semibold uppercase tracking-wider mb-2">
                 <Crown className="w-3.5 h-3.5" />
-                VIP Priority Access Pass
+                <span>Verified Access & Infrastructure</span>
               </div>
-              <h2 className="text-2xl sm:text-4xl font-extrabold tracking-tight mb-2">
-                Unlock <span className="text-[#EF233C]">IntellicatAI VIP</span> Membership
+
+              <h2 className="text-2xl sm:text-3xl font-black tracking-tight text-white">
+                IntelicatAI Official Access Passes
               </h2>
-              <p className="text-xs sm:text-sm text-neutral-400">
-                Choose your official tier below — from fast-track Alpha developer passes to the supreme $1 Billion Founder joke tier!
+              <p className="text-neutral-400 text-xs sm:text-sm mt-1">
+                Choose your official tier below — from Intelicat Pro to the Sovereign Founder Partner tier.
               </p>
             </div>
 
-            {/* Step 1: 4 Tier Selector Cards (including $1 Billion Joke Tier) */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+            {/* Step 1: 3 Tier Selector Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 mb-6">
               {tiers.map((t) => {
                 const isSelected = selectedTier === t.id;
                 return (
@@ -385,10 +354,10 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
                     onClick={() => setSelectedTier(t.id)}
                     className={`relative rounded-2xl p-4 flex flex-col justify-between transition-all cursor-pointer border ${
                       isSelected
-                        ? t.isFounderJoke
+                        ? t.isFounder
                           ? 'bg-gradient-to-b from-[#2a1b08] via-[#1a1208] to-[#120d06] border-amber-400 shadow-xl shadow-amber-500/30 ring-2 ring-amber-400'
                           : 'bg-gradient-to-b from-[#1f1013] to-[#121218] border-[#EF233C] shadow-lg shadow-red-600/20 ring-1 ring-[#EF233C]'
-                        : t.isFounderJoke
+                        : t.isFounder
                         ? 'bg-gradient-to-b from-[#18130a] to-[#100d08] border-amber-500/30 hover:border-amber-400/60'
                         : 'bg-[#14141a] border-white/10 hover:border-white/20'
                     }`}
@@ -397,8 +366,8 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
                     {t.badge && (
                       <span
                         className={`absolute -top-2.5 right-3 px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider shadow-sm ${
-                          t.isFounderJoke
-                            ? 'bg-gradient-to-r from-amber-400 to-yellow-500 text-black animate-pulse'
+                          t.isFounder
+                            ? 'bg-gradient-to-r from-amber-400 to-yellow-500 text-black'
                             : t.popular
                             ? 'bg-[#EF233C] text-white'
                             : 'bg-white/20 text-white'
@@ -410,25 +379,20 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
 
                     <div>
                       <div className="flex items-center justify-between mb-1">
-                        <h3 className={`font-bold text-sm ${t.isFounderJoke ? 'text-amber-300' : 'text-white'}`}>
+                        <h3 className={`font-bold text-sm ${t.isFounder ? 'text-amber-300' : 'text-white'}`}>
                           {t.name}
                         </h3>
                       </div>
                       <div className="mb-2">
                         <span
                           className={`font-black tracking-tight ${
-                            t.isFounderJoke
+                            t.isFounder
                               ? 'text-lg sm:text-xl text-amber-400 drop-shadow-[0_0_8px_rgba(245,158,11,0.5)]'
                               : 'text-xl sm:text-2xl text-[#EF233C]'
                           }`}
                         >
                           {t.displayPrice}
                         </span>
-                        {t.isFounderJoke && (
-                          <span className="text-[10px] text-amber-300/80 block font-semibold">
-                            (100% Free Joke Checkout)
-                          </span>
-                        )}
                       </div>
 
                       <p className="text-[11px] text-neutral-400 mb-3 leading-relaxed line-clamp-3">
@@ -440,7 +404,7 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
                           <div key={idx} className="flex items-start gap-1.5 text-[11px] text-neutral-300">
                             <Check
                               className={`w-3 h-3 shrink-0 mt-0.5 ${
-                                t.isFounderJoke ? 'text-amber-400' : 'text-[#EF233C]'
+                                t.isFounder ? 'text-amber-400' : 'text-[#EF233C]'
                               }`}
                             />
                             <span className="leading-tight line-clamp-2">{p}</span>
@@ -456,14 +420,14 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
                       <div
                         className={`w-4 h-4 rounded-full border flex items-center justify-center ${
                           isSelected
-                            ? t.isFounderJoke
+                            ? t.isFounder
                               ? 'border-amber-400 bg-amber-400'
                               : 'border-[#EF233C] bg-[#EF233C]'
                             : 'border-white/30'
                         }`}
                       >
                         {isSelected && (
-                          <Check className={`w-2.5 h-2.5 ${t.isFounderJoke ? 'text-black' : 'text-white'}`} />
+                          <Check className={`w-2.5 h-2.5 ${t.isFounder ? 'text-black' : 'text-white'}`} />
                         )}
                       </div>
                     </div>
@@ -472,41 +436,28 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
               })}
             </div>
 
-            {/* Founder Tier Special Banner If Selected */}
+            {/* Founder Tier Institutional Notice */}
             {isFounder && (
               <motion.div
                 initial={{ opacity: 0, y: -10 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="mb-6 p-4 rounded-2xl bg-gradient-to-r from-amber-500/20 via-yellow-500/10 to-amber-500/20 border-2 border-amber-400/50 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-[0_0_30px_rgba(245,158,11,0.2)]"
+                className="mb-6 p-4 rounded-2xl bg-gradient-to-r from-amber-500/15 via-yellow-500/10 to-amber-500/15 border border-amber-400/40 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-lg"
               >
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-400 text-amber-400 flex items-center justify-center shrink-0 shadow-[0_0_15px_rgba(245,158,11,0.4)]">
-                    <Crown className="w-5 h-5 animate-bounce" />
+                  <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-400/60 text-amber-400 flex items-center justify-center shrink-0">
+                    <Crown className="w-5 h-5" />
                   </div>
                   <div>
-                    <h4 className="text-xs sm:text-sm font-extrabold text-amber-300 flex items-center gap-2">
-                      <span>THE $1,000,000,000 FOUNDER JOKE CHECKOUT</span>
-                      <span className="px-2 py-0.5 rounded-full bg-amber-400 text-black text-[10px] font-black">
-                        FUNNY MODE
+                    <h4 className="text-xs sm:text-sm font-bold text-amber-300 flex items-center gap-2">
+                      <span>SOVEREIGN FOUNDER PARTNER ACCESS</span>
+                      <span className="px-2 py-0.5 rounded-full bg-amber-400 text-black text-[10px] font-black uppercase">
+                        Enterprise Sovereign
                       </span>
                     </h4>
-                    <p className="text-[11px] text-amber-200/80">
-                      You are purchasing supreme cosmic ownership of IntellicatAI! No real money is charged — hit "Simulate Billionaire Checkout" below for instant $1B founder status!
+                    <p className="text-[11px] text-neutral-300">
+                      Unlocks permanent unlimited compute, dedicated H100 datacenter clusters, private sovereign VPC deployments, and direct architect partnership.
                     </p>
                   </div>
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setPromoCode('JOKE');
-                      setDiscountPercent(100);
-                      setPromoApplied(true);
-                    }}
-                    className="px-3 py-1.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-black text-xs font-black transition-all cursor-pointer shadow-md"
-                  >
-                    Apply "JOKE" 100% Off
-                  </button>
                 </div>
               </motion.div>
             )}
@@ -534,7 +485,7 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
                       />
                     </div>
                     <div>
-                      <label className="block text-[11px] text-neutral-400 mb-1">Email (For VIP License)</label>
+                      <label className="block text-[11px] text-neutral-400 mb-1">Email Address</label>
                       <input
                         type="email"
                         required
@@ -547,22 +498,14 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
                   </div>
                 </div>
 
-                {/* Payment Method Switcher */}
+                {/* Payment Method Selector */}
                 <div className="p-4 rounded-2xl bg-neutral-900/80 border border-white/10 space-y-3">
-                  <h4 className="text-xs font-bold text-neutral-200 uppercase tracking-wider flex items-center justify-between">
-                    <span className="flex items-center gap-1.5">
-                      <CreditCard className="w-3.5 h-3.5 text-[#EF233C]" />
-                      Payment Method
-                    </span>
-                    {isFounder && (
-                      <span className="text-[10px] text-amber-400 font-semibold">
-                        Billionaire Options Active
-                      </span>
-                    )}
+                  <h4 className="text-xs font-bold text-neutral-200 uppercase tracking-wider flex items-center gap-1.5">
+                    <CreditCard className="w-3.5 h-3.5 text-[#EF233C]" />
+                    Payment Method
                   </h4>
 
-                  {/* Standard Payment Methods vs Founder Joke Methods */}
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                     <button
                       type="button"
                       onClick={() => setPaymentMethod('card')}
@@ -573,7 +516,7 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
                       }`}
                     >
                       <CreditCard className="w-4 h-4 text-[#EF233C]" />
-                      <span>Credit Card</span>
+                      <span>Card</span>
                     </button>
 
                     <button
@@ -586,7 +529,20 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
                       }`}
                     >
                       <Zap className="w-4 h-4 text-white" />
-                      <span>Apple Pay / GPay</span>
+                      <span>Apple / GPay</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setPaymentMethod('wire')}
+                      className={`p-2.5 rounded-xl border flex flex-col items-center gap-1 text-xs font-semibold transition-all cursor-pointer ${
+                        paymentMethod === 'wire'
+                          ? 'bg-amber-500/20 border-amber-400 text-amber-300'
+                          : 'bg-black/40 border-white/10 text-neutral-400 hover:text-white'
+                      }`}
+                    >
+                      <Building2 className="w-4 h-4 text-amber-400" />
+                      <span>FedWire / SWIFT</span>
                     </button>
 
                     <button
@@ -599,53 +555,9 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
                       }`}
                     >
                       <Coins className="w-4 h-4 text-amber-400" />
-                      <span>Crypto (SOL/ETH)</span>
+                      <span>Crypto (USDC)</span>
                     </button>
                   </div>
-
-                  {/* Additional Joke Options for $1B Founder */}
-                  {isFounder && (
-                    <div className="grid grid-cols-3 gap-2 pt-1 border-t border-amber-500/20">
-                      <button
-                        type="button"
-                        onClick={() => setPaymentMethod('mars_wire')}
-                        className={`p-2 rounded-xl border flex flex-col items-center gap-1 text-[11px] font-semibold transition-all cursor-pointer ${
-                          paymentMethod === 'mars_wire'
-                            ? 'bg-amber-500/30 border-amber-400 text-amber-300'
-                            : 'bg-black/40 border-white/10 text-neutral-400 hover:text-white'
-                        }`}
-                      >
-                        <Rocket className="w-3.5 h-3.5 text-amber-400" />
-                        <span>Mars Wire</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => setPaymentMethod('tokens')}
-                        className={`p-2 rounded-xl border flex flex-col items-center gap-1 text-[11px] font-semibold transition-all cursor-pointer ${
-                          paymentMethod === 'tokens'
-                            ? 'bg-amber-500/30 border-amber-400 text-amber-300'
-                            : 'bg-black/40 border-white/10 text-neutral-400 hover:text-white'
-                        }`}
-                      >
-                        <Coins className="w-3.5 h-3.5 text-amber-400" />
-                        <span>1B Arcade Tokens</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => setPaymentMethod('paw_iou')}
-                        className={`p-2 rounded-xl border flex flex-col items-center gap-1 text-[11px] font-semibold transition-all cursor-pointer ${
-                          paymentMethod === 'paw_iou'
-                            ? 'bg-amber-500/30 border-amber-400 text-amber-300'
-                            : 'bg-black/40 border-white/10 text-neutral-400 hover:text-white'
-                        }`}
-                      >
-                        <Cat className="w-3.5 h-3.5 text-amber-400" />
-                        <span>Sign With Paw (IOU)</span>
-                      </button>
-                    </div>
-                  )}
 
                   {paymentMethod === 'card' && (
                     <div className="space-y-2.5 pt-1">
@@ -681,55 +593,33 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
                     </div>
                   )}
 
-                  {paymentMethod === 'apple' && (
-                    <div className="p-3 rounded-xl bg-white/5 border border-white/10 text-center text-xs text-neutral-300">
-                      ⚡ One-touch instant checkout with Apple Pay / Google Pay authorized.
+                  {paymentMethod === 'wire' && (
+                    <div className="p-3 rounded-xl bg-black/60 border border-white/10 text-xs text-neutral-300 space-y-1 font-mono">
+                      <p className="text-amber-400 font-bold">Institutional Wire Instructions</p>
+                      <p>Bank: JPMorgan Chase Institutional Escrow</p>
+                      <p>Routing (ABA): 021000021</p>
+                      <p>Beneficiary: IntelicatAI Global Infrastructure Trust</p>
                     </div>
                   )}
 
                   {paymentMethod === 'crypto' && (
-                    <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-center text-xs text-amber-200">
-                      🪙 Instant Web3 checkout supported for Solana (SOL), Ethereum (ETH), and USDC.
-                    </div>
-                  )}
-
-                  {paymentMethod === 'mars_wire' && (
-                    <div className="p-3 rounded-xl bg-amber-500/15 border border-amber-400/40 text-center text-xs text-amber-200">
-                      🚀 Direct SWIFT wire from Olympus Mons Central Martian Bank selected. No transaction fee.
-                    </div>
-                  )}
-
-                  {paymentMethod === 'tokens' && (
-                    <div className="p-3 rounded-xl bg-amber-500/15 border border-amber-400/40 text-center text-xs text-amber-200">
-                      🪙 1,000,000,000 Chuck E. Cheese / Cyber Arcade Tokens accepted with instant redemption.
-                    </div>
-                  )}
-
-                  {paymentMethod === 'paw_iou' && (
-                    <div className="p-3 rounded-xl bg-amber-500/15 border border-amber-400/40 text-center text-xs text-amber-200">
-                      🐾 Legally binding Cat Paw Signature recorded into blockchain feline court ledger.
+                    <div className="p-3 rounded-xl bg-black/60 border border-white/10 text-xs text-neutral-300 space-y-1 font-mono">
+                      <p className="text-amber-400 font-bold">Supported Settlement Currencies</p>
+                      <p>USDC / USDT (ERC-20, Solana, Arbitrum)</p>
+                      <p>Native BTC Institutional Custody</p>
                     </div>
                   )}
                 </div>
               </div>
 
-              {/* Right Summary Card (5 cols) */}
-              <div
-                className={`lg:col-span-5 rounded-2xl p-5 border space-y-4 ${
-                  isFounder
-                    ? 'bg-gradient-to-b from-[#1c140a] to-[#120e06] border-amber-400/50 shadow-xl shadow-amber-500/10'
-                    : 'bg-[#14141c] border-white/15'
-                }`}
-              >
-                <h4 className="text-xs font-bold text-neutral-200 uppercase tracking-wider flex items-center justify-between">
-                  <span>Order Summary</span>
-                  <span className={isFounder ? 'text-amber-400 text-[11px] font-bold' : 'text-[#EF233C] text-[11px]'}>
-                    {isFounder ? '👑 Billionaire Founder' : 'Instant Activation'}
-                  </span>
-                </h4>
+              {/* Right Order Summary (5 cols) */}
+              <div className="lg:col-span-5 space-y-4">
+                <div className="p-4 rounded-2xl bg-neutral-900/80 border border-white/10 space-y-3">
+                  <h4 className="text-xs font-bold text-neutral-200 uppercase tracking-wider">
+                    Order Summary
+                  </h4>
 
-                <div className="p-3.5 rounded-xl bg-black/50 border border-white/10 space-y-2 text-xs">
-                  <div className="flex justify-between text-neutral-300">
+                  <div className="flex justify-between text-xs text-neutral-300">
                     <span>{activeTierObj.name}</span>
                     <span className="font-mono">{formatCurrency(basePrice)}</span>
                   </div>
@@ -737,31 +627,29 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
                   {isFounder && (
                     <>
                       <div className="flex justify-between text-neutral-400 text-[11px]">
-                        <span>24K Solid Gold Cat Ears</span>
-                        <span className="text-amber-300 font-semibold">Included ($0)</span>
+                        <span>Dedicated H100 Cluster Allocation</span>
+                        <span className="text-amber-300 font-semibold">Included</span>
                       </div>
                       <div className="flex justify-between text-neutral-400 text-[11px]">
-                        <span>Submarine GPU Delivery</span>
-                        <span className="text-amber-300 font-semibold">Free Delivery</span>
+                        <span>Private Sovereign VPC & On-Premises</span>
+                        <span className="text-amber-300 font-semibold">Included</span>
                       </div>
                       <div className="flex justify-between text-neutral-400 text-[11px]">
-                        <span>Convenience Joke Fee</span>
-                        <span className="text-neutral-400">$4.20 (Waived)</span>
+                        <span>Permanent Founder Equity & Governance</span>
+                        <span className="text-amber-300 font-semibold">Verified</span>
                       </div>
                     </>
                   )}
 
                   {promoApplied && (
-                    <div className="flex justify-between text-emerald-400 font-semibold">
-                      <span>
-                        Promo Discount {discountPercent > 0 ? `(${discountPercent}%)` : '(Billionaire Cut)'}
-                      </span>
+                    <div className="flex justify-between text-emerald-400 font-semibold text-xs">
+                      <span>Promo Discount ({discountPercent}%)</span>
                       <span>-{formatCurrency(discountAmount)}</span>
                     </div>
                   )}
 
                   <div className="border-t border-white/10 pt-2 mt-2 flex justify-between items-baseline font-bold text-white">
-                    <span>Total Due Now</span>
+                    <span>Total Due</span>
                     <span className={`text-xl font-mono ${isFounder ? 'text-amber-400 font-black' : 'text-[#EF233C]'}`}>
                       {formatCurrency(finalPrice)}
                     </span>
@@ -769,32 +657,32 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
                 </div>
 
                 {/* Promo Code Box */}
-                <div>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={promoCode}
-                      onChange={(e) => setPromoCode(e.target.value)}
-                      placeholder={isFounder ? 'Promo (e.g. "JOKE" / "RICH")' : 'Promo (e.g. "CATCODE")'}
-                      className={`flex-1 px-3 py-1.5 rounded-xl bg-neutral-900 border text-white text-xs focus:outline-none ${
-                        isFounder ? 'border-amber-400/40 focus:border-amber-400' : 'border-white/15 focus:border-[#EF233C]'
-                      }`}
-                    />
-                    <button
-                      type="button"
-                      onClick={handleApplyPromo}
-                      className="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-semibold cursor-pointer"
-                    >
-                      Apply
-                    </button>
+                {!isFounder && (
+                  <div>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={promoCode}
+                        onChange={(e) => setPromoCode(e.target.value)}
+                        placeholder="Promo code (e.g. CAT10)"
+                        className="flex-1 px-3 py-1.5 rounded-xl bg-neutral-900 border border-white/15 focus:border-[#EF233C] text-white text-xs focus:outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleApplyPromo}
+                        className="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-semibold cursor-pointer"
+                      >
+                        Apply
+                      </button>
+                    </div>
+                    {promoError && <p className="text-[11px] text-red-400 mt-1">{promoError}</p>}
+                    {promoApplied && (
+                      <p className="text-[11px] text-emerald-400 mt-1 flex items-center gap-1 font-semibold">
+                        <Check className="w-3 h-3" /> Code applied! Discount activated.
+                      </p>
+                    )}
                   </div>
-                  {promoError && <p className="text-[11px] text-red-400 mt-1">{promoError}</p>}
-                  {promoApplied && (
-                    <p className="text-[11px] text-emerald-400 mt-1 flex items-center gap-1 font-semibold">
-                      <Check className="w-3 h-3" /> Code applied! Discount activated.
-                    </p>
-                  )}
-                </div>
+                )}
 
                 {/* Submit Buy Button */}
                 <button
@@ -816,8 +704,8 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
                       <Crown className="w-4 h-4" />
                       <span>
                         {isFounder
-                          ? `Simulate $1B Founder Checkout (${formatCurrency(finalPrice)})`
-                          : `Buy VIP Pass (${formatCurrency(finalPrice)})`}
+                          ? `Activate Sovereign Founder Access (${formatCurrency(finalPrice)})`
+                          : `Complete Order (${formatCurrency(finalPrice)})`}
                       </span>
                       <ArrowRight className="w-4 h-4" />
                     </>
@@ -828,7 +716,7 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
                   <ShieldCheck className={`w-3.5 h-3.5 ${isFounder ? 'text-amber-400' : 'text-[#EF233C]'}`} />
                   <span>
                     {isFounder
-                      ? '100% Joke Simulated • Instant Billionaire Founder Pass'
+                      ? 'Institutional SLA • Enterprise Escrow & Infrastructure Bound'
                       : '256-Bit Encrypted • Instant Digital Pass Delivery'}
                   </span>
                 </div>
@@ -842,47 +730,33 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
             animate={{ opacity: 1, scale: 1 }}
             className="py-4 text-center max-w-2xl mx-auto space-y-6"
           >
-            {/* Celebration Icon */}
-            <div className="relative inline-block">
-              <div
-                className={`w-20 h-20 rounded-3xl text-white flex items-center justify-center mx-auto ${
-                  purchasedVip.isFounder
-                    ? 'bg-gradient-to-tr from-amber-400 via-yellow-300 to-amber-600 shadow-[0_0_60px_rgba(245,158,11,0.8)] text-black'
-                    : 'bg-gradient-to-tr from-[#EF233C] to-amber-500 shadow-[0_0_40px_rgba(239,35,60,0.5)]'
-                }`}
-              >
-                <Crown className={`w-10 h-10 animate-bounce ${purchasedVip.isFounder ? 'text-black' : 'text-white'}`} />
-              </div>
-              <span className="absolute -bottom-1 -right-1 p-1 bg-emerald-500 text-white rounded-full">
-                <Check className="w-4 h-4 stroke-[3]" />
-              </span>
+            <div className="w-16 h-16 rounded-full bg-emerald-500/20 border-2 border-emerald-400 text-emerald-400 flex items-center justify-center mx-auto shadow-[0_0_30px_rgba(16,185,129,0.4)]">
+              <Check className="w-8 h-8 stroke-[3]" />
             </div>
 
             <div>
               <span
-                className={`inline-block px-3 py-1 rounded-full text-xs font-extrabold mb-2 ${
+                className={`inline-block px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider mb-2 ${
                   purchasedVip.isFounder
-                    ? 'bg-amber-500/30 border border-amber-400 text-amber-300 shadow-[0_0_15px_rgba(245,158,11,0.4)]'
-                    : 'bg-emerald-500/20 border border-emerald-500/40 text-emerald-400'
+                    ? 'bg-amber-400 text-black font-black'
+                    : 'bg-[#EF233C]/20 border border-[#EF233C]/40 text-[#EF233C]'
                 }`}
               >
-                {purchasedVip.isFounder
-                  ? '👑 1 BILLION DOLLAR FOUNDER CONFIRMED • COSMIC CAT OWNERSHIP ACTIVE'
-                  : 'PAYMENT CONFIRMED • VIP STATUS ACTIVE'}
+                {purchasedVip.tierName} Activated
               </span>
-              <h2 className="text-2xl sm:text-4xl font-extrabold text-white">
+              <h2 className="text-2xl sm:text-3xl font-black text-white">
                 {purchasedVip.isFounder
-                  ? `Hail the Supreme Founder, ${purchasedVip.name}!`
+                  ? `Sovereign Founder Partner Verified: ${purchasedVip.name}`
                   : `Welcome to the VIP Alpha Cohort, ${purchasedVip.name}!`}
               </h2>
               <p className="text-xs sm:text-sm text-neutral-400 mt-1 max-w-lg mx-auto">
                 {purchasedVip.isFounder
-                  ? 'Your $1,000,000,000 Founder Access pass is live! 24K gold cat ears and a direct red rotary telephone to the chief cyber cat are now bound to your account.'
+                  ? 'Your $1,000,000,000 Sovereign Founder Partner pass is active! Dedicated H100 compute clusters, sovereign VPC access, and lifetime unlimited reasoning are now bound to your account.'
                   : 'Your VIP digital pass and Cat Code unlimited privileges are now permanently activated.'}
               </p>
             </div>
 
-            {/* Holographic VIP Member Pass Card (Interactive Flip) */}
+            {/* VIP Member Pass Card (Interactive Flip) */}
             <div
               onClick={() => setCardFlipped(!cardFlipped)}
               className={`relative rounded-3xl p-6 text-left cursor-pointer transition-all duration-500 overflow-hidden border-2 select-none group ${
@@ -965,7 +839,7 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
                   <div className="flex items-center justify-between text-[11px] text-neutral-400 pt-1">
                     <span>
                       {purchasedVip.isFounder
-                        ? '👑 Supreme Founder Privileges Active'
+                        ? '👑 Sovereign Partner Inferences & VPC Live'
                         : '🐾 Unlimited Cat Code & Sub-12ms SLA'}
                     </span>
                     <span className="text-neutral-400 group-hover:text-white transition-colors">
@@ -982,9 +856,9 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
                   </div>
                   <div className="p-3 rounded-xl bg-black/80 font-mono text-[11px] text-neutral-300 space-y-1">
                     <p className="text-neutral-400">// CRYPTOGRAPHIC VERIFICATION // </p>
-                    <p>SHA-256: 9f8a2b3c...cat_founder_1billion</p>
-                    <p>INFERENCE SLA: 0.0001ms QUANTUM PRIORITY</p>
-                    <p>COHORT: SUPREME FOUNDER #001</p>
+                    <p>SHA-256: 9f8a2b3c...cat_founder_institutional</p>
+                    <p>INFERENCE SLA: 99.999% HIGH-THROUGHPUT PRIORITY</p>
+                    <p>COHORT: SOVEREIGN FOUNDER #001</p>
                   </div>
                   <div className="text-center text-[11px] text-neutral-400">
                     Click to flip back ↺

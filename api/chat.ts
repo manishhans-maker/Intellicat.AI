@@ -27,35 +27,139 @@ function checkRateLimit(identifier: string): { allowed: boolean; retryAfterSecon
   return { allowed: true };
 }
 
-// --- Strict Tier Quota Protection ---
-interface QuotaRecord {
+// --- Strict Tier Quota & 3-hr / 6-hr Cooldown Engine ---
+interface ServerQuotaRecord {
   count: number;
-  tier: "free" | "vip" | "founder";
+  tier: "free" | "pro" | "elite" | "vip" | "founder";
+  isRecovery: boolean;
+  cooldownStage: 0 | 1 | 2; // 0 = active, 1 = 3hr, 2 = 6hr
+  cooldownUntil: number; // epoch ms
 }
-const userQuotaMap = new Map<string, QuotaRecord>();
+const userQuotaMap = new Map<string, ServerQuotaRecord>();
 
-const TIER_LIMITS: Record<string, number> = {
-  free: 15,
-  vip: 100, // VIP has a strict 100 queries limit to protect user API quota
-  founder: 250, // Founder has a strict 250 queries limit
+const TIER_BASE_ALLOWANCE: Record<string, number> = {
+  free: 10,
+  pro: 25,
+  elite: 50,
+  vip: 50,
+  founder: 999999,
 };
+
+const TIER_RECOVERY_ALLOWANCE: Record<string, number> = {
+  free: 5,
+  pro: 12,
+  elite: 25,
+  vip: 25,
+  founder: 999999,
+};
+
+const COOLDOWN_STAGE_1_MS = 3 * 3600 * 1000; // 3 hours
+const COOLDOWN_STAGE_2_MS = 6 * 3600 * 1000; // 6 hours
 
 function checkAndIncrementQuota(
   userId: string | undefined,
-  tier: "free" | "vip" | "founder" = "free"
-): { allowed: boolean; remaining: number; max: number } {
-  if (!userId) {
-    return { allowed: true, remaining: 15, max: 15 };
+  tier: "free" | "pro" | "elite" | "vip" | "founder" = "free"
+): { allowed: boolean; remaining: number; max: number; error?: string } {
+  if (!userId || tier === "founder") {
+    return { allowed: true, remaining: 999999, max: 999999 };
   }
-  const max = TIER_LIMITS[tier] || 15;
-  const current = userQuotaMap.get(userId) || { count: 0, tier };
-  if (current.count >= max) {
-    return { allowed: false, remaining: 0, max };
+
+  const now = Date.now();
+  let record = userQuotaMap.get(userId);
+  if (!record) {
+    record = {
+      count: 0,
+      tier,
+      isRecovery: false,
+      cooldownStage: 0,
+      cooldownUntil: 0,
+    };
   }
-  current.count += 1;
-  current.tier = tier;
-  userQuotaMap.set(userId, current);
-  return { allowed: true, remaining: Math.max(0, max - current.count), max };
+
+  // Upgrade or sync tier
+  record.tier = tier;
+
+  // 1. Check if currently in active cooldown
+  if (record.cooldownStage === 1) {
+    if (now < record.cooldownUntil) {
+      const waitMin = Math.ceil((record.cooldownUntil - now) / 60000);
+      return {
+        allowed: false,
+        remaining: 0,
+        max: TIER_BASE_ALLOWANCE[tier] || 10,
+        error: `3-hour cooldown active (${waitMin} min remaining). You used your ${TIER_BASE_ALLOWANCE[tier]} chats. A 5-chat recovery refill unlocks after cooldown.`,
+      };
+    } else {
+      // 3-hour cooldown expired -> transition to recovery mode!
+      record.cooldownStage = 0;
+      record.cooldownUntil = 0;
+      record.isRecovery = true;
+      record.count = 0;
+    }
+  } else if (record.cooldownStage === 2) {
+    if (now < record.cooldownUntil) {
+      const waitMin = Math.ceil((record.cooldownUntil - now) / 60000);
+      return {
+        allowed: false,
+        remaining: 0,
+        max: TIER_BASE_ALLOWANCE[tier] || 10,
+        error: `Extended 6-hour cooldown active (${waitMin} min remaining). Full ${TIER_BASE_ALLOWANCE[tier]} chats reset after cooldown.`,
+      };
+    } else {
+      // 6-hour cooldown expired -> full cycle reset!
+      record.cooldownStage = 0;
+      record.cooldownUntil = 0;
+      record.isRecovery = false;
+      record.count = 0;
+    }
+  }
+
+  // 2. Active allowance
+  const currentMax = record.isRecovery
+    ? (TIER_RECOVERY_ALLOWANCE[tier] || 5)
+    : (TIER_BASE_ALLOWANCE[tier] || 10);
+
+  if (record.count >= currentMax) {
+    // Allowance reached, activate cooldown
+    if (!record.isRecovery) {
+      record.cooldownStage = 1;
+      record.cooldownUntil = now + COOLDOWN_STAGE_1_MS;
+      userQuotaMap.set(userId, record);
+      return {
+        allowed: false,
+        remaining: 0,
+        max: currentMax,
+        error: `3-hour cooldown activated. You reached your limit of ${currentMax} chats. A recovery refill unlocks in 3 hours.`,
+      };
+    } else {
+      record.cooldownStage = 2;
+      record.cooldownUntil = now + COOLDOWN_STAGE_2_MS;
+      userQuotaMap.set(userId, record);
+      return {
+        allowed: false,
+        remaining: 0,
+        max: currentMax,
+        error: `Extended 6-hour cooldown activated. Recovery chats exhausted. Full reset in 6 hours.`,
+      };
+    }
+  }
+
+  // Consume request
+  record.count += 1;
+  const remaining = Math.max(0, currentMax - record.count);
+
+  if (record.count >= currentMax) {
+    if (!record.isRecovery) {
+      record.cooldownStage = 1;
+      record.cooldownUntil = now + COOLDOWN_STAGE_1_MS;
+    } else {
+      record.cooldownStage = 2;
+      record.cooldownUntil = now + COOLDOWN_STAGE_2_MS;
+    }
+  }
+
+  userQuotaMap.set(userId, record);
+  return { allowed: true, remaining, max: currentMax };
 }
 
 // --- SDK Client Factories ---
@@ -109,11 +213,11 @@ async function resolveGroqModel(groq: Groq): Promise<string> {
   return "llama-3.1-8b-instant";
 }
 
-// Primary Gemini model cascade: prioritize 3.8 Flash, followed by ultra-stable 3.6 Flash & 3.5 Flash
+// Primary Gemini model cascade: default to ultra-stable 3.6 Flash
 const GEMINI_PRIMARY_MODEL = "gemini-3.6-flash";
 const GEMINI_MODELS_CASCADE = [
-  "gemini-3.8-flash",
   "gemini-3.6-flash",
+  "gemini-3.8-flash",
   "gemini-3.5-flash",
   "gemini-flash-lite-latest",
   "gemini-3.1-flash-lite",
@@ -475,14 +579,32 @@ export default async function handler(req: any, res: any) {
       return res.status(400).json({ error: "Messages array is required." });
     }
 
-    const effectiveTier = isVipOrFounder ? "vip" : (requestedUserTier || "free");
+    const effectiveTier = isVipOrFounder ? "founder" : (requestedUserTier || "free");
 
     // Server-side strict quota check
     if (userId) {
       const quotaCheck = checkAndIncrementQuota(userId, effectiveTier);
       if (!quotaCheck.allowed) {
         return res.status(403).json({
-          error: `Account query limit reached (${quotaCheck.max} requests for ${effectiveTier} tier). To protect API quota, please wait for reset or use non-AI tools.`,
+          error: quotaCheck.error || `Account query limit reached (${quotaCheck.max} requests for ${effectiveTier} tier). To protect API quota, please wait for reset.`,
+        });
+      }
+    }
+
+    // Verify model authorization based on plan tier
+    if (requestedModel) {
+      if (requestedModel === "gemini-3.8-flash" && effectiveTier === "free") {
+        return res.status(403).json({
+          error: "Gemini 3.8 Flash requires Intelicat Pro ($10) or Elite ($50). Please use Gemini 3.6 Flash (Default) or upgrade your plan.",
+        });
+      }
+      if (
+        requestedModel === "gemini-3.1-pro-preview" &&
+        effectiveTier !== "elite" &&
+        effectiveTier !== "founder"
+      ) {
+        return res.status(403).json({
+          error: "Gemini 3.1 Pro requires Intelicat Elite ($50) or Founder. Please upgrade your plan to unlock.",
         });
       }
     }

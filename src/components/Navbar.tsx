@@ -68,7 +68,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   } = useAuth();
 
   const isFounderActive = Boolean(isFounder || isOwner || tier === 'founder');
-  const isVipActive = Boolean(isVipMember || isFounderActive || tier === 'vip');
+  const isVipActive = Boolean(isVipMember || isFounderActive || tier === 'elite' || tier === 'pro');
 
   const navItems = [
     { name: 'Features', hasDropdown: true, tabId: 'features' },
