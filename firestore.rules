@@ -99,6 +99,13 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Payment verification requests submitted by users
+    match /payment_requests/{reqId} {
+      allow create: if true;
+      allow read: if isSignedIn();
+      allow update, delete: if isSignedIn() && request.auth.token.email in ['manishhans@gmail.com', 'ashwinhans2612@gmail.com'];
+    }
+
     // User collection rules
     match /users/{userId} {
       // PII Protection: Only the authenticated owner can read their own user record

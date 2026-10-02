@@ -452,7 +452,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                       >
                         <span className="flex items-center gap-2">
                           <Crown className="w-3.5 h-3.5 text-amber-400" />
-                          <span>{isVipActive ? 'Upgrade to Founder' : 'Upgrade to VIP (150 Queries)'}</span>
+                          <span>{isVipActive ? 'Upgrade to Founder' : 'Upgrade to Intelicat Pro'}</span>
                         </span>
                         <ArrowRight className="w-3 h-3" />
                       </button>

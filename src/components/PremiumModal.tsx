@@ -317,8 +317,8 @@ export const PremiumModal: React.FC<PremiumModalProps> = ({
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
-                    if (onSelectTier) onSelectTier(tier.name);
                     onClose();
+                    if (onSelectTier) onSelectTier(tier.name);
                   }}
                   className={`w-full py-2.5 rounded-xl font-semibold text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
                     tier.highlight
@@ -326,7 +326,7 @@ export const PremiumModal: React.FC<PremiumModalProps> = ({
                       : 'bg-white/10 text-white hover:bg-white/20'
                   }`}
                 >
-                  <span>Select {tier.name}</span>
+                  <span>{tier.id === 'free' ? 'Stay on Free' : `Scan & Pay for ${tier.name}`}</span>
                   <ChevronRight className="w-3.5 h-3.5" />
                 </button>
               </div>

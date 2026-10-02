@@ -166,7 +166,12 @@ export default function App() {
     setPremiumOpen(true);
   };
 
-  const handleOpenBuyVip = () => {
+  const [initialVipTier, setInitialVipTier] = useState<'pro' | 'elite' | 'founder_billion'>('pro');
+
+  const handleOpenBuyVip = (tier?: 'pro' | 'elite' | 'founder_billion' | React.MouseEvent) => {
+    if (typeof tier === 'string') {
+      setInitialVipTier(tier);
+    }
     setVipCheckoutOpen(true);
   };
 
@@ -190,7 +195,16 @@ export default function App() {
 
   const handleSelectTier = (tierName: string) => {
     setSelectedPlan(tierName);
-    setModalOpen(true);
+    const lower = tierName.toLowerCase();
+    if (lower.includes('founder')) {
+      handleOpenBuyVip('founder_billion');
+    } else if (lower.includes('elite')) {
+      handleOpenBuyVip('elite');
+    } else if (lower.includes('pro')) {
+      handleOpenBuyVip('pro');
+    } else {
+      setModalOpen(true);
+    }
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -421,6 +435,7 @@ export default function App() {
       <VipCheckoutModal
         isOpen={vipCheckoutOpen}
         onClose={() => setVipCheckoutOpen(false)}
+        initialTier={initialVipTier}
         onVipPurchased={handleVipPurchased}
         onOpenAiAssistant={(prompt) => {
           setVipCheckoutOpen(false);
