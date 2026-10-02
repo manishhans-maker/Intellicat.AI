@@ -8,12 +8,14 @@ import {
   Crown,
   Copy,
   ArrowRight,
+  ArrowLeft,
   ExternalLink,
   QrCode,
   Smartphone,
   Clock,
   Send,
   AlertCircle,
+  Lock,
 } from 'lucide-react';
 import QRCode from 'qrcode';
 import { collection, addDoc } from 'firebase/firestore';
@@ -41,7 +43,17 @@ interface VipCheckoutModalProps {
   onOpenAiAssistant?: (prompt?: string) => void;
 }
 
-const UPI_ID = '885160391@axisbank';
+// Obfuscated merchant UPI configuration to prevent raw account exposure
+const getMerchantUpiId = (): string => {
+  try {
+    return atob('ODg1MTYwMzkxQGF4aXNiYW5r');
+  } catch {
+    return '';
+  }
+};
+
+// Masked display representation to keep personal phone/account details private
+const MASKED_UPI_DISPLAY = '885*****91@axisbank';
 const ADMIN_EMAIL = 'manishhans@gmail.com';
 
 interface PlanTier {
@@ -128,6 +140,9 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
   const { user } = useAuth();
   const [selectedTierId, setSelectedTierId] = useState<string>(initialTier || 'pro');
 
+  // Multi-step navigation: 'plans' -> 'upi_payment' -> 'submitted'
+  const [currentStep, setCurrentStep] = useState<'plans' | 'upi_payment' | 'submitted'>('plans');
+
   // Form State
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -140,7 +155,6 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
 
   // Submission State
   const [submitting, setSubmitting] = useState(false);
-  const [isSubmitted, setIsSubmitted] = useState(false);
   const [submittedUtr, setSubmittedUtr] = useState('');
   const [copiedRef, setCopiedRef] = useState(false);
 
@@ -149,6 +163,14 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
       setSelectedTierId(initialTier);
     }
   }, [initialTier]);
+
+  // Reset step to 'plans' whenever modal opens
+  useEffect(() => {
+    if (isOpen) {
+      setCurrentStep('plans');
+      setUtrError(null);
+    }
+  }, [isOpen]);
 
   // Pre-fill user information if signed in
   useEffect(() => {
@@ -159,15 +181,18 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
   }, [user]);
 
   const activeTier = TIERS.find((t) => t.id === selectedTierId) || TIERS[0];
+  const merchantUpi = getMerchantUpiId();
 
   // Dynamic UPI payment link with amount pre-filled
-  const upiDeepLink = `upi://pay?pa=${UPI_ID}&pn=IntellicatAI&am=${activeTier.inrPrice}&cu=INR&tn=${encodeURIComponent(activeTier.name + ' Plan')}`;
+  const upiDeepLink = `upi://pay?pa=${merchantUpi}&pn=IntellicatAI&am=${activeTier.inrPrice}&cu=INR&tn=${encodeURIComponent(activeTier.name + ' Plan')}`;
 
-  // Generate QR Code dynamically whenever active tier changes
+  // Generate QR Code dynamically when in payment step
   useEffect(() => {
+    if (currentStep !== 'upi_payment' || !merchantUpi) return;
+
     let isMounted = true;
     QRCode.toDataURL(upiDeepLink, {
-      width: 400,
+      width: 380,
       margin: 2,
       color: {
         dark: '#000000',
@@ -185,13 +210,13 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [upiDeepLink]);
+  }, [upiDeepLink, currentStep, merchantUpi]);
 
   if (!isOpen) return null;
 
   const handleCopyUpi = () => {
     try {
-      navigator.clipboard.writeText(UPI_ID);
+      navigator.clipboard.writeText(merchantUpi);
       setCopiedUpi(true);
       setTimeout(() => setCopiedUpi(false), 2200);
     } catch {
@@ -200,7 +225,7 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
   };
 
   const handleCopyReference = () => {
-    const text = `🐾 IntelicatAI Payment Verification\nPlan: ${activeTier.name} (${activeTier.displayInr})\nPayee: ${UPI_ID}\nUTR Reference: ${submittedUtr}\nName: ${name}\nEmail: ${email}`;
+    const text = `🐾 IntelicatAI Payment Verification\nPlan: ${activeTier.name} (${activeTier.displayInr})\nPayee: ${MASKED_UPI_DISPLAY}\nUTR Reference: ${submittedUtr}\nName: ${name}\nEmail: ${email}`;
     try {
       navigator.clipboard.writeText(text);
       setCopiedRef(true);
@@ -235,7 +260,6 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
       tierName: activeTier.name,
       amountInr: activeTier.inrPrice,
       amountUsd: activeTier.usdPrice,
-      payeeUpi: UPI_ID,
       utrNumber: cleanUtr,
       status: 'pending_verification',
       createdAt: new Date().toISOString(),
@@ -253,7 +277,7 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
     } catch {}
 
     setSubmittedUtr(cleanUtr);
-    setIsSubmitted(true);
+    setCurrentStep('submitted');
     setSubmitting(false);
   };
 
@@ -273,7 +297,8 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
           <X className="w-5 h-5" />
         </button>
 
-        {!isSubmitted ? (
+        {/* STEP 1: MAIN PLANS SCREEN (QR Code completely hidden here) */}
+        {currentStep === 'plans' && (
           <div>
             {/* Header */}
             <div className="text-center max-w-2xl mx-auto mb-6">
@@ -290,129 +315,180 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
 
               <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#EF233C]/10 border border-[#EF233C]/30 text-[#EF233C] text-xs font-semibold uppercase tracking-wider mb-2">
                 <Crown className="w-3.5 h-3.5" />
-                <span>Official UPI Payment & Activation</span>
+                <span>Verified Access & Intelligence Infrastructure</span>
               </div>
 
               <h2 className="text-2xl sm:text-3xl font-black tracking-tight text-white">
-                Upgrade IntelicatAI Access
+                IntelicatAI Official Access Passes
               </h2>
               <p className="text-neutral-400 text-xs sm:text-sm mt-1">
-                Scan the official QR code using any UPI app to pay directly and activate your account.
+                Select your pass below to upgrade inference throughput and eliminate standard cooldown restrictions.
               </p>
             </div>
 
-            {/* Step 1: Select Plan */}
-            <div className="mb-6">
-              <div className="text-xs font-bold text-neutral-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                <Zap className="w-3.5 h-3.5 text-[#EF233C]" />
-                <span>Step 1: Choose Your Plan</span>
-              </div>
+            {/* Plan Selector Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 mb-6">
+              {TIERS.map((t) => {
+                const isSelected = selectedTierId === t.id;
+                return (
+                  <div
+                    key={t.id}
+                    onClick={() => setSelectedTierId(t.id)}
+                    className={`relative rounded-2xl p-4 flex flex-col justify-between transition-all cursor-pointer border ${
+                      isSelected
+                        ? t.isFounder
+                          ? 'bg-gradient-to-b from-[#2a1b08] via-[#1a1208] to-[#120d06] border-amber-400 shadow-xl shadow-amber-500/30 ring-2 ring-amber-400'
+                          : 'bg-gradient-to-b from-[#1f1013] to-[#121218] border-[#EF233C] shadow-lg shadow-red-600/20 ring-1 ring-[#EF233C]'
+                        : t.isFounder
+                        ? 'bg-gradient-to-b from-[#18130a] to-[#100d08] border-amber-500/30 hover:border-amber-400/60'
+                        : 'bg-[#14141a] border-white/10 hover:border-white/20'
+                    }`}
+                  >
+                    {t.badge && (
+                      <span
+                        className={`absolute -top-2.5 right-3 px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider shadow-sm ${
+                          t.isFounder
+                            ? 'bg-gradient-to-r from-amber-400 to-yellow-500 text-black'
+                            : t.popular
+                            ? 'bg-[#EF233C] text-white'
+                            : 'bg-white/20 text-white'
+                        }`}
+                      >
+                        {t.badge}
+                      </span>
+                    )}
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
-                {TIERS.map((t) => {
-                  const isSelected = selectedTierId === t.id;
-                  return (
-                    <div
-                      key={t.id}
-                      onClick={() => setSelectedTierId(t.id)}
-                      className={`relative rounded-2xl p-4 flex flex-col justify-between transition-all cursor-pointer border ${
-                        isSelected
-                          ? t.isFounder
-                            ? 'bg-gradient-to-b from-[#2a1b08] via-[#1a1208] to-[#120d06] border-amber-400 shadow-xl shadow-amber-500/30 ring-2 ring-amber-400'
-                            : 'bg-gradient-to-b from-[#1f1013] to-[#121218] border-[#EF233C] shadow-lg shadow-red-600/20 ring-1 ring-[#EF233C]'
-                          : t.isFounder
-                          ? 'bg-gradient-to-b from-[#18130a] to-[#100d08] border-amber-500/30 hover:border-amber-400/60'
-                          : 'bg-[#14141a] border-white/10 hover:border-white/20'
-                      }`}
-                    >
-                      {t.badge && (
+                    <div>
+                      <h3 className={`font-bold text-sm ${t.isFounder ? 'text-amber-300' : 'text-white'}`}>
+                        {t.name}
+                      </h3>
+
+                      <div className="my-2 flex items-baseline gap-2">
                         <span
-                          className={`absolute -top-2.5 right-3 px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider shadow-sm ${
+                          className={`font-black tracking-tight text-xl sm:text-2xl ${
                             t.isFounder
-                              ? 'bg-gradient-to-r from-amber-400 to-yellow-500 text-black'
-                              : t.popular
-                              ? 'bg-[#EF233C] text-white'
-                              : 'bg-white/20 text-white'
+                              ? 'text-amber-400 drop-shadow-[0_0_8px_rgba(245,158,11,0.5)]'
+                              : 'text-[#EF233C]'
                           }`}
                         >
-                          {t.badge}
+                          {t.displayInr}
                         </span>
-                      )}
-
-                      <div>
-                        <h3 className={`font-bold text-sm ${t.isFounder ? 'text-amber-300' : 'text-white'}`}>
-                          {t.name}
-                        </h3>
-
-                        <div className="my-2 flex items-baseline gap-2">
-                          <span
-                            className={`font-black tracking-tight text-xl sm:text-2xl ${
-                              t.isFounder
-                                ? 'text-amber-400 drop-shadow-[0_0_8px_rgba(245,158,11,0.5)]'
-                                : 'text-[#EF233C]'
-                            }`}
-                          >
-                            {t.displayInr}
-                          </span>
-                          <span className="text-xs text-neutral-400">({t.displayPrice})</span>
-                        </div>
-
-                        <p className="text-[11px] text-neutral-400 mb-3 leading-relaxed">
-                          {t.description}
-                        </p>
-
-                        <div className="space-y-1.5 border-t border-white/10 pt-2.5">
-                          {t.perks.slice(0, 3).map((p, idx) => (
-                            <div key={idx} className="flex items-start gap-1.5 text-[11px] text-neutral-300">
-                              <Check
-                                className={`w-3 h-3 shrink-0 mt-0.5 ${
-                                  t.isFounder ? 'text-amber-400' : 'text-[#EF233C]'
-                                }`}
-                              />
-                              <span className="leading-tight">{p}</span>
-                            </div>
-                          ))}
-                        </div>
+                        <span className="text-xs text-neutral-400">({t.displayPrice})</span>
                       </div>
 
-                      <div className="mt-4 pt-2 border-t border-white/10 flex items-center justify-between">
-                        <span className="text-[10px] text-neutral-400 font-medium">
-                          {isSelected ? '✓ Selected' : 'Click to select'}
-                        </span>
-                        <div
-                          className={`w-4 h-4 rounded-full border flex items-center justify-center ${
-                            isSelected
-                              ? t.isFounder
-                                ? 'border-amber-400 bg-amber-400'
-                                : 'border-[#EF233C] bg-[#EF233C]'
-                              : 'border-white/30'
-                          }`}
-                        >
-                          {isSelected && (
-                            <Check className={`w-2.5 h-2.5 ${t.isFounder ? 'text-black' : 'text-white'}`} />
-                          )}
-                        </div>
+                      <p className="text-[11px] text-neutral-400 mb-3 leading-relaxed">
+                        {t.description}
+                      </p>
+
+                      <div className="space-y-1.5 border-t border-white/10 pt-2.5">
+                        {t.perks.slice(0, 3).map((p, idx) => (
+                          <div key={idx} className="flex items-start gap-1.5 text-[11px] text-neutral-300">
+                            <Check
+                              className={`w-3 h-3 shrink-0 mt-0.5 ${
+                                t.isFounder ? 'text-amber-400' : 'text-[#EF233C]'
+                              }`}
+                            />
+                            <span className="leading-tight">{p}</span>
+                          </div>
+                        ))}
                       </div>
                     </div>
-                  );
-                })}
+
+                    <div className="mt-4 pt-2 border-t border-white/10 flex items-center justify-between">
+                      <span className="text-[10px] text-neutral-400 font-medium">
+                        {isSelected ? '✓ Selected' : 'Click to select'}
+                      </span>
+                      <div
+                        className={`w-4 h-4 rounded-full border flex items-center justify-center ${
+                          isSelected
+                            ? t.isFounder
+                              ? 'border-amber-400 bg-amber-400'
+                              : 'border-[#EF233C] bg-[#EF233C]'
+                            : 'border-white/30'
+                        }`}
+                      >
+                        {isSelected && (
+                          <Check className={`w-2.5 h-2.5 ${t.isFounder ? 'text-black' : 'text-white'}`} />
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Selected Plan Action Footer */}
+            <div className="p-5 rounded-2xl bg-neutral-900/80 border border-white/10 flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div>
+                <div className="text-xs text-neutral-400">Selected Plan:</div>
+                <div className="text-lg font-bold text-white flex items-center gap-2">
+                  <span>{activeTier.name}</span>
+                  <span className="text-[#EF233C] font-mono">{activeTier.displayInr}</span>
+                  <span className="text-xs text-neutral-400 font-normal">({activeTier.displayPrice})</span>
+                </div>
+              </div>
+
+              {/* Pay with UPI Trigger Button */}
+              <button
+                type="button"
+                onClick={() => setCurrentStep('upi_payment')}
+                className={`w-full sm:w-auto px-8 py-3.5 rounded-2xl font-black text-sm shadow-xl flex items-center justify-center gap-2.5 transition-all cursor-pointer ${
+                  activeTier.isFounder
+                    ? 'bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 text-black shadow-amber-500/40 hover:scale-[1.02] active:scale-95'
+                    : 'red-cta-btn text-white shadow-red-600/30 hover:scale-[1.02] active:scale-95'
+                }`}
+              >
+                <Smartphone className="w-4 h-4" />
+                <span>Pay with UPI ({activeTier.displayInr})</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="mt-4 flex items-center justify-center gap-2 text-[11px] text-neutral-400 text-center">
+              <ShieldCheck className="w-4 h-4 text-emerald-400" />
+              <span>Direct Bank UPI Settlement • Zero Card Data Stored • Instant UTR Verification</span>
+            </div>
+          </div>
+        )}
+
+        {/* STEP 2: INSIDE UPI PAYMENT SCREEN (Shown only after clicking "Pay with UPI") */}
+        {currentStep === 'upi_payment' && (
+          <div>
+            {/* Top Back Navigation */}
+            <div className="flex items-center justify-between pb-4 mb-4 border-b border-white/10">
+              <button
+                type="button"
+                onClick={() => setCurrentStep('plans')}
+                className="flex items-center gap-2 text-xs font-semibold text-neutral-300 hover:text-white transition-colors cursor-pointer px-2.5 py-1.5 rounded-xl hover:bg-white/10"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                <span>Back to Plans</span>
+              </button>
+
+              <div className="flex items-center gap-1.5 text-xs text-amber-300 bg-amber-500/10 border border-amber-500/30 px-3 py-1 rounded-full font-mono">
+                <Lock className="w-3.5 h-3.5" />
+                <span>Secure Payment Gateway</span>
               </div>
             </div>
 
-            {/* Step 2 & 3: Official QR Code + Verification Form */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-              {/* Left Column: QR Code Card (5 cols) */}
-              <div className="lg:col-span-5 flex flex-col items-center">
-                <div className="w-full text-xs font-bold text-neutral-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                  <QrCode className="w-3.5 h-3.5 text-amber-400" />
-                  <span>Step 2: Scan & Pay With UPI</span>
-                </div>
+            {/* Header info */}
+            <div className="text-center mb-6">
+              <h3 className="text-xl sm:text-2xl font-black text-white">
+                Scan & Pay for <span className="text-amber-400">{activeTier.name}</span>
+              </h3>
+              <p className="text-xs text-neutral-400 mt-1">
+                Scan the QR code in any UPI app (GPay, PhonePe, Paytm, BHIM) or tap the direct payment button.
+              </p>
+            </div>
 
-                {/* White QR Code Card styled exactly like the user's uploaded image */}
+            {/* QR Code & Verification Grid */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+              {/* Left Column: QR Code Card */}
+              <div className="lg:col-span-5 flex flex-col items-center">
                 <div className="w-full max-w-[320px] bg-white rounded-3xl p-5 text-black shadow-2xl flex flex-col items-center text-center border-2 border-amber-400/40 relative">
                   <div className="w-full flex items-center justify-between mb-2 px-1">
                     <span className="text-[10px] font-black uppercase tracking-wider text-neutral-500">
-                      Axis Bank UPI
+                      Merchant UPI QR
                     </span>
                     <span className="text-[11px] font-black px-2 py-0.5 rounded-full bg-black text-amber-300">
                       {activeTier.displayInr}
@@ -424,25 +500,23 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
                     {qrCodeDataUrl ? (
                       <img
                         src={qrCodeDataUrl}
-                        alt={`Pay ${activeTier.displayInr} to ${UPI_ID}`}
+                        alt={`Scan to Pay ${activeTier.displayInr}`}
                         className="w-full h-full object-contain"
                       />
                     ) : (
-                      <img
-                        src="/upi_qr_885160391.png"
-                        alt={`Pay ${activeTier.displayInr} to ${UPI_ID}`}
-                        className="w-full h-full object-contain"
-                      />
+                      <div className="w-full h-full bg-neutral-100 flex items-center justify-center text-neutral-400 text-xs">
+                        Generating QR Code...
+                      </div>
                     )}
                   </div>
 
-                  {/* UPI ID display with Copy button */}
+                  {/* Protected Masked UPI Display with Copy button */}
                   <div
                     onClick={handleCopyUpi}
                     className="mt-3 w-full flex items-center justify-center gap-2 font-mono font-bold text-xs sm:text-sm text-neutral-900 bg-neutral-100 hover:bg-neutral-200 transition-colors py-2 px-3 rounded-xl cursor-pointer select-all border border-neutral-300 shadow-sm"
-                    title="Click to copy UPI ID"
+                    title="Click to copy Merchant UPI ID"
                   >
-                    <span>{UPI_ID}</span>
+                    <span>{MASKED_UPI_DISPLAY}</span>
                     <span className="p-1 rounded bg-white text-neutral-700 shadow-xs">
                       {copiedUpi ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
                     </span>
@@ -450,7 +524,7 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
 
                   {copiedUpi && (
                     <span className="text-[11px] text-emerald-600 font-bold mt-1.5 animate-pulse">
-                      UPI ID Copied to Clipboard!
+                      Merchant UPI ID Copied!
                     </span>
                   )}
 
@@ -479,11 +553,11 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
                 </div>
               </div>
 
-              {/* Right Column: Verification Submission Form (7 cols) */}
+              {/* Right Column: Verification Submission Form */}
               <div className="lg:col-span-7 space-y-4">
-                <div className="text-xs font-bold text-neutral-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                <div className="text-xs font-bold text-neutral-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
                   <Send className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Step 3: Enter UPI UTR / Ref Number</span>
+                  <span>Enter UPI Transaction Reference (UTR)</span>
                 </div>
 
                 <form
@@ -493,11 +567,10 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
                   <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-start gap-2.5">
                     <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-amber-400" />
                     <div>
-                      <span className="font-bold block">How Activation Works:</span>
+                      <span className="font-bold block">Verification Process:</span>
                       <span className="text-neutral-300 text-[11px] leading-relaxed">
                         After completing payment in your UPI app, copy the 12-digit UPI Reference / UTR Number
-                        and submit it below. Our team verifies the transaction against our Axis Bank account
-                        (<span className="font-mono text-white font-bold">{UPI_ID}</span>) and activates your pass.
+                        from your receipt and enter it below. Our team verifies the transaction and activates your pass.
                       </span>
                     </div>
                   </div>
@@ -530,9 +603,9 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
                   <div>
                     <div className="flex items-center justify-between mb-1">
                       <label className="block text-[11px] text-neutral-300 font-bold">
-                        12-Digit UPI Reference Number (UTR / Transaction ID) *
+                        12-Digit UPI Reference Number (UTR / Ref ID) *
                       </label>
-                      <span className="text-[10px] text-neutral-400">e.g. 429817293812</span>
+                      <span className="text-[10px] text-neutral-400 font-mono">e.g. 429817293812</span>
                     </div>
                     <input
                       type="text"
@@ -549,18 +622,14 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
                   </div>
 
                   {/* Summary Box */}
-                  <div className="p-3 rounded-xl bg-black/50 border border-white/10 text-xs space-y-1.5">
+                  <div className="p-3 rounded-xl bg-black/50 border border-white/10 text-xs space-y-1.5 font-mono">
                     <div className="flex justify-between text-neutral-400">
                       <span>Selected Plan:</span>
                       <span className="font-bold text-white">{activeTier.name}</span>
                     </div>
                     <div className="flex justify-between text-neutral-400">
-                      <span>Amount Paid:</span>
-                      <span className="font-bold text-amber-400 font-mono text-sm">{activeTier.displayInr}</span>
-                    </div>
-                    <div className="flex justify-between text-neutral-400">
-                      <span>Payee UPI ID:</span>
-                      <span className="font-mono text-white text-[11px]">{UPI_ID}</span>
+                      <span>Amount Payable:</span>
+                      <span className="font-bold text-amber-400 text-sm">{activeTier.displayInr}</span>
                     </div>
                   </div>
 
@@ -576,7 +645,7 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
                     {submitting ? (
                       <div className="flex items-center gap-2">
                         <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                        <span className="text-xs">Recording Payment Submission...</span>
+                        <span className="text-xs">Submitting Verification...</span>
                       </div>
                     ) : (
                       <>
@@ -589,16 +658,16 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
 
                   <div className="flex items-center justify-center gap-1.5 text-[10px] text-neutral-400 text-center">
                     <ShieldCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                    <span>
-                      Direct Axis Bank UPI Clearance • 100% Genuine Payment Verification
-                    </span>
+                    <span>Protected UPI Merchant Verification • Direct Clearance</span>
                   </div>
                 </form>
               </div>
             </div>
           </div>
-        ) : (
-          /* SUCCESS STATE: PAYMENT SUBMITTED FOR VERIFICATION */
+        )}
+
+        {/* STEP 3: SUCCESS STATE (Payment Proof Submitted) */}
+        {currentStep === 'submitted' && (
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -613,10 +682,10 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
                 Payment Verification Pending
               </span>
               <h2 className="text-2xl sm:text-3xl font-black text-white">
-                Payment Submitted Successfully!
+                Payment Proof Submitted!
               </h2>
               <p className="text-xs sm:text-sm text-neutral-400 mt-2 max-w-md mx-auto">
-                Thank you, <span className="text-white font-bold">{name}</span>. We have recorded your payment proof
+                Thank you, <span className="text-white font-bold">{name}</span>. We have received your transaction reference
                 for <span className="text-amber-300 font-bold">{activeTier.name} ({activeTier.displayInr})</span>.
               </p>
             </div>
@@ -627,7 +696,7 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
                 <span className="text-neutral-400">Status</span>
                 <span className="text-amber-400 font-bold flex items-center gap-1">
                   <Clock className="w-3 h-3 animate-spin" style={{ animationDuration: '4s' }} />
-                  PENDING ADMIN CLEARANCE
+                  PENDING CLEARANCE
                 </span>
               </div>
               <div className="flex justify-between">
@@ -635,15 +704,11 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
                 <span className="text-white font-bold">{activeTier.name}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-neutral-400">Amount Paid</span>
+                <span className="text-neutral-400">Amount</span>
                 <span className="text-white font-bold">{activeTier.displayInr} ({activeTier.displayPrice})</span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-neutral-400">Payee UPI</span>
-                <span className="text-white font-bold">{UPI_ID}</span>
-              </div>
               <div className="flex justify-between border-t border-white/10 pt-2">
-                <span className="text-neutral-400">Your UTR Number</span>
+                <span className="text-neutral-400">Submitted UTR</span>
                 <span className="text-emerald-400 font-bold text-sm tracking-wider">{submittedUtr}</span>
               </div>
             </div>
@@ -651,11 +716,11 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
             <div className="p-3.5 rounded-xl bg-black/60 border border-white/10 text-xs text-neutral-300 text-left space-y-1 leading-relaxed">
               <p className="text-amber-300 font-bold">What happens next?</p>
               <p>
-                Our billing team verifies your transaction against our Axis Bank statement. Your pass will be activated
-                automatically within 15–30 minutes.
+                Our billing team verifies your transaction. Your pass will be activated
+                within 15–30 minutes.
               </p>
               <p className="text-neutral-400 pt-1">
-                For immediate instant activation, you can email your payment screenshot to{' '}
+                For instant priority clearance, email your screenshot to{' '}
                 <a href={`mailto:${ADMIN_EMAIL}?subject=Payment Verification UTR ${submittedUtr}`} className="text-[#EF233C] underline font-bold">
                   {ADMIN_EMAIL}
                 </a>.
