@@ -56,6 +56,7 @@ export const TIER_RECOVERY_ALLOWANCE: Record<UserPlanTier, number> = {
 export const COOLDOWN_STAGE_1_MS = 3 * 3600 * 1000; // 3 hours
 export const COOLDOWN_STAGE_2_MS = 6 * 3600 * 1000; // 6 hours
 
+// Strict platform administrator emails (exact matches only)
 export const OWNER_EMAILS = [
   'manishhans@gmail.com',
   'ashwinhans2612@gmail.com',
@@ -64,38 +65,7 @@ export const OWNER_EMAILS = [
 export const checkIsOwnerEmail = (email?: string | null): boolean => {
   if (!email) return false;
   const clean = email.toLowerCase().trim();
-  return (
-    OWNER_EMAILS.includes(clean) ||
-    clean.endsWith('hans@gmail.com') ||
-    clean.includes('ashwinhans') ||
-    clean.includes('manishhans')
-  );
-};
-
-export const getLocalFounderStatus = (): boolean => {
-  try {
-    return localStorage.getItem('intelicat_is_founder') === 'true';
-  } catch {
-    return false;
-  }
-};
-
-export const getLocalTier = (): UserPlanTier => {
-  try {
-    if (localStorage.getItem('intelicat_is_founder') === 'true') return 'founder';
-    const storedTier = localStorage.getItem('intelicat_tier') as UserPlanTier;
-    if (storedTier && (storedTier === 'free' || storedTier === 'pro' || storedTier === 'elite' || storedTier === 'founder')) {
-      return storedTier;
-    }
-    if (localStorage.getItem('intelicat_vip_active') === 'true') {
-      const vipTier = localStorage.getItem('intelicat_vip_tier');
-      if (vipTier === 'elite' || vipTier === 'lifetime') return 'elite';
-      return 'pro';
-    }
-  } catch {
-    // fallback
-  }
-  return 'free';
+  return OWNER_EMAILS.includes(clean);
 };
 
 interface AuthContextType {
@@ -139,22 +109,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [authModalMode, setAuthModalMode] = useState<'signin' | 'signup'>('signin');
 
-  // Local/Guest fallback quota state
+  // Local/Guest fallback quota state (used only when user is NOT logged in)
   const [localUsage, setLocalUsage] = useState<{
-    tier: UserPlanTier;
     count: number;
     cooldownStage: 0 | 1 | 2;
     cooldownUntil: string | null;
     isRecovery: boolean;
   }>(() => {
     try {
-      const savedTier = getLocalTier();
       const savedCount = Number(localStorage.getItem('intelicat_quota_count') || '0');
       const savedStage = Number(localStorage.getItem('intelicat_quota_stage') || '0') as 0 | 1 | 2;
       const savedUntil = localStorage.getItem('intelicat_quota_until');
       const savedRecovery = localStorage.getItem('intelicat_quota_recovery') === 'true';
       return {
-        tier: savedTier,
         count: isNaN(savedCount) ? 0 : savedCount,
         cooldownStage: savedStage,
         cooldownUntil: savedUntil || null,
@@ -162,7 +129,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       };
     } catch {
       return {
-        tier: 'free',
         count: 0,
         cooldownStage: 0,
         cooldownUntil: null,
@@ -197,81 +163,140 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return;
       }
 
+      const isOwner = checkIsOwnerEmail(currentUser.email);
+
+      // Clean up rogue/stale dev flags from localStorage when non-owner logs in
+      if (!isOwner) {
+        try {
+          localStorage.removeItem('intelicat_is_founder');
+          localStorage.removeItem('intelicat_vip_active');
+          localStorage.removeItem('intelicat_vip_tier');
+          localStorage.removeItem('intelicat_tier');
+        } catch {}
+      }
+
+      // Check if user already has tracked usage saved locally
+      let cachedUsage = {
+        count: 0,
+        cooldownStage: 0 as 0 | 1 | 2,
+        cooldownUntil: null as string | null,
+        isRecovery: false,
+      };
+      try {
+        const raw = localStorage.getItem(`intelicat_user_usage_${currentUser.uid}`);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          cachedUsage = {
+            count: Number(parsed.count) || 0,
+            cooldownStage: (Number(parsed.cooldownStage) || 0) as 0 | 1 | 2,
+            cooldownUntil: parsed.cooldownUntil || null,
+            isRecovery: Boolean(parsed.isRecovery),
+          };
+        } else if (localUsage.count > 0 || localUsage.cooldownStage > 0) {
+          // Carry over guest session usage so logging in does not grant instant free quota bypass
+          cachedUsage = {
+            count: localUsage.count,
+            cooldownStage: localUsage.cooldownStage,
+            cooldownUntil: localUsage.cooldownUntil,
+            isRecovery: localUsage.isRecovery,
+          };
+        }
+      } catch {}
+
+      const initialTier: UserPlanTier = isOwner ? 'founder' : 'free';
+      const activeInitialMax = isOwner
+        ? 999999
+        : cachedUsage.isRecovery
+        ? (TIER_RECOVERY_ALLOWANCE[initialTier] || 5)
+        : (TIER_BASE_ALLOWANCE[initialTier] || 10);
+
+      const immediateProfile: UserProfile = {
+        uid: currentUser.uid,
+        email: currentUser.email || 'anonymous@user.com',
+        displayName: currentUser.displayName || currentUser.email?.split('@')[0] || 'Intelicat Explorer',
+        photoURL: currentUser.photoURL || '',
+        requestCount: isOwner ? 0 : cachedUsage.count,
+        maxRequests: activeInitialMax,
+        tier: initialTier,
+        cooldownStage: isOwner ? 0 : cachedUsage.cooldownStage,
+        cooldownUntil: isOwner ? null : cachedUsage.cooldownUntil,
+        isRecovery: isOwner ? false : cachedUsage.isRecovery,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        lastResetTime: new Date().toISOString(),
+      };
+
+      // Set immediately so userProfile is never null while user is authenticated
+      setUserProfile(immediateProfile);
+
       const userRef = doc(db, 'users', currentUser.uid);
 
       // Real-time listener for user document & request usage
       unsubscribeDoc = onSnapshot(
         userRef,
         async (docSnap) => {
-          const isOwner = checkIsOwnerEmail(currentUser.email);
-          const localTier = getLocalTier();
-
           if (docSnap.exists()) {
             const data = docSnap.data() as UserProfile;
-            const effectiveTier: UserPlanTier = isOwner
-              ? 'founder'
-              : data.tier === 'founder' || localTier === 'founder'
-              ? 'founder'
-              : data.tier === 'elite' || localTier === 'elite'
-              ? 'elite'
-              : data.tier === 'pro' || localTier === 'pro'
-              ? 'pro'
-              : 'free';
+
+            // Strictly determine tier based on verified ownership or explicit purchase in Firestore
+            let effectiveTier: UserPlanTier = 'free';
+            if (isOwner) {
+              effectiveTier = 'founder';
+            } else if (data.tier === 'elite' || data.tier === 'pro') {
+              effectiveTier = data.tier;
+            } else if (data.tier === 'founder') {
+              // Self-heal: non-owners cannot be founder unless in OWNER_EMAILS
+              effectiveTier = 'free';
+              updateDoc(userRef, {
+                tier: 'free',
+                maxRequests: TIER_BASE_ALLOWANCE['free'],
+                updatedAt: new Date().toISOString(),
+              }).catch(() => {});
+            } else {
+              effectiveTier = 'free';
+            }
 
             const activeMax = data.isRecovery
               ? (TIER_RECOVERY_ALLOWANCE[effectiveTier] || 5)
               : (TIER_BASE_ALLOWANCE[effectiveTier] || 10);
 
+            const resolvedCount = isOwner ? 0 : Math.max(Number(data.requestCount) || 0, cachedUsage.count || 0);
+
             const profile: UserProfile = {
               ...data,
               tier: effectiveTier,
               maxRequests: isOwner ? 999999 : activeMax,
-              cooldownStage: data.cooldownStage ?? 0,
-              cooldownUntil: data.cooldownUntil ?? null,
-              isRecovery: Boolean(data.isRecovery),
+              requestCount: resolvedCount,
+              cooldownStage: isOwner ? 0 : (data.cooldownStage ?? cachedUsage.cooldownStage ?? 0),
+              cooldownUntil: isOwner ? null : (data.cooldownUntil ?? cachedUsage.cooldownUntil ?? null),
+              isRecovery: isOwner ? false : Boolean(data.isRecovery || cachedUsage.isRecovery),
             };
 
             setUserProfile(profile);
-
-            // Sync tier if updated locally
-            if (data.tier !== effectiveTier) {
-              updateDoc(userRef, {
-                tier: effectiveTier,
-                updatedAt: new Date().toISOString(),
-              }).catch(() => {});
-            }
+            try {
+              localStorage.setItem(
+                `intelicat_user_usage_${currentUser.uid}`,
+                JSON.stringify({
+                  count: profile.requestCount,
+                  cooldownStage: profile.cooldownStage,
+                  cooldownUntil: profile.cooldownUntil,
+                  isRecovery: profile.isRecovery,
+                })
+              );
+            } catch {}
           } else {
             // First time user login -> initialize profile in Firestore
-            const initialTier: UserPlanTier = isOwner ? 'founder' : localTier;
-            const initialMax = isOwner ? 999999 : TIER_BASE_ALLOWANCE[initialTier];
-            const initialProfile: UserProfile = {
-              uid: currentUser.uid,
-              email: currentUser.email || 'anonymous@user.com',
-              displayName: currentUser.displayName || currentUser.email?.split('@')[0] || 'Intelicat Explorer',
-              photoURL: currentUser.photoURL || '',
-              requestCount: 0,
-              maxRequests: initialMax,
-              tier: initialTier,
-              cooldownStage: 0,
-              cooldownUntil: null,
-              isRecovery: false,
-              createdAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString(),
-              lastResetTime: new Date().toISOString(),
-            };
-
+            // New Google user is strictly FREE (10 chats / 3 hours) unless platform owner
             try {
-              await setDoc(userRef, initialProfile);
-              setUserProfile(initialProfile);
+              await setDoc(userRef, immediateProfile);
             } catch (err) {
-              console.error('Failed to create initial user profile in Firestore:', err);
-              setUserProfile(initialProfile);
+              console.warn('Initial user profile sync in Firestore:', err);
             }
           }
           setLoading(false);
         },
         (error) => {
-          console.error('Error listening to user document:', error);
+          console.warn('User document listener notice:', error);
           setLoading(false);
         }
       );
@@ -323,6 +348,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await signOut(auth);
       setUser(null);
       setUserProfile(null);
+      try {
+        localStorage.removeItem('intelicat_is_founder');
+        localStorage.removeItem('intelicat_vip_active');
+        localStorage.removeItem('intelicat_vip_tier');
+        localStorage.removeItem('intelicat_tier');
+      } catch {}
     } catch (err: any) {
       console.error('Sign-out error:', err);
       throw err;
@@ -335,21 +366,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Determine current active plan & permissions
   const isOwner = checkIsOwnerEmail(user?.email);
-  const isLocalFounder = getLocalFounderStatus();
-  const rawTier: UserPlanTier = isOwner
-    ? 'founder'
-    : isLocalFounder
-    ? 'founder'
-    : userProfile?.tier || localUsage.tier;
 
-  const tier: UserPlanTier = rawTier;
+  // Authenticated user tier is driven by Firestore; unauthenticated guest is 'free'
+  const tier: UserPlanTier = isOwner
+    ? 'founder'
+    : user
+    ? (userProfile?.tier || 'free')
+    : 'free';
+
+  // Only the verified owner or explicit founder is unlimited
   const isUnlimited = isOwner || tier === 'founder';
 
-  const cooldownStage: 0 | 1 | 2 = userProfile?.cooldownStage ?? localUsage.cooldownStage;
-  const cooldownUntil: string | null = userProfile?.cooldownUntil ?? localUsage.cooldownUntil;
-  const isRecoveryStage: boolean = Boolean(userProfile?.isRecovery ?? localUsage.isRecovery);
+  const cooldownStage: 0 | 1 | 2 = user ? (userProfile?.cooldownStage ?? 0) : localUsage.cooldownStage;
+  const cooldownUntil: string | null = user ? (userProfile?.cooldownUntil ?? null) : localUsage.cooldownUntil;
+  const isRecoveryStage: boolean = Boolean(user ? userProfile?.isRecovery : localUsage.isRecovery);
 
-  const requestCount = userProfile?.requestCount ?? localUsage.count;
+  const requestCount = user ? (userProfile?.requestCount ?? 0) : localUsage.count;
   const maxRequests = isUnlimited
     ? 999999
     : isRecoveryStage
@@ -480,22 +512,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const isLimitReached = isUnlimited ? false : remainingRequests <= 0 || cooldownRemainingSeconds > 0;
 
-  // Upgrade Plan
+  // Upgrade Plan (when user purchases)
   const upgradeToTier = (newTier: UserPlanTier) => {
-    try {
-      localStorage.setItem('intelicat_tier', newTier);
-      if (newTier === 'founder') {
-        localStorage.setItem('intelicat_is_founder', 'true');
-        localStorage.setItem('intelicat_vip_active', 'true');
-      } else if (newTier === 'elite' || newTier === 'pro') {
-        localStorage.setItem('intelicat_vip_active', 'true');
-      }
-      localStorage.setItem('intelicat_quota_stage', '0');
-      localStorage.removeItem('intelicat_quota_until');
-      localStorage.setItem('intelicat_quota_recovery', 'false');
-      localStorage.setItem('intelicat_quota_count', '0');
-    } catch {}
-
     const newMax = TIER_BASE_ALLOWANCE[newTier];
     setUserProfile((prev) =>
       prev
@@ -512,7 +530,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     );
 
     setLocalUsage({
-      tier: newTier,
       count: 0,
       cooldownStage: 0,
       cooldownUntil: null,
@@ -604,7 +621,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     }
 
-    // Update local state
+    // Update local state for guests
     setLocalUsage((prev) => {
       const next = {
         ...prev,
@@ -625,10 +642,44 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
 
     if (user?.uid) {
+      // 1. Immediately update in-memory React profile and local user cache
+      setUserProfile((prev) => {
+        const base = prev || {
+          uid: user.uid,
+          email: user.email || 'anonymous@user.com',
+          displayName: user.displayName || 'Intelicat Explorer',
+          photoURL: user.photoURL || '',
+          tier: 'free',
+          maxRequests: maxRequests,
+          createdAt: new Date().toISOString(),
+        };
+        const updated: UserProfile = {
+          ...base,
+          requestCount: nextCount,
+          cooldownStage: nextStage,
+          cooldownUntil: nextUntil,
+          isRecovery: isRecoveryStage,
+          updatedAt: new Date().toISOString(),
+        };
+        try {
+          localStorage.setItem(
+            `intelicat_user_usage_${user.uid}`,
+            JSON.stringify({
+              count: nextCount,
+              cooldownStage: nextStage,
+              cooldownUntil: nextUntil,
+              isRecovery: isRecoveryStage,
+            })
+          );
+        } catch {}
+        return updated;
+      });
+
+      // 2. Persist update to Firestore in the background
       try {
         const userRef = doc(db, 'users', user.uid);
         await updateDoc(userRef, {
-          requestCount: increment(1),
+          requestCount: nextCount,
           ...(reached
             ? {
                 cooldownStage: nextStage,
@@ -637,18 +688,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             : {}),
           updatedAt: new Date().toISOString(),
         });
-      } catch {
-        setUserProfile((prev) =>
-          prev
-            ? {
-                ...prev,
-                requestCount: nextCount,
-                cooldownStage: nextStage,
-                cooldownUntil: nextUntil,
-                updatedAt: new Date().toISOString(),
-              }
-            : null
-        );
+      } catch (err) {
+        console.warn('Firestore updateDoc notice:', err);
       }
     } else {
       setUserProfile((prev) =>

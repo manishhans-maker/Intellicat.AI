@@ -120,13 +120,11 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
   const isOwner = Boolean(
     authIsOwner ||
     (user?.email && (
-      user.email.toLowerCase().includes('hans') ||
-      user.email.toLowerCase() === 'ashwinhans2612@gmail.com' ||
-      user.email.toLowerCase() === 'manishhans@gmail.com'
+      user.email.toLowerCase().trim() === 'manishhans@gmail.com' ||
+      user.email.toLowerCase().trim() === 'ashwinhans2612@gmail.com'
     ))
   );
-  const isFounderActive = Boolean(isFounder || isOwner || tier === 'founder');
-  const isUnlimitedAccount = Boolean(isOwner || isUnlimited || isFounderActive || tier === 'founder');
+  const isUnlimitedAccount = Boolean(isOwner || tier === 'founder');
 
   // State
   const [mode, setMode] = useState<ChatMode>(defaultMode);
@@ -814,7 +812,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
     }
 
     // Consume request credit
-    consumeRequest(isUnlimitedAccount).catch(() => {});
+    consumeRequest().catch(() => {});
 
     // Stop speaking
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
@@ -938,14 +936,14 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
         provider,
         model: selectedModel,
         webSearch: webSearchEnabled,
-        userId: user.uid,
+        userId: user?.uid || undefined,
         isVipOrFounder: isUnlimitedAccount,
         userTier: tier,
         customGroqKey: customGroqKey || undefined,
         userMemoryContext: memoryContext || undefined,
       };
 
-      const token = user.getIdToken ? await user.getIdToken().catch(() => '') : '';
+      const token = user?.getIdToken ? await user.getIdToken().catch(() => '') : '';
       const authHeaders: Record<string, string> = {
         'Content-Type': 'application/json',
       };
@@ -1342,7 +1340,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                   {isUnlimitedAccount ? (
                     <div className="hidden xs:flex items-center gap-1 px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg bg-gradient-to-r from-amber-500/20 to-yellow-500/20 border border-amber-500/40 text-amber-300 text-[11px] font-bold shadow-[0_0_10px_rgba(245,158,11,0.2)]">
                       <Crown className="w-3.5 h-3.5 text-amber-400" />
-                      <span>{isOwner || isFounderActive ? '👑 FOUNDER' : '⭐ VIP'}</span>
+                      <span>{isOwner || tier === 'founder' ? '👑 FOUNDER' : tier === 'elite' ? '👑 ELITE' : '⚡ PRO'}</span>
                     </div>
                   ) : (
                     <button

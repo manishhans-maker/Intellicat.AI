@@ -60,12 +60,17 @@ function checkAndIncrementQuota(
   userId: string | undefined,
   tier: "free" | "pro" | "elite" | "vip" | "founder" = "free"
 ): { allowed: boolean; remaining: number; max: number; error?: string } {
-  if (!userId || tier === "founder") {
+  // Only verified founder tier is truly unlimited
+  if (tier === "founder") {
     return { allowed: true, remaining: 999999, max: 999999 };
   }
 
+  const trackingKey = (userId && typeof userId === "string" && userId.trim() !== "")
+    ? userId.trim()
+    : "anonymous_client";
+
   const now = Date.now();
-  let record = userQuotaMap.get(userId);
+  let record = userQuotaMap.get(trackingKey);
   if (!record) {
     record = {
       count: 0,
@@ -124,7 +129,7 @@ function checkAndIncrementQuota(
     if (!record.isRecovery) {
       record.cooldownStage = 1;
       record.cooldownUntil = now + COOLDOWN_STAGE_1_MS;
-      userQuotaMap.set(userId, record);
+      userQuotaMap.set(trackingKey, record);
       return {
         allowed: false,
         remaining: 0,
@@ -134,7 +139,7 @@ function checkAndIncrementQuota(
     } else {
       record.cooldownStage = 2;
       record.cooldownUntil = now + COOLDOWN_STAGE_2_MS;
-      userQuotaMap.set(userId, record);
+      userQuotaMap.set(trackingKey, record);
       return {
         allowed: false,
         remaining: 0,
@@ -158,7 +163,7 @@ function checkAndIncrementQuota(
     }
   }
 
-  userQuotaMap.set(userId, record);
+  userQuotaMap.set(trackingKey, record);
   return { allowed: true, remaining, max: currentMax };
 }
 
@@ -221,7 +226,6 @@ const GEMINI_MODELS_CASCADE = [
   "gemini-3.5-flash",
   "gemini-flash-lite-latest",
   "gemini-3.1-flash-lite",
-  "gemini-3.1-pro-preview",
 ];
 
 // --- Message Formatting ---
@@ -579,16 +583,28 @@ export default async function handler(req: any, res: any) {
       return res.status(400).json({ error: "Messages array is required." });
     }
 
-    const effectiveTier = isVipOrFounder ? "founder" : (requestedUserTier || "free");
+    // Determine effective user plan tier strictly
+    let effectiveTier: "free" | "pro" | "elite" | "founder" = "free";
+    if (requestedUserTier === "pro") {
+      effectiveTier = "pro";
+    } else if (requestedUserTier === "elite") {
+      effectiveTier = "elite";
+    } else if (requestedUserTier === "founder" && isVipOrFounder) {
+      effectiveTier = "founder";
+    } else {
+      effectiveTier = "free";
+    }
 
-    // Server-side strict quota check
-    if (userId) {
-      const quotaCheck = checkAndIncrementQuota(userId, effectiveTier);
-      if (!quotaCheck.allowed) {
-        return res.status(403).json({
-          error: quotaCheck.error || `Account query limit reached (${quotaCheck.max} requests for ${effectiveTier} tier). To protect API quota, please wait for reset.`,
-        });
-      }
+    // Server-side strict quota check (tracked per userId or client IP)
+    const trackingKey = (userId && typeof userId === "string" && userId.trim() !== "")
+      ? userId.trim()
+      : ((req.headers["x-forwarded-for"] as string) || req.socket.remoteAddress || "anonymous_client");
+
+    const quotaCheck = checkAndIncrementQuota(trackingKey, effectiveTier);
+    if (!quotaCheck.allowed) {
+      return res.status(403).json({
+        error: quotaCheck.error || `Account query limit reached (${quotaCheck.max} requests for ${effectiveTier} tier). To protect API quota, please wait for reset.`,
+      });
     }
 
     // Verify model authorization based on plan tier

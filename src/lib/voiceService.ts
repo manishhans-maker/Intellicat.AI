@@ -84,7 +84,17 @@ export function stopSpeechRecognition() {
 
 export function getAvailableVoices(): SpeechSynthesisVoice[] {
   if (typeof window === 'undefined' || !window.speechSynthesis) return [];
-  return window.speechSynthesis.getVoices();
+  const voices = window.speechSynthesis.getVoices() || [];
+  const seen = new Set<string>();
+  const uniqueVoices: SpeechSynthesisVoice[] = [];
+  for (const v of voices) {
+    const id = v.voiceURI || `${v.name}__${v.lang}`;
+    if (!seen.has(id)) {
+      seen.add(id);
+      uniqueVoices.push(v);
+    }
+  }
+  return uniqueVoices;
 }
 
 export function speakText(

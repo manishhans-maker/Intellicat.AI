@@ -127,8 +127,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   useEffect(() => {
     if (!isOpen) return;
     loadUserMemories(user?.uid).then(setMemories);
-    setAvailableVoices(getAvailableVoices());
+    
+    const updateVoices = () => {
+      setAvailableVoices(getAvailableVoices());
+    };
+    updateVoices();
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      window.speechSynthesis.onvoiceschanged = updateVoices;
+    }
     setInputGroqKey(groqKey);
+
+    return () => {
+      if (typeof window !== 'undefined' && window.speechSynthesis) {
+        if (window.speechSynthesis.onvoiceschanged === updateVoices) {
+          window.speechSynthesis.onvoiceschanged = null;
+        }
+      }
+    };
   }, [isOpen, user?.uid, groqKey]);
 
   const handleToggleMemoryMaster = () => {
@@ -747,11 +762,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         className="w-full rounded-xl bg-neutral-900 border border-white/15 px-3 py-2 text-xs text-white"
                       >
                         <option value="">Default Browser Voice</option>
-                        {availableVoices.map((v) => (
-                          <option key={v.voiceURI} value={v.voiceURI}>
-                            {v.name} ({v.lang})
-                          </option>
-                        ))}
+                        {availableVoices.map((v, idx) => {
+                          const optionKey = v.voiceURI ? `${v.voiceURI}__${v.lang}__${idx}` : `voice-${idx}`;
+                          return (
+                            <option key={optionKey} value={v.voiceURI || v.name}>
+                              {v.name} {v.lang ? `(${v.lang})` : ''}
+                            </option>
+                          );
+                        })}
                       </select>
                     </div>
                   )}

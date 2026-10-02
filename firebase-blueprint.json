@@ -27,11 +27,11 @@
         },
         "maxRequests": {
           "type": "number",
-          "description": "Maximum allowed requests for the user (default: 15 for free tier)"
+          "description": "Maximum allowed requests for the user (default: 10 for free tier)"
         },
         "tier": {
           "type": "string",
-          "enum": ["free", "vip", "founder"],
+          "enum": ["free", "pro", "elite", "vip", "founder"],
           "description": "User account tier"
         },
         "createdAt": {

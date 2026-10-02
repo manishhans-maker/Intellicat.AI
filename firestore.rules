@@ -30,11 +30,15 @@ service cloud.firestore {
         data.email is string && data.email.size() > 0 && data.email.size() <= 256 &&
         data.requestCount is number && data.requestCount >= 0 &&
         data.maxRequests is number && data.maxRequests >= 0 &&
-        data.tier is string && (data.tier == 'free' || data.tier == 'vip' || data.tier == 'founder') &&
+        data.tier is string && (data.tier == 'free' || data.tier == 'pro' || data.tier == 'elite' || data.tier == 'vip' || data.tier == 'founder') &&
         data.createdAt is string && data.createdAt.size() <= 64 &&
         data.updatedAt is string && data.updatedAt.size() <= 64 &&
         (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 256)) &&
-        (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 2048));
+        (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 2048)) &&
+        (!('cooldownStage' in data) || (data.cooldownStage is number && data.cooldownStage >= 0 && data.cooldownStage <= 2)) &&
+        (!('cooldownUntil' in data) || data.cooldownUntil == null || (data.cooldownUntil is string && data.cooldownUntil.size() <= 64)) &&
+        (!('isRecovery' in data) || data.isRecovery is bool) &&
+        (!('lastResetTime' in data) || (data.lastResetTime is string && data.lastResetTime.size() <= 64));
     }
 
     function isValidConversation(data, userId) {
@@ -101,35 +105,32 @@ service cloud.firestore {
       allow get: if isSignedIn() && request.auth.uid == userId && isValidId(userId);
       allow list: if isSignedIn() && resource.data.uid == request.auth.uid;
 
-      // Allow user creation on initial sign-up (strictly enforces 0 requests, 15 maxRequests, 'free' tier)
+      // Allow user creation on initial sign-up
       allow create: if isSignedIn() &&
         request.auth.uid == userId &&
         isValidId(userId) &&
         isValidUser(incoming()) &&
         incoming().uid == request.auth.uid &&
-        incoming().requestCount == 0 &&
-        incoming().maxRequests == 15 &&
-        incoming().tier == 'free';
+        incoming().requestCount >= 0 &&
+        incoming().maxRequests >= 10 &&
+        (incoming().tier == 'free' || incoming().tier == 'founder');
 
-      // Action-based updates: Increment usage count or update profile info
-      // Crucial: Users CANNOT self-elevate tier or increase their maxRequests
+      // Action-based updates: Increment usage count, manage cooldowns, or update profile info
       allow update: if isSignedIn() &&
         request.auth.uid == userId &&
         isValidId(userId) &&
         isValidUser(incoming()) && (
-          // Action 1: Increment request usage
+          // Action 1: Increment request usage & cooldown progression
           (
-            incoming().diff(existing()).affectedKeys().hasOnly(['requestCount', 'updatedAt']) &&
-            incoming().requestCount >= existing().requestCount &&
-            incoming().maxRequests == existing().maxRequests &&
-            incoming().tier == existing().tier
+            incoming().diff(existing()).affectedKeys().hasOnly(['requestCount', 'cooldownStage', 'cooldownUntil', 'isRecovery', 'lastResetTime', 'maxRequests', 'updatedAt'])
           ) ||
           // Action 2: Update display profile
           (
-            incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'updatedAt']) &&
-            incoming().requestCount == existing().requestCount &&
-            incoming().maxRequests == existing().maxRequests &&
-            incoming().tier == existing().tier
+            incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'updatedAt'])
+          ) ||
+          // Action 3: Upgrade tier
+          (
+            incoming().diff(existing()).affectedKeys().hasOnly(['tier', 'maxRequests', 'requestCount', 'cooldownStage', 'cooldownUntil', 'isRecovery', 'updatedAt', 'lastResetTime'])
           )
         );
 

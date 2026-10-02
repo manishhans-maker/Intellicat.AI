@@ -67,46 +67,13 @@ export default function App() {
   });
   
   // VIP & Founder membership state
-  const [isVipMember, setIsVipMember] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem('intelicat_vip_active') === 'true';
-    } catch {
-      return false;
-    }
-  });
-
-  const [isFounder, setIsFounder] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem('intelicat_is_founder') === 'true';
-    } catch {
-      return false;
-    }
-  });
-
   // Robot video visibility mode: 'balanced' | 'vivid' | 'cinema'
   const [robotMode, setRobotMode] = useState<'balanced' | 'vivid' | 'cinema'>('vivid');
   
   const { user, upgradeToTier, upgradeToVip, isOwner, tier } = useAuth();
-  
-  useEffect(() => {
-    if (isOwner || tier === 'founder') {
-      setIsFounder(true);
-      setIsVipMember(true);
-      try {
-        localStorage.setItem('intelicat_is_founder', 'true');
-        localStorage.setItem('intelicat_vip_active', 'true');
-      } catch {
-        // ignore
-      }
-    } else if (tier === 'elite' || tier === 'pro') {
-      setIsVipMember(true);
-      try {
-        localStorage.setItem('intelicat_vip_active', 'true');
-      } catch {
-        // ignore
-      }
-    }
-  }, [isOwner, tier]);
+
+  const isFounder = Boolean(isOwner || tier === 'founder');
+  const isVipMember = Boolean(isFounder || tier === 'elite' || tier === 'pro');
 
   // Dynamic SEO metadata synchronization across sections
   useEffect(() => {
@@ -217,23 +184,8 @@ export default function App() {
   };
 
   const handleVipPurchased = (vipData: VipData) => {
-    setIsVipMember(true);
-    if (vipData.isFounder) {
-      setIsFounder(true);
-    }
     const targetTier: UserPlanTier = vipData.isFounder ? 'founder' : vipData.tierId === 'elite' ? 'elite' : 'pro';
     upgradeToTier(targetTier);
-    try {
-      localStorage.setItem('intelicat_vip_active', 'true');
-      localStorage.setItem('intelicat_vip_id', vipData.serialId);
-      localStorage.setItem('intelicat_vip_tier', targetTier);
-      localStorage.setItem('intelicat_tier', targetTier);
-      if (vipData.isFounder) {
-        localStorage.setItem('intelicat_is_founder', 'true');
-      }
-    } catch (e) {
-      // Ignore storage errors
-    }
   };
 
   const handleSelectTier = (tierName: string) => {
