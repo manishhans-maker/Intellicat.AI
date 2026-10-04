@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ChevronDown,
   Sparkles,
@@ -20,6 +20,8 @@ import {
   X,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { db } from '../lib/firebase';
 import { ChatMode } from './AiAssistantModal';
 import { INTELLICAT_LOGO_URL } from '../constants';
 import { useAuth } from '../context/AuthContext';
@@ -33,6 +35,7 @@ interface NavbarProps {
   onOpenPremium?: () => void;
   onOpenBuyVip?: () => void;
   onOpenSettings?: () => void;
+  onOpenOwnerApproval?: () => void;
   isVipMember?: boolean;
   isFounder?: boolean;
 }
@@ -46,12 +49,14 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenPremium,
   onOpenBuyVip,
   onOpenSettings,
+  onOpenOwnerApproval,
   isVipMember = false,
   isFounder = false,
 }) => {
   const [featuresOpen, setFeaturesOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [pendingApprovalCount, setPendingApprovalCount] = useState(0);
 
   const {
     user,
@@ -67,8 +72,25 @@ export const Navbar: React.FC<NavbarProps> = ({
     tier,
   } = useAuth();
 
-  const isFounderActive = Boolean(isFounder || isOwner || tier === 'founder');
+  const isFounderActive = Boolean(tier === 'founder');
   const isVipActive = Boolean(isVipMember || isFounderActive || tier === 'elite' || tier === 'pro');
+
+  // Real-time listener for pending payment approvals (Strictly Platform Owner ONLY - never Founder)
+  useEffect(() => {
+    if (!isOwner || tier !== 'owner') {
+      setPendingApprovalCount(0);
+      return;
+    }
+    try {
+      const q = query(collection(db, 'payment_requests'), where('status', '==', 'pending_verification'));
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        setPendingApprovalCount(snapshot.size);
+      });
+      return () => unsubscribe();
+    } catch (err) {
+      console.warn('Pending approvals listener error:', err);
+    }
+  }, [isOwner, tier]);
 
   const navItems = [
     { name: 'Features', hasDropdown: true, tabId: 'features' },
@@ -96,9 +118,13 @@ export const Navbar: React.FC<NavbarProps> = ({
           <span>Intellicat</span>
           <span className="text-[#FF2A3A]">AI</span>
         </div>
-        {isFounderActive ? (
+        {isOwner ? (
+          <span className="hidden sm:inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full bg-gradient-to-r from-red-600 via-amber-400 to-yellow-300 text-black text-[10px] font-black uppercase tracking-wider shadow-[0_0_20px_rgba(245,158,11,0.9)] animate-pulse border border-yellow-200">
+            <Crown className="w-3 h-3 text-black" /> 👑 OWNER
+          </span>
+        ) : isFounderActive ? (
           <span className="hidden sm:inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-gradient-to-r from-amber-400 via-yellow-300 to-amber-500 text-black text-[10px] font-black uppercase tracking-wider shadow-[0_0_15px_rgba(245,158,11,0.8)] animate-pulse">
-            <Crown className="w-3 h-3 text-black" /> $1B FOUNDER
+            <Crown className="w-3 h-3 text-black" /> FOUNDER
           </span>
         ) : isVipActive ? (
           <span className="hidden sm:inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-gradient-to-r from-[#EF233C] to-amber-500 text-white text-[10px] font-black uppercase tracking-wider shadow-[0_0_12px_rgba(239,35,60,0.6)]">
@@ -377,14 +403,19 @@ export const Navbar: React.FC<NavbarProps> = ({
                   <div className="mt-3 p-2.5 rounded-xl bg-neutral-900/90 border border-white/10">
                     <div className="flex items-center justify-between text-xs mb-1.5">
                       <span className="text-neutral-400">Plan Tier:</span>
-                      <span className="font-bold text-amber-400 uppercase text-[10px] tracking-wider">
-                        {isOwner
-                          ? '👑 Founder (Unlimited)'
-                          : isFounderActive
-                          ? `👑 Founder (${maxRequests})`
-                          : isVipActive
-                          ? `⭐ VIP Pro (${maxRequests})`
-                          : `Free Tier (${maxRequests})`}
+                      <span className="font-bold uppercase text-[10px] tracking-wider">
+                        {isOwner ? (
+                          <span className="text-amber-400 font-black flex items-center gap-1">
+                            <Crown className="w-3 h-3 text-amber-400" />
+                            👑 PLATFORM OWNER
+                          </span>
+                        ) : isFounderActive ? (
+                          <span className="text-amber-300 font-bold">👑 FOUNDER (Unlimited)</span>
+                        ) : isVipActive ? (
+                          <span className="text-amber-300">⭐ VIP ({maxRequests})</span>
+                        ) : (
+                          <span className="text-neutral-300">Free Tier ({maxRequests})</span>
+                        )}
                       </span>
                     </div>
 
@@ -417,7 +448,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                       <div className="text-[10px] text-neutral-400 mt-1.5 flex items-center justify-between">
                         <span>
                           {isOwner
-                            ? 'Unlimited queries (Founder Access)'
+                            ? 'Supreme Platform Authority & Unlimited Compute'
                             : `${remainingRequests} queries remaining`}
                         </span>
                         {isLimitReached && !isOwner && !isFounderActive && (
@@ -442,7 +473,36 @@ export const Navbar: React.FC<NavbarProps> = ({
                       </button>
                     )}
 
-                    {!isFounderActive && (
+                    {/* Owner Only: 1-Click Payment Approval Hub (strictly NEVER for Founder rank) */}
+                    {isOwner && tier === 'owner' ? (
+                      <button
+                        onClick={() => {
+                          setUserMenuOpen(false);
+                          onOpenOwnerApproval?.();
+                        }}
+                        className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400 text-amber-300 text-xs font-black transition-colors cursor-pointer shadow-md"
+                      >
+                        <span className="flex items-center gap-2">
+                          <Crown className="w-3.5 h-3.5 text-amber-400" />
+                          <span>Owner Approvals Hub</span>
+                        </span>
+                        {pendingApprovalCount > 0 ? (
+                          <span className="px-2 py-0.5 rounded-full bg-amber-400 text-black text-[10px] font-black animate-pulse">
+                            {pendingApprovalCount} Pending
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-amber-300/80">Active</span>
+                        )}
+                      </button>
+                    ) : isFounderActive ? (
+                      <div className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-semibold">
+                        <span className="flex items-center gap-2">
+                          <Crown className="w-3.5 h-3.5 text-amber-400" />
+                          <span>Founder Sovereign Active</span>
+                        </span>
+                        <span className="text-[10px] text-amber-400 font-mono">Unlimited</span>
+                      </div>
+                    ) : (
                       <button
                         onClick={() => {
                           setUserMenuOpen(false);
@@ -486,19 +546,39 @@ export const Navbar: React.FC<NavbarProps> = ({
           </button>
         )}
 
-        {/* Buy VIP Pass Trigger */}
-        <button
-          onClick={onOpenBuyVip}
-          title={isFounderActive ? "Supreme $1B Founder Passholder" : "Buy Alpha Cohort VIP Pass"}
-          className={`hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-full transition-all duration-200 cursor-pointer shadow-sm hover:scale-105 active:scale-95 ${
-            isFounderActive
-              ? 'bg-gradient-to-r from-amber-400 to-yellow-500 text-black border border-amber-300 shadow-[0_0_15px_rgba(245,158,11,0.5)]'
-              : 'text-amber-300 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 shadow-amber-500/20'
-          }`}
-        >
-          <Crown className={`w-3.5 h-3.5 ${isFounderActive ? 'text-black' : 'text-amber-400'}`} />
-          <span>{isFounderActive ? '👑 $1B Founder' : isVipActive ? 'VIP Member' : 'Buy VIP Pass'}</span>
-        </button>
+        {/* Owner Hub (Owner Only) OR Buy VIP Pass / Founder Badge Trigger */}
+        {isOwner && tier === 'owner' ? (
+          <button
+            onClick={onOpenOwnerApproval}
+            title="Owner Payment Approvals Hub"
+            className="hidden sm:flex items-center gap-2 px-3.5 py-1.5 text-xs font-black rounded-full border border-amber-400 bg-amber-400/20 hover:bg-amber-400/30 text-amber-300 transition-all duration-200 cursor-pointer shadow-[0_0_20px_rgba(245,158,11,0.4)] hover:scale-105 active:scale-95"
+          >
+            <Crown className="w-3.5 h-3.5 text-amber-400" />
+            <span>Owner Hub</span>
+            {pendingApprovalCount > 0 && (
+              <span className="px-1.5 py-0.2 rounded-full bg-amber-400 text-black text-[10px] font-black animate-pulse">
+                {pendingApprovalCount}
+              </span>
+            )}
+          </button>
+        ) : isFounderActive ? (
+          <div
+            title="Lifetime Founder Member"
+            className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-full bg-gradient-to-r from-amber-400 to-yellow-500 text-black border border-amber-300 shadow-[0_0_15px_rgba(245,158,11,0.5)] select-none"
+          >
+            <Crown className="w-3.5 h-3.5 text-black" />
+            <span>👑 Founder Sovereign</span>
+          </div>
+        ) : (
+          <button
+            onClick={onOpenBuyVip}
+            title="Buy Alpha Cohort VIP Pass"
+            className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-full transition-all duration-200 cursor-pointer shadow-sm hover:scale-105 active:scale-95 text-amber-300 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 shadow-amber-500/20"
+          >
+            <Crown className="w-3.5 h-3.5 text-amber-400" />
+            <span>{isVipActive ? 'VIP Active' : 'Buy VIP Pass'}</span>
+          </button>
+        )}
 
         {/* Action Button: Chat */}
         <button
@@ -657,19 +737,47 @@ export const Navbar: React.FC<NavbarProps> = ({
                   </button>
                 )}
 
-                <button
-                  onClick={() => {
-                    setMobileMenuOpen(false);
-                    onOpenBuyVip?.();
-                  }}
-                  className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl bg-gradient-to-r from-amber-500/20 to-yellow-500/20 border border-amber-500/40 text-amber-300 text-xs font-bold cursor-pointer"
-                >
-                  <span className="flex items-center gap-1.5">
-                    <Crown className="w-4 h-4 text-amber-400" />
-                    <span>{isFounderActive ? '$1B Founder Pass' : isVipActive ? 'VIP Active' : 'Buy VIP Pass'}</span>
-                  </span>
-                  <ArrowRight className="w-3 h-3" />
-                </button>
+                {isOwner && tier === 'owner' ? (
+                  <button
+                    onClick={() => {
+                      setMobileMenuOpen(false);
+                      onOpenOwnerApproval?.();
+                    }}
+                    className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl bg-amber-500/20 border border-amber-400 text-amber-300 text-xs font-black cursor-pointer shadow-md"
+                  >
+                    <span className="flex items-center gap-1.5">
+                      <Crown className="w-4 h-4 text-amber-400" />
+                      <span>👑 Owner Approvals Hub</span>
+                    </span>
+                    {pendingApprovalCount > 0 && (
+                      <span className="px-2 py-0.5 rounded-full bg-amber-400 text-black text-[10px] font-black animate-pulse">
+                        {pendingApprovalCount}
+                      </span>
+                    )}
+                  </button>
+                ) : isFounderActive ? (
+                  <div className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-black">
+                    <span className="flex items-center gap-1.5">
+                      <Crown className="w-4 h-4 text-amber-400" />
+                      <span>👑 Founder Member</span>
+                    </span>
+                    <span className="text-[10px] text-amber-400/80 font-mono">Unlimited</span>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => {
+                      setMobileMenuOpen(false);
+                      onOpenBuyVip?.();
+                    }}
+                    className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl bg-gradient-to-r from-amber-500/20 to-yellow-500/20 border border-amber-500/40 text-amber-300 text-xs font-bold cursor-pointer"
+                  >
+                    <span className="flex items-center gap-1.5">
+                      <Crown className="w-4 h-4 text-amber-400" />
+                      <span>{isFounderActive ? '👑 Founder Pass' : isVipActive ? 'VIP Active' : 'Buy VIP Pass'}</span>
+                    </span>
+                    <ArrowRight className="w-3 h-3" />
+                  </button>
+                )}
 
                 {user ? (
                   <button

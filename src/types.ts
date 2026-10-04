@@ -12,7 +12,7 @@ export type ChatMode = 'normal' | 'cat-code' | 'fast' | 'deep-think' | 'search' 
 export type AiMode = 'fast' | 'deep-think' | 'search' | 'creative' | 'coding' | 'study' | 'normal' | 'cat-code';
 export type AiProvider = 'groq' | 'gemini';
 
-export type UserPlanTier = 'free' | 'pro' | 'elite' | 'founder';
+export type UserPlanTier = 'free' | 'pro' | 'elite' | 'founder' | 'owner';
 
 export interface AiModelOption {
   id: string;

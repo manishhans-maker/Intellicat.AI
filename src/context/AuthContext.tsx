@@ -40,6 +40,7 @@ export const TIER_BASE_ALLOWANCE: Record<UserPlanTier, number> = {
   pro: 25,
   elite: 50,
   founder: 999999,
+  owner: 999999,
 };
 
 export const FREE_TIER_MAX_REQUESTS = 10;
@@ -51,6 +52,7 @@ export const TIER_RECOVERY_ALLOWANCE: Record<UserPlanTier, number> = {
   pro: 12,
   elite: 25,
   founder: 999999,
+  owner: 999999,
 };
 
 export const COOLDOWN_STAGE_1_MS = 3 * 3600 * 1000; // 3 hours
@@ -203,7 +205,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       } catch {}
 
-      const initialTier: UserPlanTier = isOwner ? 'founder' : 'free';
+      const initialTier: UserPlanTier = isOwner ? 'owner' : 'free';
       const activeInitialMax = isOwner
         ? 999999
         : cachedUsage.isRecovery
@@ -241,17 +243,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             // Strictly determine tier based on verified ownership or explicit purchase in Firestore
             let effectiveTier: UserPlanTier = 'free';
             if (isOwner) {
-              effectiveTier = 'founder';
-            } else if (data.tier === 'elite' || data.tier === 'pro') {
-              effectiveTier = data.tier;
-            } else if (data.tier === 'founder') {
-              // Self-heal: non-owners cannot be founder unless in OWNER_EMAILS
+              effectiveTier = 'owner';
+            } else if (data.tier === 'owner') {
+              // Self-heal: non-owners can NEVER be owner under any circumstance!
               effectiveTier = 'free';
               updateDoc(userRef, {
                 tier: 'free',
                 maxRequests: TIER_BASE_ALLOWANCE['free'],
                 updatedAt: new Date().toISOString(),
               }).catch(() => {});
+            } else if (data.tier === 'founder' || data.tier === 'elite' || data.tier === 'pro') {
+              effectiveTier = data.tier;
             } else {
               effectiveTier = 'free';
             }
@@ -369,13 +371,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Authenticated user tier is driven by Firestore; unauthenticated guest is 'free'
   const tier: UserPlanTier = isOwner
-    ? 'founder'
+    ? 'owner'
     : user
-    ? (userProfile?.tier || 'free')
+    ? (userProfile?.tier === 'owner' ? 'free' : (userProfile?.tier || 'free'))
     : 'free';
 
   // Only the verified owner or explicit founder is unlimited
-  const isUnlimited = isOwner || tier === 'founder';
+  const isUnlimited = isOwner || tier === 'owner' || tier === 'founder';
 
   const cooldownStage: 0 | 1 | 2 = user ? (userProfile?.cooldownStage ?? 0) : localUsage.cooldownStage;
   const cooldownUntil: string | null = user ? (userProfile?.cooldownUntil ?? null) : localUsage.cooldownUntil;
@@ -514,12 +516,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Upgrade Plan (when user purchases)
   const upgradeToTier = (newTier: UserPlanTier) => {
-    const newMax = TIER_BASE_ALLOWANCE[newTier];
+    // Non-owners can NEVER upgrade to owner rank
+    const safeTier: UserPlanTier = newTier === 'owner' && !isOwner ? 'founder' : newTier;
+    const newMax = TIER_BASE_ALLOWANCE[safeTier];
     setUserProfile((prev) =>
       prev
         ? {
             ...prev,
-            tier: newTier,
+            tier: safeTier,
             maxRequests: newMax,
             requestCount: 0,
             cooldownStage: 0,
@@ -539,7 +543,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (user?.uid) {
       const userRef = doc(db, 'users', user.uid);
       updateDoc(userRef, {
-        tier: newTier,
+        tier: safeTier,
         maxRequests: newMax,
         requestCount: 0,
         cooldownStage: 0,

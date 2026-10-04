@@ -14,6 +14,7 @@ import { RobotBackground } from './components/RobotBackground';
 import { StudyModePanel } from './components/StudyModePanel';
 import { SpacesPanel } from './components/SpacesPanel';
 import { SettingsModal } from './components/SettingsModal';
+import { OwnerApprovalModal } from './components/OwnerApprovalModal';
 import { ProjectSpace, StudyGrade, AiMode, AiProvider, UserPlanTier } from './types';
 import { useAuth } from './context/AuthContext';
 import { AnimatePresence, motion } from 'motion/react';
@@ -52,6 +53,7 @@ export default function App() {
   const [infoOpen, setInfoOpen] = useState(false);
   const [infoTab, setInfoTab] = useState('features');
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [ownerApprovalOpen, setOwnerApprovalOpen] = useState(false);
 
   // Studio, Study, and Spaces State
   const [studyGrade, setStudyGrade] = useState<StudyGrade>('class-7');
@@ -72,7 +74,7 @@ export default function App() {
   
   const { user, upgradeToTier, upgradeToVip, isOwner, tier } = useAuth();
 
-  const isFounder = Boolean(isOwner || tier === 'founder');
+  const isFounder = Boolean(tier === 'founder');
   const isVipMember = Boolean(isFounder || tier === 'elite' || tier === 'pro');
 
   // Dynamic SEO metadata synchronization across sections
@@ -237,6 +239,11 @@ export default function App() {
           onOpenPremium={handleOpenPremium}
           onOpenBuyVip={handleOpenBuyVip}
           onOpenSettings={() => setSettingsOpen(true)}
+          onOpenOwnerApproval={() => {
+            if (isOwner && tier === 'owner') {
+              setOwnerApprovalOpen(true);
+            }
+          }}
           isVipMember={isVipMember}
           isFounder={isFounder}
         />
@@ -553,6 +560,14 @@ export default function App() {
 
       {/* User Authentication & Google/Email Sign-In Modal */}
       <AuthModal />
+
+      {/* Owner-Exclusive 1-Click Live Payment Approval Hub (strictly owner-only, never founder) */}
+      {isOwner && tier === 'owner' && (
+        <OwnerApprovalModal
+          isOpen={ownerApprovalOpen}
+          onClose={() => setOwnerApprovalOpen(false)}
+        />
+      )}
 
       {/* Interactive Get Started / Access Modal */}
       <AnimatePresence>

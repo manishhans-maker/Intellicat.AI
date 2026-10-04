@@ -16,12 +16,15 @@ import {
   Send,
   AlertCircle,
   Lock,
+  Sparkles,
+  RefreshCw,
 } from 'lucide-react';
 import QRCode from 'qrcode';
-import { collection, addDoc } from 'firebase/firestore';
+import { collection, addDoc, doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 import { INTELLICAT_LOGO_URL } from '../constants';
+import { UserPlanTier } from '../types';
 
 export interface VipData {
   name: string;
@@ -43,17 +46,14 @@ interface VipCheckoutModalProps {
   onOpenAiAssistant?: (prompt?: string) => void;
 }
 
-// Obfuscated merchant UPI configuration to prevent raw account exposure
-const getMerchantUpiId = (): string => {
-  try {
-    return atob('ODg1MTYwMzkxQGF4aXNiYW5r');
-  } catch {
-    return '';
-  }
-};
+import {
+  getStoredMerchantUpi,
+  fetchRemoteMerchantUpi,
+  maskUpiId,
+  buildCompliantUpiUri,
+  buildUniversalP2pUri,
+} from '../lib/paymentConfig';
 
-// Masked display representation to keep personal phone/account details private
-const MASKED_UPI_DISPLAY = '885*****91@axisbank';
 const ADMIN_EMAIL = 'manishhans@gmail.com';
 
 interface PlanTier {
@@ -118,7 +118,7 @@ const TIERS: PlanTier[] = [
     displayInr: '₹99,999',
     badge: '👑 SOVEREIGN FOUNDER',
     description:
-      'Supreme institutional-grade platform ownership with dedicated compute and truly unlimited inferences forever.',
+      'Supreme VIP Partner access with dedicated compute and truly unlimited inferences forever.',
     perks: [
       '♾️ Truly UNLIMITED inferences across all current and future AI models',
       '🏢 Zero rate limits, zero timeouts, zero cooldowns forever',
@@ -137,7 +137,7 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
   onClose,
   initialTier = 'pro',
 }) => {
-  const { user } = useAuth();
+  const { user, upgradeToTier } = useAuth();
   const [selectedTierId, setSelectedTierId] = useState<string>(initialTier || 'pro');
 
   // Multi-step navigation: 'plans' -> 'upi_payment' -> 'submitted'
@@ -157,6 +157,8 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
   const [submitting, setSubmitting] = useState(false);
   const [submittedUtr, setSubmittedUtr] = useState('');
   const [copiedRef, setCopiedRef] = useState(false);
+  const [submittedDocId, setSubmittedDocId] = useState<string | null>(null);
+  const [liveStatus, setLiveStatus] = useState<'pending_verification' | 'approved' | 'rejected'>('pending_verification');
 
   useEffect(() => {
     if (initialTier) {
@@ -172,6 +174,34 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
     }
   }, [isOpen]);
 
+  // Real-time listener for live instant activation by Owner (like ChatGPT)
+  useEffect(() => {
+    if (!submittedDocId || currentStep !== 'submitted') return;
+
+    try {
+      const unsubscribe = onSnapshot(doc(db, 'payment_requests', submittedDocId), (docSnap) => {
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          if (data.status === 'approved') {
+            setLiveStatus('approved');
+            let targetTier: UserPlanTier = 'pro';
+            if (data.tierId === 'founder_billion' || data.tierName?.toLowerCase().includes('founder')) {
+              targetTier = 'founder';
+            } else if (data.tierId === 'elite' || data.tierName?.toLowerCase().includes('elite')) {
+              targetTier = 'elite';
+            }
+            upgradeToTier(targetTier);
+          } else if (data.status === 'rejected') {
+            setLiveStatus('rejected');
+          }
+        }
+      });
+      return () => unsubscribe();
+    } catch (e) {
+      console.warn('Real-time payment snapshot error:', e);
+    }
+  }, [submittedDocId, currentStep, upgradeToTier]);
+
   // Pre-fill user information if signed in
   useEffect(() => {
     if (user) {
@@ -181,10 +211,29 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
   }, [user]);
 
   const activeTier = TIERS.find((t) => t.id === selectedTierId) || TIERS[0];
-  const merchantUpi = getMerchantUpiId();
+  const [merchantUpi, setMerchantUpi] = useState<string>(getStoredMerchantUpi());
+  const [qrFormat, setQrFormat] = useState<'standard' | 'universal'>('standard');
 
-  // Dynamic UPI payment link with amount pre-filled
-  const upiDeepLink = `upi://pay?pa=${merchantUpi}&pn=IntellicatAI&am=${activeTier.inrPrice}&cu=INR&tn=${encodeURIComponent(activeTier.name + ' Plan')}`;
+  useEffect(() => {
+    fetchRemoteMerchantUpi().then((remoteUpi) => {
+      if (remoteUpi && remoteUpi.includes('@')) {
+        setMerchantUpi(remoteUpi);
+      }
+    });
+  }, []);
+
+  const maskedUpiDisplay = maskUpiId(merchantUpi);
+
+  // Dynamic 100% NPCI compliant UPI payment link
+  const upiDeepLink =
+    qrFormat === 'universal'
+      ? buildUniversalP2pUri(merchantUpi, 'IntellicatAI')
+      : buildCompliantUpiUri(
+          merchantUpi,
+          activeTier.inrPrice,
+          'IntellicatAI',
+          'IntelicatPlan'
+        );
 
   // Generate QR Code dynamically when in payment step
   useEffect(() => {
@@ -225,7 +274,7 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
   };
 
   const handleCopyReference = () => {
-    const text = `🐾 IntelicatAI Payment Verification\nPlan: ${activeTier.name} (${activeTier.displayInr})\nPayee: ${MASKED_UPI_DISPLAY}\nUTR Reference: ${submittedUtr}\nName: ${name}\nEmail: ${email}`;
+    const text = `🐾 IntelicatAI Payment Verification\nPlan: ${activeTier.name} (${activeTier.displayInr})\nPayee: ${maskedUpiDisplay}\nUTR Reference: ${submittedUtr}\nName: ${name}\nEmail: ${email}`;
     try {
       navigator.clipboard.writeText(text);
       setCopiedRef(true);
@@ -267,16 +316,17 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
 
     try {
       // Persist to Firestore payment_requests collection
-      await addDoc(collection(db, 'payment_requests'), paymentRecord);
+      const docRef = await addDoc(collection(db, 'payment_requests'), paymentRecord);
+      setSubmittedDocId(docRef.id);
+      try {
+        localStorage.setItem('intelicat_last_payment_request', JSON.stringify({ ...paymentRecord, docId: docRef.id }));
+      } catch {}
     } catch (err) {
       console.warn('Firestore payment_requests sync warning:', err);
     }
 
-    try {
-      localStorage.setItem('intelicat_last_payment_request', JSON.stringify(paymentRecord));
-    } catch {}
-
     setSubmittedUtr(cleanUtr);
+    setLiveStatus('pending_verification');
     setCurrentStep('submitted');
     setSubmitting(false);
   };
@@ -495,6 +545,32 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
                     </span>
                   </div>
 
+                  {/* QR Format Selector for Maximum App Compatibility (BHIM, Paytm, PhonePe, GPay) */}
+                  <div className="w-full grid grid-cols-2 gap-1 p-1 bg-neutral-100 rounded-xl mb-3 text-[10px] font-bold">
+                    <button
+                      type="button"
+                      onClick={() => setQrFormat('standard')}
+                      className={`py-1.5 px-2 rounded-lg transition-all cursor-pointer ${
+                        qrFormat === 'standard'
+                          ? 'bg-neutral-900 text-white shadow-xs'
+                          : 'text-neutral-600 hover:text-neutral-900'
+                      }`}
+                    >
+                      Pre-filled ({activeTier.displayInr})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setQrFormat('universal')}
+                      className={`py-1.5 px-2 rounded-lg transition-all cursor-pointer ${
+                        qrFormat === 'universal'
+                          ? 'bg-neutral-900 text-white shadow-xs'
+                          : 'text-neutral-600 hover:text-neutral-900'
+                      }`}
+                    >
+                      Universal (BHIM/Paytm)
+                    </button>
+                  </div>
+
                   {/* QR Code Container */}
                   <div className="w-56 h-56 rounded-2xl overflow-hidden bg-white p-1 flex items-center justify-center">
                     {qrCodeDataUrl ? (
@@ -516,7 +592,7 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
                     className="mt-3 w-full flex items-center justify-center gap-2 font-mono font-bold text-xs sm:text-sm text-neutral-900 bg-neutral-100 hover:bg-neutral-200 transition-colors py-2 px-3 rounded-xl cursor-pointer select-all border border-neutral-300 shadow-sm"
                     title="Click to copy Merchant UPI ID"
                   >
-                    <span>{MASKED_UPI_DISPLAY}</span>
+                    <span>{maskedUpiDisplay}</span>
                     <span className="p-1 rounded bg-white text-neutral-700 shadow-xs">
                       {copiedUpi ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
                     </span>
@@ -531,12 +607,21 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
                   {/* Direct Mobile App Deeplink */}
                   <a
                     href={upiDeepLink}
-                    className="mt-3 w-full py-2.5 px-3 rounded-xl bg-gradient-to-r from-[#EF233C] to-amber-500 text-white font-black text-xs flex items-center justify-center gap-1.5 shadow-md hover:scale-[1.02] active:scale-95 transition-all"
+                    className="mt-3 w-full py-2.5 px-3 rounded-xl bg-gradient-to-r from-[#EF233C] to-amber-500 text-white font-black text-xs flex items-center justify-center gap-1.5 shadow-md hover:scale-[1.02] active:scale-95 transition-all cursor-pointer"
                   >
                     <Smartphone className="w-3.5 h-3.5" />
-                    <span>Pay with GPay / PhonePe / Paytm</span>
+                    <span>Pay with GPay / PhonePe / Paytm / BHIM</span>
                     <ExternalLink className="w-3 h-3 opacity-80" />
                   </a>
+
+                  {/* BHIM / Paytm Help Notice */}
+                  <div className="mt-2.5 text-[10px] text-neutral-600 bg-neutral-100 border border-neutral-200 p-2.5 rounded-xl text-left flex items-start gap-2">
+                    <ShieldCheck className="w-4 h-4 shrink-0 text-emerald-600 mt-0.5" />
+                    <div className="leading-tight">
+                      <span className="font-bold text-neutral-900 block">BHIM & Paytm Friendly:</span>
+                      If your app scanner shows any format warning, tap <strong>Universal</strong> above or tap <strong>Copy UPI ID</strong> to pay directly.
+                    </div>
+                  </div>
 
                   {/* Supported Apps */}
                   <div className="mt-3 pt-2.5 border-t border-neutral-200 w-full text-[10px] text-neutral-500 flex flex-wrap items-center justify-center gap-2">
@@ -666,86 +751,175 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
           </div>
         )}
 
-        {/* STEP 3: SUCCESS STATE (Payment Proof Submitted) */}
+        {/* STEP 3: SUCCESS STATE (Payment Proof Submitted & Live Instant Activation) */}
         {currentStep === 'submitted' && (
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             className="py-6 text-center max-w-xl mx-auto space-y-6"
           >
-            <div className="w-16 h-16 rounded-full bg-emerald-500/20 border-2 border-emerald-400 text-emerald-400 flex items-center justify-center mx-auto shadow-[0_0_30px_rgba(16,185,129,0.4)]">
-              <Check className="w-8 h-8 stroke-[3]" />
-            </div>
+            {liveStatus === 'approved' ? (
+              /* INSTANT APPROVAL CELEBRATION (Like ChatGPT) */
+              <div className="space-y-6">
+                <div className="w-20 h-20 rounded-full bg-emerald-500/20 border-4 border-emerald-400 text-emerald-400 flex items-center justify-center mx-auto shadow-[0_0_50px_rgba(16,185,129,0.6)] animate-bounce">
+                  <Check className="w-10 h-10 stroke-[3]" />
+                </div>
 
-            <div>
-              <span className="inline-block px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider mb-2 bg-amber-500/20 border border-amber-400/40 text-amber-300">
-                Payment Verification Pending
-              </span>
-              <h2 className="text-2xl sm:text-3xl font-black text-white">
-                Payment Proof Submitted!
-              </h2>
-              <p className="text-xs sm:text-sm text-neutral-400 mt-2 max-w-md mx-auto">
-                Thank you, <span className="text-white font-bold">{name}</span>. We have received your transaction reference
-                for <span className="text-amber-300 font-bold">{activeTier.name} ({activeTier.displayInr})</span>.
-              </p>
-            </div>
+                <div>
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider mb-2 bg-emerald-500 text-black shadow-lg shadow-emerald-500/30">
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Rank Instantly Activated</span>
+                  </span>
+                  <h2 className="text-2xl sm:text-3xl font-black text-white">
+                    Payment Verified & Rank Activated!
+                  </h2>
+                  <p className="text-xs sm:text-sm text-neutral-300 mt-2 max-w-md mx-auto leading-relaxed">
+                    Congratulations, <span className="text-white font-bold">{name}</span>! The Owner has confirmed your
+                    payment in Axis Bank. Your <span className="text-emerald-400 font-bold">{activeTier.name}</span> pass
+                    is now officially live and active.
+                  </p>
+                </div>
 
-            {/* Receipt Card */}
-            <div className="p-5 rounded-2xl bg-neutral-900 border border-white/15 text-left font-mono text-xs space-y-2.5">
-              <div className="flex justify-between border-b border-white/10 pb-2">
-                <span className="text-neutral-400">Status</span>
-                <span className="text-amber-400 font-bold flex items-center gap-1">
-                  <Clock className="w-3 h-3 animate-spin" style={{ animationDuration: '4s' }} />
-                  PENDING CLEARANCE
-                </span>
+                {/* Activated Pass Card */}
+                <div className="p-5 rounded-2xl bg-gradient-to-r from-emerald-950/40 via-black to-emerald-950/40 border border-emerald-500/40 text-left font-mono text-xs space-y-2.5 shadow-xl">
+                  <div className="flex justify-between border-b border-emerald-500/20 pb-2">
+                    <span className="text-neutral-400">Live Status</span>
+                    <span className="text-emerald-400 font-black flex items-center gap-1">
+                      <Check className="w-3.5 h-3.5" /> ACTIVE & UNLOCKED
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-neutral-400">Granted Rank</span>
+                    <span className="text-white font-bold">{activeTier.name}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-neutral-400">Verified UTR</span>
+                    <span className="text-emerald-300 font-bold">{submittedUtr}</span>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="w-full py-4 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-black text-sm font-black transition-all cursor-pointer shadow-[0_0_30px_rgba(16,185,129,0.4)] hover:scale-[1.02] active:scale-95"
+                >
+                  🚀 Launch IntelicatAI with {activeTier.name}
+                </button>
               </div>
-              <div className="flex justify-between">
-                <span className="text-neutral-400">Plan Tier</span>
-                <span className="text-white font-bold">{activeTier.name}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-neutral-400">Amount</span>
-                <span className="text-white font-bold">{activeTier.displayInr} ({activeTier.displayPrice})</span>
-              </div>
-              <div className="flex justify-between border-t border-white/10 pt-2">
-                <span className="text-neutral-400">Submitted UTR</span>
-                <span className="text-emerald-400 font-bold text-sm tracking-wider">{submittedUtr}</span>
-              </div>
-            </div>
+            ) : liveStatus === 'rejected' ? (
+              /* REJECTED STATE */
+              <div className="space-y-5">
+                <div className="w-16 h-16 rounded-full bg-red-500/20 border-2 border-red-500 text-red-400 flex items-center justify-center mx-auto shadow-[0_0_30px_rgba(239,35,60,0.4)]">
+                  <X className="w-8 h-8 stroke-[3]" />
+                </div>
 
-            <div className="p-3.5 rounded-xl bg-black/60 border border-white/10 text-xs text-neutral-300 text-left space-y-1 leading-relaxed">
-              <p className="text-amber-300 font-bold">What happens next?</p>
-              <p>
-                Our billing team verifies your transaction. Your pass will be activated
-                within 15–30 minutes.
-              </p>
-              <p className="text-neutral-400 pt-1">
-                For instant priority clearance, email your screenshot to{' '}
-                <a href={`mailto:${ADMIN_EMAIL}?subject=Payment Verification UTR ${submittedUtr}`} className="text-[#EF233C] underline font-bold">
-                  {ADMIN_EMAIL}
-                </a>.
-              </p>
-            </div>
+                <div>
+                  <span className="inline-block px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider mb-2 bg-red-500/20 border border-red-500/40 text-red-400">
+                    Verification Unsuccessful
+                  </span>
+                  <h2 className="text-2xl font-black text-white">UTR Could Not Be Verified</h2>
+                  <p className="text-xs text-neutral-400 mt-2 max-w-md mx-auto">
+                    The submitted UTR number could not be matched against our Axis Bank statement. Please
+                    re-check your banking receipt or contact the Owner.
+                  </p>
+                </div>
 
-            {/* Action Buttons */}
-            <div className="flex flex-wrap items-center justify-center gap-3">
-              <button
-                type="button"
-                onClick={handleCopyReference}
-                className="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-semibold flex items-center gap-2 transition-all cursor-pointer"
-              >
-                {copiedRef ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
-                <span>{copiedRef ? 'Copied Details!' : 'Copy Reference Details'}</span>
-              </button>
+                <div className="flex items-center justify-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setCurrentStep('upi_payment')}
+                    className="px-5 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold transition-all cursor-pointer"
+                  >
+                    Re-enter Correct UTR
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    className="px-5 py-2.5 rounded-xl red-cta-btn text-white text-xs font-bold transition-all cursor-pointer"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            ) : (
+              /* PENDING & LIVE LISTENING STATE (Awaiting 1-Click Owner Approval) */
+              <>
+                <div className="w-16 h-16 rounded-full bg-amber-500/20 border-2 border-amber-400 text-amber-400 flex items-center justify-center mx-auto shadow-[0_0_30px_rgba(245,158,11,0.4)] relative">
+                  <Clock className="w-8 h-8 animate-spin" style={{ animationDuration: '6s' }} />
+                  <span className="absolute -top-1 -right-1 flex h-4 w-4">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-4 w-4 bg-amber-500" />
+                  </span>
+                </div>
 
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-6 py-2.5 rounded-xl red-cta-btn text-white text-xs font-black transition-all cursor-pointer shadow-lg shadow-red-600/30"
-              >
-                Return to IntelicatAI
-              </button>
-            </div>
+                <div>
+                  <span className="inline-block px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider mb-2 bg-amber-500/20 border border-amber-400/40 text-amber-300">
+                    Live Real-Time Verification
+                  </span>
+                  <h2 className="text-2xl sm:text-3xl font-black text-white">
+                    Awaiting Owner Approval...
+                  </h2>
+                  <p className="text-xs sm:text-sm text-neutral-400 mt-2 max-w-md mx-auto">
+                    Your UTR reference for <span className="text-amber-300 font-bold">{activeTier.name} ({activeTier.displayInr})</span> has
+                    been delivered to the Platform Owner.
+                  </p>
+                </div>
+
+                {/* Receipt Card */}
+                <div className="p-5 rounded-2xl bg-neutral-900 border border-white/15 text-left font-mono text-xs space-y-2.5">
+                  <div className="flex justify-between border-b border-white/10 pb-2">
+                    <span className="text-neutral-400">Live Status</span>
+                    <span className="text-amber-400 font-bold flex items-center gap-1.5 animate-pulse">
+                      <RefreshCw className="w-3 h-3 animate-spin" />
+                      LISTENING FOR APPROVAL...
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-neutral-400">Selected Plan</span>
+                    <span className="text-white font-bold">{activeTier.name}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-neutral-400">Amount</span>
+                    <span className="text-white font-bold">{activeTier.displayInr} ({activeTier.displayPrice})</span>
+                  </div>
+                  <div className="flex justify-between border-t border-white/10 pt-2">
+                    <span className="text-neutral-400">Submitted UTR</span>
+                    <span className="text-emerald-400 font-bold text-sm tracking-wider">{submittedUtr}</span>
+                  </div>
+                </div>
+
+                <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-300 text-left space-y-1 leading-relaxed">
+                  <p className="font-bold flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Instant Activation Enabled:</span>
+                  </p>
+                  <p className="text-neutral-300 text-[11px]">
+                    Leave this window open. As soon as the Owner confirms your transaction in Axis Bank and taps
+                    Approve, your screen will automatically unlock your pass in real time!
+                  </p>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex flex-wrap items-center justify-center gap-3">
+                  <button
+                    type="button"
+                    onClick={handleCopyReference}
+                    className="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-semibold flex items-center gap-2 transition-all cursor-pointer"
+                  >
+                    {copiedRef ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+                    <span>{copiedRef ? 'Copied Details!' : 'Copy Reference Details'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    className="px-6 py-2.5 rounded-xl red-cta-btn text-white text-xs font-black transition-all cursor-pointer shadow-lg shadow-red-600/30"
+                  >
+                    Return to IntelicatAI
+                  </button>
+                </div>
+              </>
+            )}
           </motion.div>
         )}
       </motion.div>
