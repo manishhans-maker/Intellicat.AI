@@ -136,6 +136,7 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
   isOpen,
   onClose,
   initialTier = 'pro',
+  onVipPurchased,
 }) => {
   const { user, upgradeToTier } = useAuth();
   const [selectedTierId, setSelectedTierId] = useState<string>(initialTier || 'pro');
@@ -166,9 +167,22 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
     }
   }, [initialTier]);
 
-  // Reset step to 'plans' whenever modal opens
+  // Reset step to 'plans' or resume pending status whenever modal opens
   useEffect(() => {
     if (isOpen) {
+      try {
+        const savedRaw = localStorage.getItem('intelicat_last_payment_request');
+        if (savedRaw) {
+          const parsed = JSON.parse(savedRaw);
+          if (parsed?.docId && parsed?.status === 'pending_verification') {
+            setSubmittedDocId(parsed.docId);
+            setSubmittedUtr(parsed.utrNumber || '');
+            setLiveStatus('pending_verification');
+            setCurrentStep('submitted');
+            return;
+          }
+        }
+      } catch {}
       setCurrentStep('plans');
       setUtrError(null);
     }
@@ -191,6 +205,19 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
               targetTier = 'elite';
             }
             upgradeToTier(targetTier);
+            if (onVipPurchased) {
+              onVipPurchased({
+                name: data.name || name,
+                email: data.email || email,
+                tierId: data.tierId,
+                tierName: data.tierName,
+                serialId: data.utrNumber,
+                purchaseDate: data.createdAt,
+                amountPaid: `₹${data.amountInr}`,
+                paymentMethod: 'UPI',
+                isFounder: targetTier === 'founder',
+              });
+            }
           } else if (data.status === 'rejected') {
             setLiveStatus('rejected');
           }
@@ -200,7 +227,7 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
     } catch (e) {
       console.warn('Real-time payment snapshot error:', e);
     }
-  }, [submittedDocId, currentStep, upgradeToTier]);
+  }, [submittedDocId, currentStep, upgradeToTier, onVipPurchased, name, email]);
 
   // Pre-fill user information if signed in
   useEffect(() => {

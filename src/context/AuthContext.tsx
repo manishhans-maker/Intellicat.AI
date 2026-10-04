@@ -112,6 +112,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [authModalMode, setAuthModalMode] = useState<'signin' | 'signup'>('signin');
 
   // Local/Guest fallback quota state (used only when user is NOT logged in)
+  const [guestTier, setGuestTier] = useState<UserPlanTier>(() => {
+    try {
+      const saved = (localStorage.getItem('intelicat_guest_tier') || localStorage.getItem('intelicat_tier')) as UserPlanTier;
+      if (saved === 'founder' || saved === 'elite' || saved === 'pro') {
+        return saved;
+      }
+      return 'free';
+    } catch {
+      return 'free';
+    }
+  });
+
   const [localUsage, setLocalUsage] = useState<{
     count: number;
     cooldownStage: 0 | 1 | 2;
@@ -350,7 +362,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await signOut(auth);
       setUser(null);
       setUserProfile(null);
+      setGuestTier('free');
       try {
+        localStorage.removeItem('intelicat_guest_tier');
         localStorage.removeItem('intelicat_is_founder');
         localStorage.removeItem('intelicat_vip_active');
         localStorage.removeItem('intelicat_vip_tier');
@@ -369,15 +383,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Determine current active plan & permissions
   const isOwner = checkIsOwnerEmail(user?.email);
 
-  // Authenticated user tier is driven by Firestore; unauthenticated guest is 'free'
+  // Authenticated user tier is driven by Firestore; unauthenticated guest uses guestTier
   const tier: UserPlanTier = isOwner
     ? 'owner'
     : user
     ? (userProfile?.tier === 'owner' ? 'free' : (userProfile?.tier || 'free'))
-    : 'free';
+    : (guestTier || 'free');
 
   // Only the verified owner or explicit founder is unlimited
-  const isUnlimited = isOwner || tier === 'owner' || tier === 'founder';
+  const isUnlimited = isOwner || tier === 'owner' || tier === 'founder' || guestTier === 'founder';
 
   const cooldownStage: 0 | 1 | 2 = user ? (userProfile?.cooldownStage ?? 0) : localUsage.cooldownStage;
   const cooldownUntil: string | null = user ? (userProfile?.cooldownUntil ?? null) : localUsage.cooldownUntil;
@@ -519,19 +533,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Non-owners can NEVER upgrade to owner rank
     const safeTier: UserPlanTier = newTier === 'owner' && !isOwner ? 'founder' : newTier;
     const newMax = TIER_BASE_ALLOWANCE[safeTier];
-    setUserProfile((prev) =>
-      prev
-        ? {
-            ...prev,
-            tier: safeTier,
-            maxRequests: newMax,
-            requestCount: 0,
-            cooldownStage: 0,
-            cooldownUntil: null,
-            isRecovery: false,
-          }
-        : null
-    );
+
+    setGuestTier(safeTier);
+    try {
+      localStorage.setItem('intelicat_guest_tier', safeTier);
+      localStorage.setItem('intelicat_tier', safeTier);
+      localStorage.setItem('intelicat_quota_count', '0');
+      localStorage.setItem('intelicat_quota_stage', '0');
+      localStorage.removeItem('intelicat_quota_until');
+      localStorage.setItem('intelicat_quota_recovery', 'false');
+    } catch {}
+
+    setUserProfile((prev) => {
+      const base = prev || {
+        uid: user?.uid || 'guest',
+        email: user?.email || 'guest@intelicat.ai',
+        displayName: user?.displayName || 'Intelicat Explorer',
+        createdAt: new Date().toISOString(),
+      };
+      return {
+        ...base,
+        tier: safeTier,
+        maxRequests: newMax,
+        requestCount: 0,
+        cooldownStage: 0,
+        cooldownUntil: null,
+        isRecovery: false,
+        updatedAt: new Date().toISOString(),
+      };
+    });
 
     setLocalUsage({
       count: 0,
@@ -542,15 +572,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     if (user?.uid) {
       const userRef = doc(db, 'users', user.uid);
-      updateDoc(userRef, {
-        tier: safeTier,
-        maxRequests: newMax,
-        requestCount: 0,
-        cooldownStage: 0,
-        cooldownUntil: null,
-        isRecovery: false,
-        updatedAt: new Date().toISOString(),
-      }).catch((e) => console.warn('Could not update tier in Firestore:', e));
+      setDoc(
+        userRef,
+        {
+          tier: safeTier,
+          maxRequests: newMax,
+          requestCount: 0,
+          cooldownStage: 0,
+          cooldownUntil: null,
+          isRecovery: false,
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      ).catch((e) => console.warn('Could not update tier in Firestore:', e));
     }
   };
 

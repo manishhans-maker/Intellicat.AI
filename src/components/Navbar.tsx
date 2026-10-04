@@ -72,7 +72,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     tier,
   } = useAuth();
 
-  const isFounderActive = Boolean(tier === 'founder');
+  const isFounderActive = Boolean(tier === 'founder' || isFounder || userProfile?.tier === 'founder');
   const isVipActive = Boolean(isVipMember || isFounderActive || tier === 'elite' || tier === 'pro');
 
   // Real-time listener for pending payment approvals (Strictly Platform Owner ONLY - never Founder)

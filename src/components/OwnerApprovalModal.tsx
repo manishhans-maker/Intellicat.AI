@@ -22,6 +22,7 @@ import {
   onSnapshot,
   doc,
   updateDoc,
+  setDoc,
   query,
   orderBy,
 } from 'firebase/firestore';
@@ -213,16 +214,20 @@ export const OwnerApprovalModal: React.FC<OwnerApprovalModalProps> = ({ isOpen, 
       // 2. If the user has a valid UID, update their profile in Firestore directly
       if (req.uid && req.uid !== 'guest') {
         const userRef = doc(db, 'users', req.uid);
-        await updateDoc(userRef, {
-          tier: targetTier,
-          maxRequests: TIER_BASE_ALLOWANCE[targetTier],
-          requestCount: 0,
-          cooldownStage: 0,
-          cooldownUntil: null,
-          isRecovery: false,
-          updatedAt: now,
-        }).catch((err) => {
-          console.warn('Could not update user doc directly (user might not have doc yet):', err);
+        await setDoc(
+          userRef,
+          {
+            tier: targetTier,
+            maxRequests: TIER_BASE_ALLOWANCE[targetTier],
+            requestCount: 0,
+            cooldownStage: 0,
+            cooldownUntil: null,
+            isRecovery: false,
+            updatedAt: now,
+          },
+          { merge: true }
+        ).catch((err) => {
+          console.warn('Could not update user doc directly:', err);
         });
       }
 

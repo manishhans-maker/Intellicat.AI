@@ -72,10 +72,10 @@ export default function App() {
   // Robot video visibility mode: 'balanced' | 'vivid' | 'cinema'
   const [robotMode, setRobotMode] = useState<'balanced' | 'vivid' | 'cinema'>('vivid');
   
-  const { user, upgradeToTier, upgradeToVip, isOwner, tier } = useAuth();
+  const { user, userProfile, upgradeToTier, upgradeToVip, isOwner, tier } = useAuth();
 
-  const isFounder = Boolean(tier === 'founder');
-  const isVipMember = Boolean(isFounder || tier === 'elite' || tier === 'pro');
+  const isFounder = Boolean(tier === 'founder' || userProfile?.tier === 'founder');
+  const isVipMember = Boolean(isOwner || isFounder || tier === 'elite' || tier === 'pro');
 
   // Dynamic SEO metadata synchronization across sections
   useEffect(() => {
