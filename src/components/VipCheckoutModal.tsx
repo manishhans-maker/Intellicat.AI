@@ -18,6 +18,7 @@ import {
   Lock,
   Sparkles,
   RefreshCw,
+  Eye,
 } from 'lucide-react';
 import QRCode from 'qrcode';
 import { collection, addDoc, doc, onSnapshot } from 'firebase/firestore';
@@ -138,7 +139,7 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
   initialTier = 'pro',
   onVipPurchased,
 }) => {
-  const { user, upgradeToTier } = useAuth();
+  const { user, upgradeToTier, tier, isOwner } = useAuth();
   const [selectedTierId, setSelectedTierId] = useState<string>(initialTier || 'pro');
 
   // Multi-step navigation: 'plans' -> 'upi_payment' -> 'submitted'
@@ -161,32 +162,36 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
   const [submittedDocId, setSubmittedDocId] = useState<string | null>(null);
   const [liveStatus, setLiveStatus] = useState<'pending_verification' | 'approved' | 'rejected'>('pending_verification');
 
+  // Sync selected tier from props
   useEffect(() => {
     if (initialTier) {
       setSelectedTierId(initialTier);
     }
   }, [initialTier]);
 
-  // Reset step to 'plans' or resume pending status whenever modal opens
+  // Whenever modal opens, ALWAYS start on 'plans' so the user can always see & browse all VIP passes!
   useEffect(() => {
     if (isOpen) {
+      setCurrentStep('plans');
+      setUtrError(null);
+      if (initialTier) {
+        setSelectedTierId(initialTier);
+      }
       try {
         const savedRaw = localStorage.getItem('intelicat_last_payment_request');
         if (savedRaw) {
           const parsed = JSON.parse(savedRaw);
-          if (parsed?.docId && parsed?.status === 'pending_verification') {
+          if (parsed?.docId) {
             setSubmittedDocId(parsed.docId);
             setSubmittedUtr(parsed.utrNumber || '');
-            setLiveStatus('pending_verification');
-            setCurrentStep('submitted');
-            return;
+            if (parsed.status) {
+              setLiveStatus(parsed.status);
+            }
           }
         }
       } catch {}
-      setCurrentStep('plans');
-      setUtrError(null);
     }
-  }, [isOpen]);
+  }, [isOpen, initialTier]);
 
   // Real-time listener for live instant activation by Owner (like ChatGPT)
   useEffect(() => {
@@ -198,6 +203,17 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
           const data = docSnap.data();
           if (data.status === 'approved') {
             setLiveStatus('approved');
+            try {
+              const savedRaw = localStorage.getItem('intelicat_last_payment_request');
+              if (savedRaw) {
+                const parsed = JSON.parse(savedRaw);
+                localStorage.setItem(
+                  'intelicat_last_payment_request',
+                  JSON.stringify({ ...parsed, status: 'approved' })
+                );
+              }
+            } catch {}
+
             let targetTier: UserPlanTier = 'pro';
             if (data.tierId === 'founder_billion' || data.tierName?.toLowerCase().includes('founder')) {
               targetTier = 'founder';
@@ -403,10 +419,68 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
               </p>
             </div>
 
+            {/* Current Active Plan Status Banner (Always visible if user has an active tier or is owner) */}
+            {(tier !== 'free' || isOwner) && (
+              <div className="mb-5 p-3.5 sm:p-4 rounded-2xl bg-gradient-to-r from-emerald-950/40 via-[#101015] to-emerald-950/40 border border-emerald-500/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-lg">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center border border-emerald-500/30 shrink-0 shadow-[0_0_15px_rgba(16,185,129,0.3)]">
+                    <Crown className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="font-bold text-white flex items-center gap-2">
+                      <span>Your Active Rank:</span>
+                      <span className="text-emerald-400 font-black uppercase tracking-wider">
+                        {isOwner ? '👑 PLATFORM OWNER' : tier === 'founder' ? '👑 FOUNDER GOD-TIER' : tier === 'elite' ? '👑 ELITE MEMBER' : '⚡ PRO MEMBER'}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-neutral-400">
+                      Unlimited & priority perks are currently active on your account. You can review all tier details or switch below anytime.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 self-start sm:self-auto">
+                  {submittedDocId && (
+                    <button
+                      type="button"
+                      onClick={() => setCurrentStep('submitted')}
+                      className="px-3 py-1 rounded-full bg-white/10 hover:bg-white/20 text-neutral-200 text-[11px] font-semibold transition-colors cursor-pointer border border-white/15"
+                    >
+                      View Receipt
+                    </button>
+                  )}
+                  <span className="px-3 py-1 rounded-full bg-emerald-500 text-black font-black text-[10px] uppercase tracking-wider shrink-0 shadow-sm">
+                    ACTIVE NOW
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Pending Verification Notice Banner (If a payment was submitted and awaiting owner review) */}
+            {submittedDocId && liveStatus === 'pending_verification' && (
+              <div className="mb-5 p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-between text-xs text-amber-300">
+                <div className="flex items-center gap-2">
+                  <Clock className="w-4 h-4 animate-spin text-amber-400" />
+                  <span>Payment verification in progress for UTR <strong className="font-mono text-white">{submittedUtr || 'Reference'}</strong>.</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setCurrentStep('submitted')}
+                  className="px-3 py-1 rounded-lg bg-amber-400/20 hover:bg-amber-400/30 text-amber-300 font-bold text-[11px] transition-colors cursor-pointer"
+                >
+                  View Status Screen →
+                </button>
+              </div>
+            )}
+
             {/* Plan Selector Cards */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 mb-6">
               {TIERS.map((t) => {
                 const isSelected = selectedTierId === t.id;
+                const isCurrentTier =
+                  (t.isFounder && (tier === 'founder' || isOwner)) ||
+                  (t.id === 'elite' && tier === 'elite') ||
+                  (t.id === 'pro' && tier === 'pro');
+
                 return (
                   <div
                     key={t.id}
@@ -421,7 +495,11 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
                         : 'bg-[#14141a] border-white/10 hover:border-white/20'
                     }`}
                   >
-                    {t.badge && (
+                    {isCurrentTier ? (
+                      <span className="absolute -top-2.5 right-3 px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider shadow-sm bg-emerald-500 text-black flex items-center gap-1">
+                        <Check className="w-3 h-3 stroke-[3]" /> CURRENT PLAN
+                      </span>
+                    ) : t.badge ? (
                       <span
                         className={`absolute -top-2.5 right-3 px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider shadow-sm ${
                           t.isFounder
@@ -433,7 +511,7 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
                       >
                         {t.badge}
                       </span>
-                    )}
+                    ) : null}
 
                     <div>
                       <h3 className={`font-bold text-sm ${t.isFounder ? 'text-amber-300' : 'text-white'}`}>
@@ -783,8 +861,20 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="py-6 text-center max-w-xl mx-auto space-y-6"
+            className="py-4 text-center max-w-xl mx-auto space-y-5"
           >
+            {/* Top Back to Plans Button */}
+            <div className="flex items-center justify-start mb-1">
+              <button
+                type="button"
+                onClick={() => setCurrentStep('plans')}
+                className="px-3.5 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border border-white/15 hover:scale-105 active:scale-95"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                <span>Browse All Plans</span>
+              </button>
+            </div>
+
             {liveStatus === 'approved' ? (
               /* INSTANT APPROVAL CELEBRATION (Like ChatGPT) */
               <div className="space-y-6">
@@ -825,13 +915,29 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
                   </div>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="w-full py-4 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-black text-sm font-black transition-all cursor-pointer shadow-[0_0_30px_rgba(16,185,129,0.4)] hover:scale-[1.02] active:scale-95"
-                >
-                  🚀 Launch IntelicatAI with {activeTier.name}
-                </button>
+                <div className="space-y-2.5 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      try {
+                        localStorage.removeItem('intelicat_last_payment_request');
+                      } catch {}
+                      onClose();
+                    }}
+                    className="w-full py-4 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-black text-sm font-black transition-all cursor-pointer shadow-[0_0_30px_rgba(16,185,129,0.4)] hover:scale-[1.02] active:scale-95"
+                  >
+                    🚀 Launch IntelicatAI with {activeTier.name}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setCurrentStep('plans')}
+                    className="w-full py-3 rounded-2xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-2 border border-white/15"
+                  >
+                    <Eye className="w-4 h-4 text-amber-400" />
+                    <span>Browse & View All VIP Plans</span>
+                  </button>
+                </div>
               </div>
             ) : liveStatus === 'rejected' ? (
               /* REJECTED STATE */
@@ -928,6 +1034,15 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
 
                 {/* Action Buttons */}
                 <div className="flex flex-wrap items-center justify-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setCurrentStep('plans')}
+                    className="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-semibold flex items-center gap-2 transition-all cursor-pointer border border-white/15"
+                  >
+                    <Eye className="w-4 h-4 text-amber-400" />
+                    <span>Browse All Plans</span>
+                  </button>
+
                   <button
                     type="button"
                     onClick={handleCopyReference}
