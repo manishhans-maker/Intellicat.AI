@@ -138,6 +138,7 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
   onClose,
   initialTier = 'pro',
   onVipPurchased,
+  onOpenAiAssistant,
 }) => {
   const { user, upgradeToTier, tier, isOwner } = useAuth();
   const [selectedTierId, setSelectedTierId] = useState<string>(initialTier || 'pro');
@@ -389,6 +390,44 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
         >
           <X className="w-5 h-5" />
         </button>
+
+        {/* Top Header Mode Tabs Bar: Always lets user toggle between viewing all VIP passes and viewing active receipt/status */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6 pb-3 border-b border-white/10">
+          <div className="flex items-center gap-1.5 p-1 rounded-2xl bg-black/60 border border-white/15 backdrop-blur-md">
+            <button
+              type="button"
+              onClick={() => setCurrentStep('plans')}
+              className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer ${
+                currentStep === 'plans'
+                  ? 'bg-gradient-to-r from-amber-400 to-yellow-500 text-black shadow-lg shadow-amber-500/20'
+                  : 'text-neutral-400 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <Crown className="w-3.5 h-3.5" />
+              <span>Browse All VIP Passes</span>
+            </button>
+
+            {(submittedDocId || tier !== 'free' || isOwner) && (
+              <button
+                type="button"
+                onClick={() => setCurrentStep('submitted')}
+                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+                  currentStep === 'submitted'
+                    ? 'bg-emerald-500 text-black shadow-lg shadow-emerald-500/20'
+                    : 'text-neutral-400 hover:text-white hover:bg-white/5'
+                }`}
+              >
+                <Check className="w-3.5 h-3.5 stroke-[3]" />
+                <span>My Active Pass & Receipt</span>
+              </button>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 text-xs text-neutral-400 font-mono">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span>Instant VIP Access & UPI Clearance</span>
+          </div>
+        </div>
 
         {/* STEP 1: MAIN PLANS SCREEN (QR Code completely hidden here) */}
         {currentStep === 'plans' && (
@@ -915,28 +954,75 @@ export const VipCheckoutModal: React.FC<VipCheckoutModalProps> = ({
                   </div>
                 </div>
 
-                <div className="space-y-2.5 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      try {
-                        localStorage.removeItem('intelicat_last_payment_request');
-                      } catch {}
-                      onClose();
-                    }}
-                    className="w-full py-4 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-black text-sm font-black transition-all cursor-pointer shadow-[0_0_30px_rgba(16,185,129,0.4)] hover:scale-[1.02] active:scale-95"
-                  >
-                    🚀 Launch IntelicatAI with {activeTier.name}
-                  </button>
+                <div className="space-y-4 pt-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setCurrentStep('plans')}
+                      className="w-full py-4 rounded-2xl bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 hover:from-amber-300 hover:to-yellow-300 text-black text-sm font-black transition-all cursor-pointer shadow-xl shadow-amber-500/25 flex items-center justify-center gap-2 hover:scale-[1.02] active:scale-95"
+                    >
+                      <Eye className="w-4 h-4 text-black" />
+                      <span>View & Compare All VIP Passes</span>
+                    </button>
 
-                  <button
-                    type="button"
-                    onClick={() => setCurrentStep('plans')}
-                    className="w-full py-3 rounded-2xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-2 border border-white/15"
-                  >
-                    <Eye className="w-4 h-4 text-amber-400" />
-                    <span>Browse & View All VIP Plans</span>
-                  </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onClose();
+                        onOpenAiAssistant?.();
+                      }}
+                      className="w-full py-4 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-black text-sm font-black transition-all cursor-pointer shadow-[0_0_30px_rgba(16,185,129,0.4)] flex items-center justify-center gap-2 hover:scale-[1.02] active:scale-95"
+                    >
+                      <Sparkles className="w-4 h-4" />
+                      <span>Open IntelicatAI Chat</span>
+                    </button>
+                  </div>
+
+                  {/* All 3 Passes Quick Preview Cards Grid - User can immediately see all VIP tiers right here! */}
+                  <div className="pt-4 border-t border-white/10 text-left">
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-xs font-bold text-neutral-300 uppercase tracking-wider flex items-center gap-1.5">
+                        <Crown className="w-3.5 h-3.5 text-amber-400" />
+                        <span>All Available Intelligence Passes</span>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setCurrentStep('plans')}
+                        className="text-xs text-amber-400 hover:underline font-semibold cursor-pointer"
+                      >
+                        Full Details →
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                      {TIERS.map((t) => {
+                        const isThisActive = (t.isFounder && (tier === 'founder' || isOwner)) || (t.id === 'elite' && tier === 'elite') || (t.id === 'pro' && tier === 'pro');
+                        return (
+                          <div
+                            key={t.id}
+                            onClick={() => {
+                              setSelectedTierId(t.id);
+                              setCurrentStep('plans');
+                            }}
+                            className={`p-3 rounded-xl border text-xs cursor-pointer transition-all hover:scale-[1.02] ${
+                              isThisActive
+                                ? 'bg-emerald-950/40 border-emerald-500/50 text-white'
+                                : 'bg-black/50 border-white/10 text-neutral-300 hover:border-amber-400/40'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between font-bold mb-1">
+                              <span>{t.name}</span>
+                              {isThisActive && (
+                                <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500 text-black font-black uppercase">Active</span>
+                              )}
+                            </div>
+                            <div className="text-amber-400 font-bold font-mono">{t.displayInr}</div>
+                            <div className="text-[10px] text-neutral-400 line-clamp-1 mt-1">{t.description}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
                 </div>
               </div>
             ) : liveStatus === 'rejected' ? (

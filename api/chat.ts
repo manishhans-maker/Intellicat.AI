@@ -250,19 +250,29 @@ function formatGeminiContents(messages: ValidatedMessage[]): any[] {
 
     if (m.attachments && m.attachments.length > 0) {
       for (const att of m.attachments) {
-        if (att.type.startsWith("image/")) {
-          const base64Data = att.data.includes(";base64,")
-            ? att.data.split(";base64,")[1]
-            : att.data.includes("base64,")
-            ? att.data.split("base64,")[1]
-            : att.data;
+        const isPdf = att.type === "application/pdf" || att.name.toLowerCase().endsWith(".pdf");
+        const isImage = att.type.startsWith("image/");
+
+        if (isImage || isPdf) {
+          const mimeType = isImage ? (att.type || "image/jpeg") : "application/pdf";
+          const rawData = att.data || "";
+          const base64Data = rawData.includes(";base64,")
+            ? rawData.split(";base64,")[1]
+            : rawData.includes("base64,")
+            ? rawData.split("base64,")[1]
+            : rawData;
           const cleanBase64 = base64Data.trim();
-          if (cleanBase64) {
+          if (cleanBase64 && cleanBase64.length > 20) {
             parts.push({
               inlineData: {
-                mimeType: att.type,
+                mimeType,
                 data: cleanBase64,
               },
+            });
+          }
+          if (att.extractedText && att.extractedText.trim().length > 10) {
+            parts.push({
+              text: `\n[Reference text extracted from ${att.name}]:\n${att.extractedText.slice(0, 4000)}\n`,
             });
           }
         } else {
@@ -631,13 +641,23 @@ export default async function handler(req: any, res: any) {
     const hasGroqKey = effectiveGroqKey.length > 0;
     const hasGeminiKey = Boolean(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim() !== "");
 
-    const hasImageAttachments = messages.some(
-      (m: any) => m.attachments && m.attachments.some((a: any) => a.type?.startsWith("image/"))
+    const hasMediaAttachments = messages.some(
+      (m: any) =>
+        m.attachments &&
+        m.attachments.some(
+          (a: any) =>
+            a.type?.startsWith("image/") ||
+            a.type === "application/pdf" ||
+            a.name?.toLowerCase().endsWith(".pdf")
+        )
     );
+    const hasImageAttachments = hasMediaAttachments;
 
     // Provider routing logic with explicit model matching
     let activeProvider = requestedProvider;
-    if (requestedModel) {
+    if (hasMediaAttachments) {
+      activeProvider = "gemini";
+    } else if (requestedModel) {
       if (requestedModel.startsWith("gemini-")) {
         activeProvider = "gemini";
       } else if (
@@ -650,8 +670,8 @@ export default async function handler(req: any, res: any) {
     }
 
     if (activeProvider === "auto") {
-      // If user is in fast mode or groq is available and no images, prefer Groq to save Gemini quota!
-      if (hasImageAttachments) {
+      // If user is in fast mode or groq is available and no media, prefer Groq to save Gemini quota!
+      if (hasMediaAttachments) {
         activeProvider = "gemini";
       } else if (mode === "fast" && hasGroqKey) {
         activeProvider = "groq";
@@ -660,7 +680,7 @@ export default async function handler(req: any, res: any) {
       } else {
         activeProvider = "gemini";
       }
-    } else if (hasImageAttachments && activeProvider === "groq") {
+    } else if (hasMediaAttachments && activeProvider === "groq") {
       activeProvider = "gemini";
     }
 

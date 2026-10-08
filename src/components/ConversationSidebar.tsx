@@ -13,6 +13,8 @@ import {
   Check,
   Zap,
   Sparkles,
+  Camera,
+  FileText,
 } from 'lucide-react';
 import { Conversation, ChatMode } from '../types';
 
@@ -93,7 +95,15 @@ export const ConversationSidebar: React.FC<ConversationSidebarProps> = ({
         }}
       >
         <div className="flex items-center gap-2.5 min-w-0 flex-1 pr-2">
-          {c.mode === 'cat-code' ? (
+          {c.lastMessagePreview?.includes('📷') || c.lastMessagePreview?.toLowerCase().includes('photo') ? (
+            <div className="w-6 h-6 rounded-lg bg-blue-500/20 text-blue-400 flex items-center justify-center shrink-0 border border-blue-500/30" title="Photo Analysis">
+              <Camera className="w-3.5 h-3.5" />
+            </div>
+          ) : c.lastMessagePreview?.includes('📄') || c.lastMessagePreview?.toLowerCase().includes('pdf') ? (
+            <div className="w-6 h-6 rounded-lg bg-red-600/20 text-red-400 flex items-center justify-center shrink-0 border border-red-500/30" title="PDF Analysis">
+              <FileText className="w-3.5 h-3.5" />
+            </div>
+          ) : c.mode === 'cat-code' ? (
             <div className="w-6 h-6 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0 border border-amber-500/30">
               <Cat className="w-3.5 h-3.5" />
             </div>

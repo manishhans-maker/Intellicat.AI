@@ -65,7 +65,10 @@ service cloud.firestore {
         data.createdAt is string && data.createdAt.size() <= 64 &&
         (!('timestamp' in data) || (data.timestamp is string && data.timestamp.size() <= 64)) &&
         (!('mode' in data) || (data.mode is string && data.mode.size() <= 32)) &&
-        (!('provider' in data) || (data.provider is string && data.provider.size() <= 32));
+        (!('provider' in data) || (data.provider is string && data.provider.size() <= 32)) &&
+        (!('model' in data) || (data.model is string && data.model.size() <= 64)) &&
+        (!('attachments' in data) || data.attachments is list) &&
+        (!('citations' in data) || data.citations is list);
     }
 
     function isValidMemory(data, userId) {

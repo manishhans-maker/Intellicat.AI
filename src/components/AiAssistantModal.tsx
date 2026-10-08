@@ -43,6 +43,7 @@ import {
   Minimize2,
   Lock,
   Clock,
+  Camera,
 } from 'lucide-react';
 import { RobotBackground } from './RobotBackground';
 import { INTELLICAT_LOGO_URL } from '../constants';
@@ -211,8 +212,12 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
 
   // File Upload State
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
+  const [previewPhoto, setPreviewPhoto] = useState<{ url: string; name: string } | null>(null);
+  const [previewPdf, setPreviewPdf] = useState<{ name: string; size?: number; text?: string; data?: string } | null>(null);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const photoInputRef = useRef<HTMLInputElement>(null);
+  const pdfInputRef = useRef<HTMLInputElement>(null);
 
   // Streaming & Telemetry
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -485,16 +490,22 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
 
       try {
         const extracted = await extractTextFromFile(file);
+        const fileName = file.name.toLowerCase();
+        const isPdf = file.type === 'application/pdf' || fileName.endsWith('.pdf') || Boolean(extracted.isPdf);
+        const isImg = file.type.startsWith('image/') || /\.(png|jpe?g|webp|gif|svg|bmp)$/i.test(fileName) || Boolean(extracted.isImage);
+
         const newAttachment: ChatAttachment = {
           id: `att-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
           name: file.name,
-          type: file.type || (extracted.isImage ? 'image/png' : 'text/plain'),
+          type: isPdf ? 'application/pdf' : isImg ? (file.type || 'image/jpeg') : (file.type || 'text/plain'),
           size: file.size,
           data: extracted.base64 || extracted.text,
+          extractedText: extracted.extractedText || extracted.text,
         };
 
         setAttachments((prev) => [...prev, newAttachment]);
-        if (extracted.isImage) {
+        if (isImg || isPdf) {
+          // Gemini is our flagship engine for multimodal photo and PDF document intelligence
           setProvider('gemini');
         }
       } catch (err) {
@@ -926,11 +937,13 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
         role: m.role,
         content: m.content,
         attachments: m.attachments?.map((a) => {
-          const isImg = a.type.startsWith('image/');
+          const isImg = a.type?.startsWith('image/') || /\.(png|jpe?g|webp|gif|svg|bmp)$/i.test(a.name);
+          const isPdf = a.type === 'application/pdf' || a.name.toLowerCase().endsWith('.pdf');
           return {
             name: a.name,
-            type: a.type,
-            data: isImg ? a.data : extractRelevantChunks(a.data, text, 2500),
+            type: isPdf ? 'application/pdf' : isImg ? (a.type || 'image/jpeg') : a.type,
+            data: (isImg || isPdf) ? a.data : extractRelevantChunks(a.data, text, 2500),
+            extractedText: a.extractedText,
           };
         }),
       }));
@@ -1169,7 +1182,23 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
           <RobotBackground />
         </div>
 
-        {/* Hidden File Input */}
+        {/* Dedicated Hidden File Inputs for Photos, PDFs, and generic files */}
+        <input
+          type="file"
+          ref={photoInputRef}
+          onChange={(e) => handleFileUpload(e.target.files)}
+          multiple
+          accept="image/*"
+          className="hidden"
+        />
+        <input
+          type="file"
+          ref={pdfInputRef}
+          onChange={(e) => handleFileUpload(e.target.files)}
+          multiple
+          accept="application/pdf,.pdf"
+          className="hidden"
+        />
         <input
           type="file"
           ref={fileInputRef}
@@ -1857,25 +1886,84 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                       {/* Attachments preview if user uploaded files */}
                       {isUser && msg.attachments && msg.attachments.length > 0 && (
                         <div className="flex flex-wrap gap-2 mb-2 justify-end">
-                          {msg.attachments.map((att) => (
-                            <div
-                              key={att.id}
-                              className="rounded-xl overflow-hidden border border-white/15 bg-black/40 p-1 max-w-[200px]"
-                            >
-                              {att.type.startsWith('image/') ? (
-                                <img
-                                  src={att.data}
-                                  alt={att.name}
-                                  className="w-36 h-28 object-cover rounded-lg"
-                                />
-                              ) : (
-                                <div className="flex items-center gap-2 p-2 text-xs text-neutral-200">
-                                  <FileText className="w-4 h-4 text-[#EF233C]" />
-                                  <span className="truncate">{att.name}</span>
-                                </div>
-                              )}
-                            </div>
-                          ))}
+                          {msg.attachments.map((att) => {
+                            const isImg = att.type?.startsWith('image/') || /\.(png|jpe?g|webp|gif|svg|bmp)$/i.test(att.name);
+                            const isPdf = att.type === 'application/pdf' || att.name?.toLowerCase().endsWith('.pdf');
+                            const imgSrc = att.data?.startsWith('data:') || att.data?.startsWith('http')
+                              ? att.data
+                              : att.data
+                              ? `data:${att.type || 'image/jpeg'};base64,${att.data}`
+                              : null;
+
+                            return (
+                              <div
+                                key={att.id}
+                                className="rounded-xl overflow-hidden border border-white/15 bg-black/60 p-1.5 transition-all shadow-md hover:border-white/30"
+                              >
+                                {isImg && imgSrc ? (
+                                  <div
+                                    onClick={() => setPreviewPhoto({ url: imgSrc, name: att.name })}
+                                    className="relative group cursor-pointer"
+                                    title="Click to enlarge and inspect photo"
+                                  >
+                                    <img
+                                      src={imgSrc}
+                                      alt={att.name}
+                                      className="w-40 h-28 object-cover rounded-lg group-hover:scale-105 transition-transform"
+                                    />
+                                    <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center rounded-lg transition-opacity text-white text-[11px] font-bold gap-1">
+                                      <Maximize2 className="w-3.5 h-3.5" />
+                                      <span>Enlarge & Zoom</span>
+                                    </div>
+                                    <div className="text-[10px] text-neutral-300 truncate max-w-[150px] px-1 pt-1 font-mono">
+                                      {att.name}
+                                    </div>
+                                  </div>
+                                ) : isPdf ? (
+                                  <div
+                                    onClick={() => setPreviewPdf({
+                                      name: att.name,
+                                      size: att.size,
+                                      text: att.extractedText,
+                                      data: att.data,
+                                    })}
+                                    className="flex flex-col gap-1.5 p-2.5 min-w-[190px] max-w-[260px] text-left cursor-pointer hover:bg-white/5 transition-all group"
+                                    title="Click to inspect PDF document content & summary"
+                                  >
+                                    <div className="flex items-center gap-2">
+                                      <div className="w-9 h-9 rounded-xl bg-red-600/20 border border-red-500/40 text-red-400 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform shadow-md">
+                                        <FileText className="w-4 h-4" />
+                                      </div>
+                                      <div className="min-w-0 flex-1">
+                                        <div className="text-xs font-bold text-white truncate group-hover:text-red-300 transition-colors" title={att.name}>
+                                          {att.name}
+                                        </div>
+                                        <span className="text-[10px] text-red-300 font-mono">
+                                          PDF Document {att.size ? `• ${(att.size / 1024).toFixed(0)} KB` : ''}
+                                        </span>
+                                      </div>
+                                    </div>
+                                    <div className="flex items-center justify-between text-[10px] text-neutral-400 pt-1 border-t border-white/10">
+                                      <span className="text-emerald-400 font-medium">✓ Gemini Verified</span>
+                                      <span className="text-neutral-300 group-hover:underline flex items-center gap-0.5">
+                                        View Content →
+                                      </span>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center gap-2 p-2 text-xs text-neutral-200 min-w-[140px] text-left">
+                                    <FileText className="w-4 h-4 text-[#EF233C]" />
+                                    <div className="min-w-0 flex-1">
+                                      <div className="truncate text-xs font-semibold">{att.name}</div>
+                                      {att.size && (
+                                        <span className="text-[10px] text-neutral-400">{(att.size / 1024).toFixed(0)} KB</span>
+                                      )}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
                         </div>
                       )}
 
@@ -2035,27 +2123,52 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
               <div className="max-w-5xl 2xl:max-w-6xl mx-auto space-y-1.5">
                 {/* Active Attachments Preview Bar */}
                 {attachments.length > 0 && (
-                  <div className="flex flex-wrap gap-2 p-2 bg-white/5 rounded-xl border border-white/10">
-                    {attachments.map((att) => (
-                      <div
-                        key={att.id}
-                        className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-black/60 border border-white/15 text-xs text-neutral-200"
-                      >
-                        {att.type.startsWith('image/') ? (
-                          <ImageIcon className="w-3.5 h-3.5 text-amber-400" />
-                        ) : (
-                          <FileText className="w-3.5 h-3.5 text-[#EF233C]" />
-                        )}
-                        <span className="truncate max-w-[120px] font-mono text-[11px]">{att.name}</span>
-                        <button
-                          onClick={() => removeAttachment(att.id)}
-                          type="button"
-                          className="text-neutral-400 hover:text-red-400 cursor-pointer p-0.5"
+                  <div className="flex flex-wrap items-center gap-2 p-2 bg-neutral-900/90 rounded-xl border border-white/15 backdrop-blur-md">
+                    {attachments.map((att) => {
+                      const isImg = att.type?.startsWith('image/') || /\.(png|jpe?g|webp|gif|svg|bmp)$/i.test(att.name);
+                      const isPdf = att.type === 'application/pdf' || att.name?.toLowerCase().endsWith('.pdf');
+                      const imgSrc = att.data?.startsWith('data:image') ? att.data : null;
+
+                      return (
+                        <div
+                          key={att.id}
+                          className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-black/80 border border-white/20 text-xs text-neutral-200 shadow-sm"
                         >
-                          <X className="w-3 h-3" />
-                        </button>
-                      </div>
-                    ))}
+                          {isImg ? (
+                            <div className="flex items-center gap-1.5">
+                              {imgSrc ? (
+                                <img src={imgSrc} alt="" className="w-5 h-5 rounded object-cover" />
+                              ) : (
+                                <Camera className="w-3.5 h-3.5 text-amber-400" />
+                              )}
+                              <span className="text-[10px] text-amber-300 font-mono">Photo</span>
+                            </div>
+                          ) : isPdf ? (
+                            <div className="flex items-center gap-1.5">
+                              <FileText className="w-3.5 h-3.5 text-[#EF233C]" />
+                              <span className="text-[10px] text-red-300 font-mono">PDF</span>
+                            </div>
+                          ) : (
+                            <FileText className="w-3.5 h-3.5 text-neutral-400" />
+                          )}
+                          <span className="truncate max-w-[130px] font-mono text-[11px] font-medium">{att.name}</span>
+                          <span className="text-[9px] text-neutral-400">
+                            {att.size ? `${(att.size / 1024).toFixed(0)}KB` : ''}
+                          </span>
+                          <button
+                            onClick={() => removeAttachment(att.id)}
+                            type="button"
+                            className="text-neutral-400 hover:text-red-400 cursor-pointer p-0.5 rounded hover:bg-white/10"
+                            title="Remove attachment"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                    <span className="text-[10px] text-emerald-400 font-medium ml-1 hidden sm:inline">
+                      ✓ Gemini Vision & PDF Analysis Active
+                    </span>
                   </div>
                 )}
 
@@ -2161,16 +2274,40 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                   {/* Action Controls & Send Toolbar (neatly positioned below textarea so input has maximum width) */}
                   <div className="flex items-center justify-between pt-2 border-t border-white/10 mt-1 gap-2">
                     <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-wrap">
+                      {/* Photo Upload & Vision Analysis Button */}
+                      <button
+                        onClick={() => photoInputRef.current?.click()}
+                        type="button"
+                        disabled={loading || (cooldownRemainingSeconds > 0 && !isUnlimitedAccount)}
+                        className="h-8 sm:h-9 px-2 sm:px-2.5 rounded-lg flex items-center gap-1.5 text-neutral-300 hover:text-amber-400 hover:bg-white/10 transition-colors cursor-pointer shrink-0 disabled:opacity-40 text-xs font-semibold border border-transparent hover:border-amber-500/30"
+                        title="Upload photo / diagram to inspect with Gemini Multimodal Vision"
+                      >
+                        <Camera className="w-3.5 h-3.5 text-amber-400" />
+                        <span className="text-[11px]">Photo</span>
+                      </button>
+
+                      {/* PDF Document Analysis Button */}
+                      <button
+                        onClick={() => pdfInputRef.current?.click()}
+                        type="button"
+                        disabled={loading || (cooldownRemainingSeconds > 0 && !isUnlimitedAccount)}
+                        className="h-8 sm:h-9 px-2 sm:px-2.5 rounded-lg flex items-center gap-1.5 text-neutral-300 hover:text-red-400 hover:bg-white/10 transition-colors cursor-pointer shrink-0 disabled:opacity-40 text-xs font-semibold border border-transparent hover:border-red-500/30"
+                        title="Upload PDF document to analyze with Gemini"
+                      >
+                        <FileText className="w-3.5 h-3.5 text-[#EF233C]" />
+                        <span className="text-[11px]">PDF</span>
+                      </button>
+
                       {/* Attach File Button */}
                       <button
                         onClick={() => fileInputRef.current?.click()}
                         type="button"
                         disabled={loading || (cooldownRemainingSeconds > 0 && !isUnlimitedAccount)}
                         className="h-8 sm:h-9 px-2 sm:px-2.5 rounded-lg flex items-center gap-1.5 text-neutral-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer shrink-0 disabled:opacity-40 text-xs font-medium"
-                        title="Upload image or code/text file"
+                        title="Upload code, markdown, or text files"
                       >
                         <Paperclip className="w-4 h-4 text-neutral-400" />
-                        <span className="hidden xs:inline text-[11px]">Attach</span>
+                        <span className="hidden xs:inline text-[11px]">Files</span>
                       </button>
 
                       {/* Web Search Toggle Button */}
@@ -2306,6 +2443,186 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
         </div>
       </div>
     </motion.div>
+
+        {/* Fullscreen Photo Lightbox Modal */}
+        {previewPhoto && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/95 backdrop-blur-xl animate-in fade-in"
+            onClick={() => setPreviewPhoto(null)}
+          >
+            <div
+              className="relative max-w-4xl w-full max-h-[90vh] bg-[#0d0d12] border border-white/20 rounded-2xl sm:rounded-3xl p-3 sm:p-5 flex flex-col items-center shadow-2xl overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="w-full flex items-center justify-between pb-3 mb-3 border-b border-white/10 gap-3">
+                <div className="flex items-center gap-2 min-w-0">
+                  <div className="p-1.5 rounded-lg bg-amber-500/20 text-amber-400">
+                    <Camera className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <h4 className="text-xs sm:text-sm font-bold text-white truncate">{previewPhoto.name}</h4>
+                    <span className="text-[10px] text-emerald-400 font-mono">✓ Gemini Multimodal Vision Verified</span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <a
+                    href={previewPhoto.url}
+                    download={previewPhoto.name}
+                    className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-neutral-200 transition-colors"
+                    title="Download Photo"
+                  >
+                    <Download className="w-4 h-4" />
+                  </a>
+                  <button
+                    onClick={() => setPreviewPhoto(null)}
+                    type="button"
+                    className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-neutral-200 hover:text-white transition-colors cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Image Canvas */}
+              <div className="flex-1 w-full flex items-center justify-center overflow-auto max-h-[65vh] rounded-xl bg-black/80 p-2">
+                <img
+                  src={previewPhoto.url}
+                  alt={previewPhoto.name}
+                  className="max-h-[60vh] max-w-full object-contain rounded-lg shadow-xl"
+                />
+              </div>
+
+              {/* Action Bar */}
+              <div className="w-full pt-3 mt-3 border-t border-white/10 flex flex-wrap items-center justify-between gap-2">
+                <span className="text-[11px] text-neutral-400">
+                  Analyzed by Gemini multimodal vision engine
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setInput(`Explain and analyze everything in detail from the photo "${previewPhoto.name}": `);
+                    setPreviewPhoto(null);
+                    textareaRef.current?.focus();
+                  }}
+                  className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-400 to-[#EF233C] text-black text-xs font-bold shadow-md hover:scale-105 active:scale-95 transition-all cursor-pointer flex items-center gap-1.5"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Ask AI to Deeply Analyze Photo</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Fullscreen PDF Document Inspector Modal */}
+        {previewPdf && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/95 backdrop-blur-xl animate-in fade-in"
+            onClick={() => setPreviewPdf(null)}
+          >
+            <div
+              className="relative w-full max-w-3xl max-h-[90vh] bg-[#0d0d12] border border-red-500/30 rounded-2xl sm:rounded-3xl p-4 sm:p-6 flex flex-col shadow-2xl overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="w-full flex items-center justify-between pb-3 mb-3 border-b border-white/10 gap-3">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-9 h-9 rounded-xl bg-red-600/20 border border-red-500/40 text-red-400 flex items-center justify-center shrink-0">
+                    <FileText className="w-5 h-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <h4 className="text-sm sm:text-base font-bold text-white truncate">{previewPdf.name}</h4>
+                    <div className="flex items-center gap-2 text-[10px] text-neutral-400">
+                      <span className="text-red-400 font-mono">PDF Document {previewPdf.size ? `• ${(previewPdf.size / 1024).toFixed(1)} KB` : ''}</span>
+                      <span>•</span>
+                      <span className="text-emerald-400 font-bold">✓ Gemini Document Intelligence Ready</span>
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => setPreviewPdf(null)}
+                  type="button"
+                  className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-neutral-200 hover:text-white transition-colors cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Document Text / Content Preview Reader */}
+              <div className="flex-1 w-full overflow-y-auto max-h-[55vh] rounded-xl bg-black/70 border border-white/10 p-4 font-mono text-xs text-neutral-300 leading-relaxed space-y-3">
+                <div className="flex items-center justify-between pb-2 border-b border-white/10 text-[11px] text-neutral-400">
+                  <span>Document Extracted Text Preview & Sections</span>
+                  <button
+                    onClick={() => {
+                      if (previewPdf.text) {
+                        navigator.clipboard.writeText(previewPdf.text);
+                      }
+                    }}
+                    type="button"
+                    className="flex items-center gap-1 text-neutral-300 hover:text-white hover:underline cursor-pointer"
+                  >
+                    <Copy className="w-3 h-3" />
+                    <span>Copy Text</span>
+                  </button>
+                </div>
+                {previewPdf.text ? (
+                  <p className="whitespace-pre-wrap selection:bg-[#EF233C] selection:text-white">
+                    {previewPdf.text}
+                  </p>
+                ) : (
+                  <div className="py-8 text-center text-neutral-500 text-xs">
+                    <p>Native binary PDF document stream prepared for Gemini native document comprehension.</p>
+                    <p className="mt-1 text-[11px] text-neutral-600">Gemini reads full layout, typography, charts, and pages natively.</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Action Bar */}
+              <div className="w-full pt-4 mt-3 border-t border-white/10 flex flex-wrap items-center justify-between gap-2.5">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setInput(`Summarize the key findings, conclusions, and important points from the PDF "${previewPdf.name}": `);
+                      setPreviewPdf(null);
+                      textareaRef.current?.focus();
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-semibold transition-all cursor-pointer"
+                  >
+                    📝 Summarize PDF
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setInput(`Extract all key data, numbers, formulas, and action items from the PDF "${previewPdf.name}": `);
+                      setPreviewPdf(null);
+                      textareaRef.current?.focus();
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-semibold transition-all cursor-pointer"
+                  >
+                    🔍 Extract Key Data
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setInput(`I have a question about "${previewPdf.name}": `);
+                    setPreviewPdf(null);
+                    textareaRef.current?.focus();
+                  }}
+                  className="px-4 py-2 rounded-xl bg-[#EF233C] hover:bg-[#d90429] text-white text-xs font-black shadow-lg shadow-red-600/30 transition-all cursor-pointer flex items-center gap-1.5"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Ask Question About This PDF</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </AnimatePresence>
   );

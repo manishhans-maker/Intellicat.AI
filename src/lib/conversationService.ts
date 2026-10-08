@@ -11,6 +11,7 @@ import {
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { Conversation, ChatMessage } from '../types';
+import { createThumbnailBase64 } from './fileExtractionService';
 
 const LOCAL_STORAGE_KEY_PREFIX = 'intelicat_convs_';
 const LOCAL_STORAGE_MSGS_PREFIX = 'intelicat_msgs_';
@@ -47,7 +48,19 @@ export function setLocalMessages(convId: string, messages: ChatMessage[]) {
   try {
     localStorage.setItem(`${LOCAL_STORAGE_MSGS_PREFIX}${convId}`, JSON.stringify(messages));
   } catch {
-    // ignore
+    // If quota exceeded, sanitize message attachments (drop huge payloads) and retry
+    try {
+      const sanitized = messages.map((m) => ({
+        ...m,
+        attachments: m.attachments?.map((a) => ({
+          ...a,
+          data: a.data && a.data.length > 80000 ? a.data.slice(0, 80000) : a.data,
+        })),
+      }));
+      localStorage.setItem(`${LOCAL_STORAGE_MSGS_PREFIX}${convId}`, JSON.stringify(sanitized));
+    } catch {
+      // ignore
+    }
   }
 }
 
@@ -273,7 +286,36 @@ export async function saveMessage(userId: string, convId: string, msg: ChatMessa
 
   try {
     const docRef = doc(db, 'users', userId, 'conversations', convId, 'messages', msg.id);
-    const payload = {
+    // Sanitize attachments for Firestore: keep valid thumbnails for photos and text representations for PDFs
+    const sanitizedAttachments = await Promise.all(
+      (msg.attachments || []).map(async (att) => {
+        const isImg = att.type?.startsWith('image/') || /\.(png|jpe?g|webp|gif|svg|bmp)$/i.test(att.name);
+        const isPdf = att.type === 'application/pdf' || att.name?.toLowerCase().endsWith('.pdf');
+
+        let safeData = att.data || '';
+        if (isImg && safeData.startsWith('data:image')) {
+          if (safeData.length > 90000) {
+            safeData = await createThumbnailBase64(safeData, 450, 0.75);
+          }
+        } else if (isPdf) {
+          // Keep PDF data if lightweight (<100KB), otherwise rely on extractedText to preserve Firestore space
+          if (safeData.length > 150000) {
+            safeData = '';
+          }
+        }
+
+        return {
+          id: att.id,
+          name: att.name,
+          type: isPdf ? 'application/pdf' : (isImg ? (att.type || 'image/jpeg') : att.type),
+          size: att.size,
+          data: safeData,
+          extractedText: att.extractedText?.slice(0, 15000) || undefined,
+        };
+      })
+    );
+
+    const payload: Record<string, any> = {
       id: msg.id,
       conversationId: convId,
       userId,
@@ -284,13 +326,36 @@ export async function saveMessage(userId: string, convId: string, msg: ChatMessa
       mode: msg.mode || 'normal',
       provider: msg.provider || 'gemini',
     };
+
+    if (sanitizedAttachments.length > 0) {
+      payload.attachments = sanitizedAttachments;
+    }
+    if (msg.model) {
+      payload.model = msg.model;
+    }
+    if (msg.citations && msg.citations.length > 0) {
+      payload.citations = msg.citations;
+    }
+
     await setDoc(docRef, payload, { merge: true });
 
-    // Also update parent conversation's updatedAt and preview
+    // Also update parent conversation's updatedAt and preview with photo/PDF indicator
+    let previewText = msg.content.slice(0, 100);
+    if (!previewText && msg.attachments && msg.attachments.length > 0) {
+      const firstAtt = msg.attachments[0];
+      const isImg = firstAtt.type?.startsWith('image/') || /\.(png|jpe?g|webp|gif)$/i.test(firstAtt.name);
+      const isPdf = firstAtt.type === 'application/pdf' || firstAtt.name?.toLowerCase().endsWith('.pdf');
+      previewText = isImg
+        ? `📷 Photo: ${firstAtt.name}`
+        : isPdf
+        ? `📄 PDF: ${firstAtt.name}`
+        : `📎 File: ${firstAtt.name}`;
+    }
+
     const parentRef = doc(db, 'users', userId, 'conversations', convId);
     await updateDoc(parentRef, {
       updatedAt: new Date().toISOString(),
-      lastMessagePreview: msg.content.slice(0, 100),
+      lastMessagePreview: previewText,
     }).catch(() => {});
   } catch (err) {
     console.warn('Could not save message to Firestore:', err);
