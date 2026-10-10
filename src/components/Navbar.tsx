@@ -77,7 +77,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   // Real-time listener for pending payment approvals (Strictly Platform Owner ONLY - never Founder)
   useEffect(() => {
-    if (!isOwner || tier !== 'owner') {
+    if (!isOwner) {
       setPendingApprovalCount(0);
       return;
     }
@@ -474,7 +474,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                     )}
 
                     {/* Owner Only: 1-Click Payment Approval Hub (strictly NEVER for Founder rank) */}
-                    {isOwner && tier === 'owner' ? (
+                    {isOwner ? (
                       <button
                         onClick={() => {
                           setUserMenuOpen(false);
@@ -547,7 +547,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         )}
 
         {/* Owner Hub (Owner Only) OR Buy VIP Pass / Founder Badge Trigger */}
-        {isOwner && tier === 'owner' ? (
+        {isOwner ? (
           <button
             onClick={onOpenOwnerApproval}
             title="Owner Payment Approvals Hub"
@@ -737,7 +737,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   </button>
                 )}
 
-                {isOwner && tier === 'owner' ? (
+                {isOwner ? (
                   <button
                     onClick={() => {
                       setMobileMenuOpen(false);

@@ -240,14 +240,14 @@ async function resolveGroqModel(groq: Groq, preferredModel?: string): Promise<st
 // Primary Gemini model cascade: default to ultra-stable 3.6 Flash
 const GEMINI_PRIMARY_MODEL = "gemini-3.6-flash";
 const GEMINI_MODELS_CASCADE = [
-  "gemini-3.4-flash",
   "gemini-3.6-flash",
+  "gemini-3.8-flash",
+  "gemini-3.7-flash",
   "gemini-3.5-flash",
   "gemini-3.5-flash-lite",
-  "gemini-3.8-flash",
+  "gemini-3.1-flash-lite",
   "gemini-flash-latest",
   "gemini-flash-lite-latest",
-  "gemini-3.1-flash-lite",
 ];
 
 // --- Message Formatting ---
@@ -639,12 +639,16 @@ export default async function handler(req: any, res: any) {
       });
     }
 
-    // Normalize requested Gemini models (mapping decommissioned 3.1 pro aliases to 3.5 flash lite, 2.5/2.0 to 3.4 flash)
+    // Normalize requested Gemini models (mapping legacy aliases and nonexistent models to robust 3.6 flash)
     let effectiveGeminiModel = requestedModel;
     if (effectiveGeminiModel === "gemini-3.1-pro-preview" || effectiveGeminiModel === "gemini-3.1-pro" || effectiveGeminiModel === "gemini-pro") {
       effectiveGeminiModel = "gemini-3.5-flash-lite";
-    } else if (effectiveGeminiModel === "gemini-2.0-flash" || effectiveGeminiModel === "gemini-2.5-flash") {
-      effectiveGeminiModel = "gemini-3.4-flash";
+    } else if (
+      effectiveGeminiModel === "gemini-2.0-flash" ||
+      effectiveGeminiModel === "gemini-2.5-flash" ||
+      effectiveGeminiModel === "gemini-3.4-flash"
+    ) {
+      effectiveGeminiModel = "gemini-3.6-flash";
     }
 
     // Verify model authorization based on plan tier
@@ -914,7 +918,17 @@ export default async function handler(req: any, res: any) {
             throw lastGeminiError;
           }
         } else {
-          throw lastGeminiError;
+          // Gracefully stream quota / error notice instead of throwing error
+          const cleanErr = formatCleanErrorMessage(lastGeminiError);
+          res.write(
+            `data: ${JSON.stringify({
+              text: `⚠️ **Notice:** ${cleanErr}\n\n*Tip: You can switch to another model using the ⚡ Engine menu at the top, or continue working with your saved Project Spaces, Notes, and Code Scratchpads!*`,
+              provider: "system",
+            })}\n\n`
+          );
+          if (typeof (res as any).flush === "function") {
+            (res as any).flush();
+          }
         }
       }
     }

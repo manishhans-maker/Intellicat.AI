@@ -76,7 +76,7 @@ export const OwnerApprovalModal: React.FC<OwnerApprovalModalProps> = ({ isOpen, 
 
   // Load current remote UPI ID (strictly Owner only)
   useEffect(() => {
-    if (!isOpen || !isOwner || tier !== 'owner') return;
+    if (!isOpen || !isOwner) return;
     fetchRemoteMerchantUpi().then((upi) => {
       if (upi) setMerchantUpiInput(upi);
     });
@@ -84,7 +84,7 @@ export const OwnerApprovalModal: React.FC<OwnerApprovalModalProps> = ({ isOpen, 
 
   // Generate real-time test QR code for Owner testing
   useEffect(() => {
-    if (!isOpen || !isOwner || tier !== 'owner') return;
+    if (!isOpen || !isOwner) return;
     if (!merchantUpiInput || !merchantUpiInput.includes('@')) {
       setTestQrUrl('');
       return;
@@ -103,7 +103,7 @@ export const OwnerApprovalModal: React.FC<OwnerApprovalModalProps> = ({ isOpen, 
 
   const handleSaveUpi = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isOwner || tier !== 'owner') return;
+    if (!isOwner) return;
     const clean = merchantUpiInput.trim();
     const validation = validateVpa(clean);
     if (!validation.isValid && !validation.isPhoneNumber) {
@@ -128,7 +128,7 @@ export const OwnerApprovalModal: React.FC<OwnerApprovalModalProps> = ({ isOpen, 
 
   // Subscribe in real-time to all payment requests (Strictly Owner Only)
   useEffect(() => {
-    if (!isOpen || !isOwner || tier !== 'owner') return;
+    if (!isOpen || !isOwner) return;
 
     try {
       const q = query(collection(db, 'payment_requests'), orderBy('createdAt', 'desc'));
@@ -187,7 +187,7 @@ export const OwnerApprovalModal: React.FC<OwnerApprovalModalProps> = ({ isOpen, 
 
   // 1-Click Approve: updates payment_request AND immediately upgrades user's rank in Firestore!
   const handleApprove = async (req: PaymentRequestItem) => {
-    if (!isOwner || tier !== 'owner') return;
+    if (!isOwner) return;
     setActionLoadingId(req.id);
 
     try {
@@ -241,7 +241,7 @@ export const OwnerApprovalModal: React.FC<OwnerApprovalModalProps> = ({ isOpen, 
   };
 
   const handleReject = async (req: PaymentRequestItem) => {
-    if (!isOwner || tier !== 'owner') return;
+    if (!isOwner) return;
     if (!window.confirm(`Are you sure you want to reject UTR ${req.utrNumber}?`)) return;
 
     setActionLoadingId(req.id);
@@ -262,7 +262,7 @@ export const OwnerApprovalModal: React.FC<OwnerApprovalModalProps> = ({ isOpen, 
     }
   };
 
-  if (!isOpen || !isOwner || tier !== 'owner') return null;
+  if (!isOpen || !isOwner) return null;
 
   const pendingRequests = requests.filter((r) => r.status === 'pending_verification');
   const approvedRequests = requests.filter((r) => r.status === 'approved');

@@ -240,7 +240,7 @@ export default function App() {
           onOpenBuyVip={handleOpenBuyVip}
           onOpenSettings={() => setSettingsOpen(true)}
           onOpenOwnerApproval={() => {
-            if (isOwner && tier === 'owner') {
+            if (isOwner) {
               setOwnerApprovalOpen(true);
             }
           }}
@@ -565,7 +565,7 @@ export default function App() {
       <AuthModal />
 
       {/* Owner-Exclusive 1-Click Live Payment Approval Hub (strictly owner-only, never founder) */}
-      {isOwner && tier === 'owner' && (
+      {isOwner && (
         <OwnerApprovalModal
           isOpen={ownerApprovalOpen}
           onClose={() => setOwnerApprovalOpen(false)}

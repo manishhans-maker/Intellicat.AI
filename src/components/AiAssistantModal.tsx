@@ -129,6 +129,8 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
 
   const isOwner = Boolean(
     authIsOwner ||
+    tier === 'owner' ||
+    userProfile?.tier === 'owner' ||
     (user?.email && (
       user.email.toLowerCase().trim() === 'manishhans@gmail.com' ||
       user.email.toLowerCase().trim() === 'ashwinhans2612@gmail.com'
@@ -136,10 +138,15 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
   );
   const isUnlimitedAccount = Boolean(
     isOwner ||
-    tier === 'founder' ||
     tier === 'owner' ||
+    tier === 'founder' ||
     isFounder ||
-    userProfile?.tier === 'founder'
+    userProfile?.tier === 'founder' ||
+    userProfile?.tier === 'owner' ||
+    (user?.email && (
+      user.email.toLowerCase().trim() === 'manishhans@gmail.com' ||
+      user.email.toLowerCase().trim() === 'ashwinhans2612@gmail.com'
+    ))
   );
 
   // State
@@ -174,9 +181,15 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
   const [selectedModel, setSelectedModel] = useState<string>(() => {
     try {
       const saved = localStorage.getItem('intelicat_selected_model');
-      if (saved === 'gemini-2.5-flash') return 'gemini-3.4-flash';
+      if (saved === 'gemini-2.5-flash' || saved === 'gemini-3.4-flash') {
+        localStorage.setItem('intelicat_selected_model', 'gemini-3.6-flash');
+        return 'gemini-3.6-flash';
+      }
       if (saved === 'gemini-3.1-pro' || saved === 'gemini-3.1-pro-preview') return 'gemini-3.5-flash-lite';
-      return saved || 'gemini-3.6-flash';
+      if (saved && AVAILABLE_AI_MODELS.some((m) => m.id === saved)) {
+        return saved;
+      }
+      return 'gemini-3.6-flash';
     } catch {
       return 'gemini-3.6-flash';
     }
