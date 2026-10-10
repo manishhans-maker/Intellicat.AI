@@ -197,23 +197,42 @@ function getGroqClient(customKey?: string): Groq {
 const CANDIDATE_GROQ_MODELS = [
   "llama-3.3-70b-versatile",
   "llama-3.1-8b-instant",
-  "mixtral-8x7b-32768",
+  "deepseek-r1-distill-llama-70b",
+  "llama-3.2-3b-preview",
+  "llama-3.2-1b-preview",
   "gemma2-9b-it",
 ];
 
-async function resolveGroqModel(groq: Groq): Promise<string> {
+async function resolveGroqModel(groq: Groq, preferredModel?: string): Promise<string> {
   try {
     const list = await groq.models.list();
     const available = new Set(list.data.map((m: any) => m.id));
+
+    // 1. If preferredModel requested and still actively supported by Groq, use it
+    if (preferredModel && available.has(preferredModel)) {
+      return preferredModel;
+    }
+
+    // 2. If preferred was decommissioned mixtral, map to 70B or 8B
+    if (preferredModel?.includes("mixtral")) {
+      if (available.has("llama-3.3-70b-versatile")) return "llama-3.3-70b-versatile";
+      if (available.has("llama-3.1-8b-instant")) return "llama-3.1-8b-instant";
+    }
+
+    // 3. Match candidate models in priority order
     for (const candidate of CANDIDATE_GROQ_MODELS) {
       if (available.has(candidate)) {
         return candidate;
       }
     }
-    const textModel = list.data.find((m: any) => !m.id.includes("whisper"));
+
+    const textModel = list.data.find((m: any) => !m.id.includes("whisper") && !m.id.includes("vision"));
     if (textModel) return textModel.id;
   } catch (err) {
     console.warn("Groq dynamic model resolution fallback:", err);
+    if (preferredModel && CANDIDATE_GROQ_MODELS.includes(preferredModel)) {
+      return preferredModel;
+    }
   }
   return "llama-3.1-8b-instant";
 }
@@ -222,8 +241,10 @@ async function resolveGroqModel(groq: Groq): Promise<string> {
 const GEMINI_PRIMARY_MODEL = "gemini-3.6-flash";
 const GEMINI_MODELS_CASCADE = [
   "gemini-3.6-flash",
-  "gemini-3.8-flash",
   "gemini-3.5-flash",
+  "gemini-3.5-flash-lite",
+  "gemini-3.8-flash",
+  "gemini-flash-latest",
   "gemini-flash-lite-latest",
   "gemini-3.1-flash-lite",
 ];
@@ -617,20 +638,20 @@ export default async function handler(req: any, res: any) {
       });
     }
 
+    // Normalize requested Gemini models (mapping decommissioned 2.5 flash or old 3.1 pro aliases)
+    let effectiveGeminiModel = requestedModel;
+    if (effectiveGeminiModel === "gemini-2.5-flash" || effectiveGeminiModel === "gemini-2.0-flash") {
+      // 2.5 Flash is no longer available on Google API, seamlessly route to ultra-stable 3.5 Flash workhorse
+      effectiveGeminiModel = "gemini-3.5-flash";
+    } else if (effectiveGeminiModel === "gemini-3.1-pro-preview" || effectiveGeminiModel === "gemini-pro") {
+      effectiveGeminiModel = "gemini-3.5-flash-lite";
+    }
+
     // Verify model authorization based on plan tier
-    if (requestedModel) {
-      if (requestedModel === "gemini-3.8-flash" && effectiveTier === "free") {
+    if (effectiveGeminiModel) {
+      if (effectiveGeminiModel === "gemini-3.8-flash" && effectiveTier === "free") {
         return res.status(403).json({
-          error: "Gemini 3.8 Flash requires Intelicat Pro ($10) or Elite ($50). Please use Gemini 3.6 Flash (Default) or upgrade your plan.",
-        });
-      }
-      if (
-        requestedModel === "gemini-3.1-pro-preview" &&
-        effectiveTier !== "elite" &&
-        effectiveTier !== "founder"
-      ) {
-        return res.status(403).json({
-          error: "Gemini 3.1 Pro requires Intelicat Elite ($50) or Founder. Please upgrade your plan to unlock.",
+          error: "Gemini 3.8 Flash requires Intelicat Pro ($10) or Elite ($50). Please use Gemini 3.6 Flash (Default), Gemini 3.5 Flash (Ultra-Stable), or upgrade your plan.",
         });
       }
     }
@@ -685,7 +706,9 @@ export default async function handler(req: any, res: any) {
     }
 
     // Fallback if requested provider key is missing
+    let groqFailReason: string | null = null;
     if (activeProvider === "groq" && !hasGroqKey) {
+      groqFailReason = "Groq API key is not configured. Add your free Groq key from console.groq.com in Model Settings";
       activeProvider = hasGeminiKey ? "gemini" : "groq";
     } else if (activeProvider === "gemini" && !hasGeminiKey) {
       activeProvider = hasGroqKey && !hasImageAttachments ? "groq" : "gemini";
@@ -710,15 +733,7 @@ export default async function handler(req: any, res: any) {
       try {
         const groq = getGroqClient(effectiveGroqKey);
         const groqMessages = formatGroqMessages(messages, systemInstruction);
-        let selectedModel = await resolveGroqModel(groq);
-        if (
-          requestedModel &&
-          (requestedModel.startsWith("llama-") ||
-            requestedModel.startsWith("mixtral-") ||
-            requestedModel.startsWith("gemma"))
-        ) {
-          selectedModel = requestedModel;
-        }
+        const selectedModel = await resolveGroqModel(groq, requestedModel);
 
         const completion = await groq.chat.completions.create({
           model: selectedModel,
@@ -740,6 +755,7 @@ export default async function handler(req: any, res: any) {
         }
       } catch (groqErr: any) {
         console.warn("Groq streaming error:", groqErr?.message);
+        groqFailReason = `Groq API error (${groqErr?.message || "connection/rate limit failure"})`;
         if (!streamStarted && hasGeminiKey) {
           activeProvider = "gemini";
         } else {
@@ -768,9 +784,10 @@ export default async function handler(req: any, res: any) {
 
       let lastGeminiError: any = null;
 
+      const primaryTargetModel = effectiveGeminiModel || requestedModel;
       const candidateModels =
-        requestedModel && requestedModel.startsWith("gemini-")
-          ? [requestedModel, ...GEMINI_MODELS_CASCADE.filter((m) => m !== requestedModel)]
+        primaryTargetModel && primaryTargetModel.startsWith("gemini-")
+          ? [primaryTargetModel, ...GEMINI_MODELS_CASCADE.filter((m) => m !== primaryTargetModel)]
           : GEMINI_MODELS_CASCADE;
 
       for (let modelIdx = 0; modelIdx < candidateModels.length; modelIdx++) {
@@ -810,14 +827,24 @@ export default async function handler(req: any, res: any) {
 
             const text = chunk.text || "";
             if (text) {
-              if (!streamStarted && requestedModel && candidateModel !== requestedModel) {
-                res.write(
-                  `data: ${JSON.stringify({
-                    text: `*[Notice: ${requestedModel} is currently experiencing temporary high demand on Google's servers. Handed over to ${candidateModel} for zero delay! ⚡]*\n\n`,
-                    provider: "gemini",
-                    model: candidateModel,
-                  })}\n\n`
-                );
+              if (!streamStarted) {
+                if (groqFailReason) {
+                  res.write(
+                    `data: ${JSON.stringify({
+                      text: `*[Notice: ${groqFailReason}. Seamlessly handed over to ${candidateModel} for zero delay! ⚡]*\n\n`,
+                      provider: "gemini",
+                      model: candidateModel,
+                    })}\n\n`
+                  );
+                } else if (requestedModel && requestedModel.startsWith("gemini-") && candidateModel !== requestedModel) {
+                  res.write(
+                    `data: ${JSON.stringify({
+                      text: `*[Notice: ${requestedModel} is currently experiencing temporary high demand on Google's servers. Handed over to ${candidateModel} for zero delay! ⚡]*\n\n`,
+                      provider: "gemini",
+                      model: candidateModel,
+                    })}\n\n`
+                  );
+                }
               }
               streamStarted = true;
               res.write(`data: ${JSON.stringify({ text, provider: "gemini", model: candidateModel })}\n\n`);

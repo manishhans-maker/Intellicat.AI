@@ -99,10 +99,10 @@ const TIERS: PlanTier[] = [
     displayPrice: '$50',
     displayInr: '₹3,999',
     badge: 'Power User 👑',
-    description: '50 chats every 3 hours with Gemini 3.8 Flash and Gemini 3.1 Pro unlocked!',
+    description: '50 chats every 3 hours with Gemini 3.8 Flash and DeepSeek R1 Distill 70B unlocked!',
     perks: [
       '⚡ 50 chats per 3-hour cycle',
-      '👑 Unlocks Gemini 3.8 Flash & Gemini 3.1 Pro (Preview)',
+      '👑 Unlocks Gemini 3.8 Flash & DeepSeek R1 70B',
       '🚀 25 recovery chats after 3-hour cooldown',
       '⚡ Priority GPU queue dispatch ahead of free users',
       '🌐 Full Google Web Search Grounding & Deep Research',

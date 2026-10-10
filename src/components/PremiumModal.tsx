@@ -80,10 +80,10 @@ export const PremiumModal: React.FC<PremiumModalProps> = ({
       badge: 'Power User',
       price: '$50',
       period: 'priority pass',
-      description: '50 chats every 3 hours with Gemini 3.8 Flash & Gemini 3.1 Pro unlocked.',
+      description: '50 chats every 3 hours with Gemini 3.8 Flash & DeepSeek R1 Distill 70B unlocked.',
       features: [
         '50 ultra-fast chats per 3-hour cycle',
-        'Unlocks Gemini 3.8 Flash & Gemini 3.1 Pro',
+        'Unlocks Gemini 3.8 Flash & DeepSeek R1 70B',
         '25 recovery chats after 3-hour cooldown',
         'Full Google Web Search grounding',
         'Maximum priority compute dispatch',

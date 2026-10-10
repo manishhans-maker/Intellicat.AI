@@ -44,6 +44,7 @@ import {
   Lock,
   Clock,
   Camera,
+  Key,
 } from 'lucide-react';
 import { RobotBackground } from './RobotBackground';
 import { INTELLICAT_LOGO_URL } from '../constants';
@@ -171,6 +172,72 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
   });
   const [modelCategoryFilter, setModelCategoryFilter] = useState<'all' | 'gemini' | 'groq'>('all');
 
+  // Personal / Custom Groq API Key state
+  const [customGroqKey, setCustomGroqKey] = useState<string>(() => {
+    try {
+      return localStorage.getItem('intelicat_custom_groq_key') || '';
+    } catch {
+      return '';
+    }
+  });
+  const [tempGroqKeyInput, setTempGroqKeyInput] = useState('');
+  const [groqKeySaveSuccess, setGroqKeySaveSuccess] = useState(false);
+  const [groqVerifyLoading, setGroqVerifyLoading] = useState(false);
+  const [groqVerifyError, setGroqVerifyError] = useState<string | null>(null);
+
+  const handleSaveQuickGroqKey = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const cleanKey = tempGroqKeyInput.trim();
+    if (!cleanKey) return;
+
+    setGroqVerifyLoading(true);
+    setGroqVerifyError(null);
+
+    try {
+      const res = await fetch('/api/verify-groq', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apiKey: cleanKey }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.valid === false) {
+        setGroqVerifyError(data.error || 'Invalid Groq API key. Please check key from console.groq.com.');
+        setGroqVerifyLoading(false);
+        return;
+      }
+    } catch {
+      // If server check fails, still allow saving
+    }
+
+    try {
+      localStorage.setItem('intelicat_custom_groq_key', cleanKey);
+      setCustomGroqKey(cleanKey);
+      setProviderCapabilities((p) => ({ ...p, groq: true }));
+      setProvider('groq');
+      setGroqKeySaveSuccess(true);
+      setTempGroqKeyInput('');
+      setGroqVerifyError(null);
+      setTimeout(() => setGroqKeySaveSuccess(false), 3000);
+    } catch (err) {
+      console.warn('Failed to save groq key:', err);
+    } finally {
+      setGroqVerifyLoading(false);
+    }
+  };
+
+  const handleRemoveGroqKey = () => {
+    try {
+      localStorage.removeItem('intelicat_custom_groq_key');
+      setCustomGroqKey('');
+      setTempGroqKeyInput('');
+      setGroqVerifyError(null);
+      setProviderCapabilities((p) => ({ ...p, groq: false }));
+      if (provider === 'groq') {
+        setProvider('gemini');
+      }
+    } catch {}
+  };
+
   const activeModelObj: AiModelOption =
     AVAILABLE_AI_MODELS.find((m) => m.id === selectedModel) || AVAILABLE_AI_MODELS[0];
 
@@ -202,7 +269,12 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
     try {
       localStorage.setItem('intelicat_selected_model', modelId);
     } catch {}
-    setShowEngineModal(false);
+
+    if (found.provider === 'groq' && !customGroqKey && !providerCapabilities.groq) {
+      setModelCategoryFilter('groq');
+    } else {
+      setShowEngineModal(false);
+    }
   };
 
   const filteredModels = AVAILABLE_AI_MODELS.filter((m) => {
@@ -366,11 +438,21 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
     let isMounted = true;
 
     // Check available backend AI engines and search availability
-    fetch('/api/providers')
+    const storedGroqKey = (() => {
+      try {
+        return localStorage.getItem('intelicat_custom_groq_key') || '';
+      } catch {
+        return '';
+      }
+    })();
+
+    fetch('/api/providers', {
+      headers: storedGroqKey ? { 'x-groq-api-key': storedGroqKey } : {},
+    })
       .then((r) => r.json())
       .then((data) => {
         if (!isMounted) return;
-        const groqAvailable = Boolean(data.groq);
+        const groqAvailable = Boolean(data.groq || storedGroqKey);
         const geminiAvailable = Boolean(data.gemini);
         const searchOk = Boolean(data.searchAvailable !== false);
 
@@ -381,7 +463,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
         });
 
         // If currently on Groq but Groq key is absent, auto-switch to Gemini
-        if (!groqAvailable && geminiAvailable) {
+        if (!groqAvailable && !storedGroqKey && geminiAvailable) {
           setProvider('gemini');
         }
       })
@@ -968,6 +1050,9 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
       };
       if (token) {
         authHeaders['Authorization'] = `Bearer ${token}`;
+      }
+      if (customGroqKey) {
+        authHeaders['x-groq-api-key'] = customGroqKey;
       }
 
       // Execute fetch with automatic retry on network drops ("Failed to fetch") or 5xx errors
@@ -1593,21 +1678,128 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                       }`}
                     >
                       <span>Google Gemini</span>
-                      <span className="text-[10px] opacity-80">(3)</span>
+                      <span className="text-[10px] opacity-80">
+                        ({AVAILABLE_AI_MODELS.filter((m) => m.provider === 'gemini').length})
+                      </span>
                     </button>
                     <button
                       type="button"
                       onClick={() => setModelCategoryFilter('groq')}
                       className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center gap-1 whitespace-nowrap ${
                         modelCategoryFilter === 'groq'
-                          ? 'bg-amber-500 text-black shadow-md shadow-amber-500/30'
+                          ? 'bg-amber-500 text-black shadow-md shadow-amber-500/30 font-bold'
                           : 'text-neutral-400 hover:text-white bg-white/5'
                       }`}
                     >
                       <span>Groq LPUs ⚡</span>
-                      <span className="text-[10px] opacity-80">(4)</span>
+                      <span className="text-[10px] opacity-80">
+                        ({AVAILABLE_AI_MODELS.filter((m) => m.provider === 'groq').length})
+                      </span>
                     </button>
                   </div>
+
+                  {/* Groq API Key Setup & Status Card */}
+                  {(modelCategoryFilter === 'groq' || (!customGroqKey && !providerCapabilities.groq && selectedModel.includes('llama'))) && (
+                    <div className="shrink-0 transition-all">
+                      {customGroqKey || providerCapabilities.groq ? (
+                        <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-between gap-3 text-xs">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                            <div className="min-w-0">
+                              <div className="font-bold text-white flex items-center gap-1.5 flex-wrap">
+                                <span>Groq LPU Engine Active</span>
+                                <span className="px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 text-[10px] font-mono">
+                                  {customGroqKey ? `${customGroqKey.slice(0, 6)}...${customGroqKey.slice(-4)}` : 'Server Configured'}
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-emerald-200/80 truncate">
+                                Hyper-accelerated inference (800+ tok/s) active with zero Gemini quota usage.
+                              </p>
+                            </div>
+                          </div>
+                          {customGroqKey && (
+                            <button
+                              type="button"
+                              onClick={handleRemoveGroqKey}
+                              className="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-red-500/20 hover:text-red-400 text-neutral-300 text-[11px] font-semibold transition-colors shrink-0 cursor-pointer"
+                            >
+                              Change Key
+                            </button>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="p-3.5 rounded-xl bg-gradient-to-r from-amber-500/15 via-black/50 to-[#12121e] border border-amber-500/40 text-xs space-y-2.5 shadow-lg">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <div className="p-1.5 rounded-lg bg-amber-500/20 text-amber-400 border border-amber-500/30 shrink-0">
+                                <Key className="w-4 h-4" />
+                              </div>
+                              <div>
+                                <h4 className="font-bold text-white text-xs sm:text-sm flex items-center gap-1.5 flex-wrap">
+                                  <span>Groq API Key Required for LPUs</span>
+                                  <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[9px] font-mono font-bold">100% Free</span>
+                                </h4>
+                                <p className="text-[11px] text-neutral-300 leading-relaxed">
+                                  Google AI Studio provides Gemini by default. To unlock Groq's 800+ tok/s LPUs (Llama 3.3 70B & 3.1 8B), enter your free key from console.groq.com (no credit card needed).
+                                </p>
+                              </div>
+                            </div>
+                            <a
+                              href="https://console.groq.com/keys"
+                              target="_blank"
+                              rel="noreferrer"
+                              className="px-2.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-black font-bold text-[11px] transition-colors shrink-0 flex items-center gap-1 shadow-md shadow-amber-500/20"
+                            >
+                              <span>Get Free Key</span>
+                              <ExternalLink className="w-3 h-3" />
+                            </a>
+                          </div>
+
+                          <form onSubmit={handleSaveQuickGroqKey} className="flex items-center gap-2">
+                            <input
+                              type="password"
+                              value={tempGroqKeyInput}
+                              onChange={(e) => {
+                                setTempGroqKeyInput(e.target.value);
+                                setGroqVerifyError(null);
+                              }}
+                              placeholder="Paste your Groq key (starts with gsk_...)"
+                              className="flex-1 rounded-xl bg-black/60 border border-white/20 px-3 py-1.5 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-amber-400 font-mono"
+                            />
+                            <button
+                              type="submit"
+                              disabled={groqVerifyLoading || !tempGroqKeyInput.trim()}
+                              className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black font-bold text-xs transition-all shadow-md cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 shrink-0"
+                            >
+                              {groqVerifyLoading ? (
+                                <>
+                                  <RefreshCw className="w-3 h-3 animate-spin" />
+                                  <span>Verifying...</span>
+                                </>
+                              ) : groqKeySaveSuccess ? (
+                                <>
+                                  <Check className="w-3.5 h-3.5 stroke-[3]" />
+                                  <span>Activated!</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Zap className="w-3 h-3 fill-black" />
+                                  <span>Activate ⚡</span>
+                                </>
+                              )}
+                            </button>
+                          </form>
+
+                          {groqVerifyError && (
+                            <div className="p-2 rounded-lg bg-red-500/20 border border-red-500/40 text-red-300 text-[11px] flex items-center gap-1.5">
+                              <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                              <span>{groqVerifyError}</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {/* Model Cards List */}
                   <div className="flex-1 overflow-y-auto space-y-2.5 pr-1 scrollbar-thin">

@@ -2,6 +2,7 @@ import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
+import Groq from "groq-sdk";
 import { isSearchQuotaExhausted } from "./server/chatCore";
 import chatHandler from "./api/chat";
 import imageGenHandler from "./api/imageGen";
@@ -29,16 +30,50 @@ async function startServer() {
   });
 
   // Providers availability check
-  app.get("/api/providers", (_req, res) => {
-    const hasGroq = Boolean(process.env.GROQ_API_KEY && process.env.GROQ_API_KEY.trim() !== "");
+  app.get("/api/providers", (req, res) => {
+    const customGroqKey = ((req.headers["x-groq-api-key"] as string) || (req.query?.groqKey as string) || "").trim();
+    const hasServerGroq = Boolean(process.env.GROQ_API_KEY && process.env.GROQ_API_KEY.trim() !== "");
+    const hasGroq = hasServerGroq || customGroqKey.length > 0;
     const hasGemini = Boolean(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim() !== "");
 
     res.json({
       groq: hasGroq,
+      serverGroqConfigured: hasServerGroq,
+      hasCustomGroqKey: customGroqKey.length > 0,
       gemini: hasGemini,
       defaultProvider: hasGroq ? "groq" : "gemini",
       searchAvailable: hasGemini && !isSearchQuotaExhausted(),
     });
+  });
+
+  // Verify personal Groq API key endpoint
+  app.post("/api/verify-groq", async (req, res) => {
+    const key = (req.body?.apiKey || (req.headers["x-groq-api-key"] as string) || process.env.GROQ_API_KEY || "").trim();
+    if (!key) {
+      return res.status(400).json({
+        valid: false,
+        error: "Missing Groq API key. Provide a key starting with 'gsk_' from console.groq.com.",
+      });
+    }
+
+    try {
+      const groq = new Groq({ apiKey: key });
+      const modelList = await groq.models.list();
+      const activeModels = modelList.data
+        .map((m: any) => m.id)
+        .filter((id: string) => !id.includes("whisper"));
+
+      return res.json({
+        valid: true,
+        modelsCount: activeModels.length,
+        models: activeModels.slice(0, 10),
+      });
+    } catch (err: any) {
+      return res.status(400).json({
+        valid: false,
+        error: err?.message || "Invalid Groq API key or network error connecting to Groq API.",
+      });
+    }
   });
 
   // Health check endpoint
