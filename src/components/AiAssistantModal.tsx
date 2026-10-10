@@ -45,6 +45,8 @@ import {
   Clock,
   Camera,
   Key,
+  FolderKanban,
+  Plus,
 } from 'lucide-react';
 import { RobotBackground } from './RobotBackground';
 import { INTELLICAT_LOGO_URL } from '../constants';
@@ -58,6 +60,7 @@ import {
   Conversation,
   AVAILABLE_AI_MODELS,
   AiModelOption,
+  ProjectSpace,
 } from '../types';
 export type { ChatMode, AiProvider };
 import { MarkdownRenderer } from './MarkdownRenderer';
@@ -75,6 +78,7 @@ import {
   generateAutomaticTitle,
 } from '../lib/conversationService';
 import { loadUserMemories, formatMemoriesForContext } from '../lib/memoryService';
+import { formatSpaceContext, loadUserSpaces, saveUserSpace } from '../lib/spaceService';
 import { extractTextFromFile, extractRelevantChunks } from '../lib/fileExtractionService';
 import {
   startSpeechRecognition,
@@ -91,6 +95,8 @@ interface AiAssistantModalProps {
   onOpenBuyVip?: () => void;
   isVipMember?: boolean;
   isFounder?: boolean;
+  activeSpace?: ProjectSpace | null;
+  onSelectSpace?: (space: ProjectSpace | null) => void;
 }
 
 export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
@@ -101,6 +107,8 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
   onOpenBuyVip,
   isVipMember = false,
   isFounder = false,
+  activeSpace,
+  onSelectSpace,
 }) => {
   const {
     user,
@@ -165,12 +173,94 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
 
   const [selectedModel, setSelectedModel] = useState<string>(() => {
     try {
-      return localStorage.getItem('intelicat_selected_model') || 'gemini-3.6-flash';
+      const saved = localStorage.getItem('intelicat_selected_model');
+      if (saved === 'gemini-2.5-flash') return 'gemini-3.4-flash';
+      if (saved === 'gemini-3.1-pro' || saved === 'gemini-3.1-pro-preview') return 'gemini-3.5-flash-lite';
+      return saved || 'gemini-3.6-flash';
     } catch {
       return 'gemini-3.6-flash';
     }
   });
   const [modelCategoryFilter, setModelCategoryFilter] = useState<'all' | 'gemini' | 'groq'>('all');
+
+  // Active IntellicatAI Project Space state
+  const [currentSpace, setCurrentSpace] = useState<ProjectSpace | null>(activeSpace || null);
+  const [spacesList, setSpacesList] = useState<ProjectSpace[]>([]);
+  const [showSpaceSelector, setShowSpaceSelector] = useState(false);
+
+  useEffect(() => {
+    if (activeSpace !== undefined) {
+      setCurrentSpace(activeSpace);
+    }
+  }, [activeSpace]);
+
+  useEffect(() => {
+    if (isOpen) {
+      loadUserSpaces(user?.uid).then((list) => {
+        setSpacesList(list);
+      });
+    }
+  }, [isOpen, user?.uid]);
+
+  const handleSelectSpace = (sp: ProjectSpace | null) => {
+    setCurrentSpace(sp);
+    if (onSelectSpace) {
+      onSelectSpace(sp);
+    }
+    setShowSpaceSelector(false);
+  };
+
+  // Create New Space directly from Assistant Modal
+  const [showCreateSpaceModal, setShowCreateSpaceModal] = useState(false);
+  const [newSpaceTitle, setNewSpaceTitle] = useState('');
+  const [newSpaceDesc, setNewSpaceDesc] = useState('');
+  const [newSpaceInstructions, setNewSpaceInstructions] = useState('');
+  const [newSpaceNotes, setNewSpaceNotes] = useState('');
+  const [newSpaceIcon, setNewSpaceIcon] = useState('FolderKanban');
+  const [newSpaceSaving, setNewSpaceSaving] = useState(false);
+  const [newSpaceError, setNewSpaceError] = useState<string | null>(null);
+
+  const handleCreateSpaceInChat = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const cleanTitle = newSpaceTitle.trim();
+    if (!cleanTitle) {
+      setNewSpaceError('Please enter a space title (e.g. Class 7 Math, Python Hub).');
+      return;
+    }
+
+    setNewSpaceSaving(true);
+    setNewSpaceError(null);
+
+    try {
+      const created = await saveUserSpace(
+        {
+          title: cleanTitle,
+          description: newSpaceDesc.trim(),
+          icon: newSpaceIcon,
+          customInstructions: newSpaceInstructions.trim(),
+          notes: newSpaceNotes.trim(),
+        },
+        user?.uid
+      );
+      const updatedList = await loadUserSpaces(user?.uid);
+      setSpacesList(updatedList);
+      setCurrentSpace(created);
+      if (onSelectSpace) {
+        onSelectSpace(created);
+      }
+      setShowCreateSpaceModal(false);
+      setNewSpaceTitle('');
+      setNewSpaceDesc('');
+      setNewSpaceInstructions('');
+      setNewSpaceNotes('');
+      setNewSpaceIcon('FolderKanban');
+    } catch (err: any) {
+      console.error('Failed to create space in chat:', err);
+      setNewSpaceError(err?.message || 'Failed to create space.');
+    } finally {
+      setNewSpaceSaving(false);
+    }
+  };
 
   // Personal / Custom Groq API Key state
   const [customGroqKey, setCustomGroqKey] = useState<string>(() => {
@@ -1031,6 +1121,8 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
       }));
 
     try {
+      const spaceContext = formatSpaceContext(currentSpace);
+
       const requestPayload = {
         messages: contextMessages,
         mode,
@@ -1042,6 +1134,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
         userTier: tier,
         customGroqKey: customGroqKey || undefined,
         userMemoryContext: memoryContext || undefined,
+        spaceContext: spaceContext || undefined,
       };
 
       const token = user?.getIdToken ? await user.getIdToken().catch(() => '') : '';
@@ -1385,6 +1478,90 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                           <ChevronDown className="w-2.5 h-2.5 text-neutral-400 group-hover:text-white transition-colors" />
                         </button>
                         <span>•</span>
+                        {/* Space Selector Button & Popover */}
+                        <div className="relative">
+                          <button
+                            onClick={() => setShowSpaceSelector((prev) => !prev)}
+                            type="button"
+                            className={`flex items-center gap-1 px-1.5 py-0.5 rounded-lg border text-[10px] font-semibold transition-all cursor-pointer shadow-sm active:scale-95 ${
+                              currentSpace
+                                ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300'
+                                : 'bg-white/10 hover:bg-white/20 border-white/15 text-neutral-300 hover:text-white'
+                            }`}
+                            title={currentSpace ? `Active Space: ${currentSpace.title}. Click to switch.` : 'Click to attach an IntellicatAI Project Space'}
+                          >
+                            <FolderKanban className={`w-3 h-3 ${currentSpace ? 'text-emerald-400' : 'text-neutral-400'}`} />
+                            <span className="truncate max-w-[80px] xs:max-w-[110px]">
+                              {currentSpace ? currentSpace.title : 'Global Space'}
+                            </span>
+                            <ChevronDown className="w-2.5 h-2.5 opacity-70" />
+                          </button>
+
+                          {showSpaceSelector && (
+                            <div className="absolute top-full left-0 mt-1.5 w-64 bg-neutral-900 border border-white/20 rounded-xl shadow-2xl p-2 z-50 backdrop-blur-xl">
+                              <div className="flex items-center justify-between px-2 py-1 border-b border-white/10 mb-1">
+                                <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-300">
+                                  IntellicatAI Spaces
+                                </span>
+                                {currentSpace && (
+                                  <button
+                                    onClick={() => handleSelectSpace(null)}
+                                    className="text-[10px] text-red-400 hover:underline cursor-pointer"
+                                  >
+                                    Detach
+                                  </button>
+                                )}
+                              </div>
+                              <div className="space-y-1 max-h-52 overflow-y-auto scrollbar-thin">
+                                <button
+                                  onClick={() => handleSelectSpace(null)}
+                                  className={`w-full text-left px-2 py-1.5 rounded-lg text-xs flex items-center justify-between cursor-pointer transition-colors ${
+                                    !currentSpace
+                                      ? 'bg-[#EF233C]/20 text-white font-bold border border-[#EF233C]/40'
+                                      : 'text-neutral-300 hover:bg-white/5'
+                                  }`}
+                                >
+                                  <span>Global (No Space Attached)</span>
+                                  {!currentSpace && <Check className="w-3 h-3 text-[#EF233C]" />}
+                                </button>
+                                {spacesList.map((sp) => (
+                                  <button
+                                    key={sp.id}
+                                    onClick={() => handleSelectSpace(sp)}
+                                    className={`w-full text-left px-2 py-1.5 rounded-lg text-xs flex items-center justify-between cursor-pointer transition-colors ${
+                                      currentSpace?.id === sp.id
+                                        ? 'bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/40'
+                                        : 'text-neutral-300 hover:bg-white/5'
+                                    }`}
+                                  >
+                                    <div className="truncate mr-2">
+                                      <p className="font-semibold truncate">{sp.title}</p>
+                                      {sp.customInstructions && (
+                                        <p className="text-[10px] text-neutral-400 truncate">{sp.customInstructions}</p>
+                                      )}
+                                    </div>
+                                    {currentSpace?.id === sp.id && <Check className="w-3 h-3 text-emerald-400 shrink-0" />}
+                                  </button>
+                                ))}
+                              </div>
+
+                              <div className="pt-2 mt-1.5 border-t border-white/10">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setShowSpaceSelector(false);
+                                    setShowCreateSpaceModal(true);
+                                  }}
+                                  className="w-full flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#EF233C] hover:bg-[#d90429] text-white text-xs font-bold transition-all cursor-pointer shadow-md active:scale-95"
+                                >
+                                  <Plus className="w-3.5 h-3.5" />
+                                  <span>+ New Project Space</span>
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                        <span>•</span>
                         <button
                           onClick={() => onOpenBuyVip?.()}
                           type="button"
@@ -1606,6 +1783,64 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
               </div>
             </header>
 
+            {/* Active Project Space Context Banner */}
+            {currentSpace && (
+              <div className="px-3 py-1.5 bg-emerald-950/40 border-b border-emerald-500/20 text-emerald-300 text-xs flex items-center justify-between gap-2 shrink-0">
+                <div className="flex items-center gap-1.5 truncate">
+                  <FolderKanban className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                  <span className="font-bold truncate">Project Space: {currentSpace.title}</span>
+                  <span className="text-emerald-400/70 hidden sm:inline text-[11px]">• Space Persona & Scratchpad Active</span>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={() => setShowSpaceSelector(true)}
+                    className="text-[10px] text-neutral-300 hover:text-white underline cursor-pointer"
+                  >
+                    Switch
+                  </button>
+                  <button
+                    onClick={() => handleSelectSpace(null)}
+                    className="text-[10px] text-red-400 hover:text-red-300 underline cursor-pointer"
+                    title="Detach space"
+                  >
+                    Detach
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Groq Key Reminder Banner if user selected a Groq model without configuring a key */}
+            {activeModelObj.provider === 'groq' && !customGroqKey && !providerCapabilities.groq && (
+              <div className="px-3 py-1.5 bg-amber-950/50 border-b border-amber-500/30 text-amber-200 text-xs flex items-center justify-between gap-2 shrink-0">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <Zap className="w-3.5 h-3.5 text-amber-400 shrink-0 animate-pulse" />
+                  <span className="truncate text-[11px] sm:text-xs">
+                    <strong>Groq LPU Active:</strong> Add your free key for 800+ tok/s, or we'll auto-fallback to Gemini Flash!
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={() => {
+                      setModelCategoryFilter('groq');
+                      setShowEngineModal(true);
+                    }}
+                    className="px-2 py-0.5 rounded bg-amber-500 text-black text-[10px] font-bold hover:bg-amber-400 transition-colors cursor-pointer"
+                  >
+                    Add Key
+                  </button>
+                  <button
+                    onClick={() => {
+                      setSelectedModel('gemini-3.6-flash');
+                      setProvider('gemini');
+                    }}
+                    className="text-[10px] text-neutral-400 hover:text-white underline cursor-pointer"
+                  >
+                    Use Gemini
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Export Modal Dropdown */}
             {showExportModal && (
               <div className="absolute right-12 top-16 z-50 w-52 bg-[#12121c] rounded-xl border border-white/15 shadow-2xl p-2 space-y-1">
@@ -1628,6 +1863,210 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                   <Code className="w-3.5 h-3.5 text-amber-400" />
                   <span>Download JSON (.json)</span>
                 </button>
+              </div>
+            )}
+
+            {/* Quick Create Project Space Modal */}
+            {showCreateSpaceModal && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md">
+                <div className="w-full max-w-lg max-h-[92vh] bg-[#12121e] border border-white/20 rounded-2xl p-4 sm:p-6 shadow-2xl flex flex-col space-y-4 animate-in fade-in zoom-in-95 duration-150 overflow-hidden ring-1 ring-[#EF233C]/40">
+                  {/* Header */}
+                  <div className="flex items-center justify-between pb-3 border-b border-white/10 shrink-0">
+                    <div className="flex items-center gap-2.5">
+                      <div className="p-2 rounded-xl bg-[#EF233C]/20 border border-[#EF233C]/40 text-[#EF233C]">
+                        <FolderKanban className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h3 className="font-bold text-sm sm:text-base text-white">New IntellicatAI Space</h3>
+                        <p className="text-[11px] text-neutral-400">Isolated context with custom instructions & scratchpad</p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowCreateSpaceModal(false)}
+                      className="p-1.5 rounded-lg text-neutral-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {/* Starter Template Chips */}
+                  <div className="space-y-1.5 shrink-0">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">
+                      Quick Starter Presets
+                    </span>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setNewSpaceTitle('Class 7 STEM & Math Hub');
+                          setNewSpaceDesc('Homework, science experiments, math formulas, and study guides for Class 7.');
+                          setNewSpaceInstructions('Act as an encouraging tutor for Class 7 students. Break down math and science questions step-by-step with clear formulas, real-world examples, and practice tips.');
+                          setNewSpaceNotes('# Class 7 Goals\n- Master Fractions & Algebraic Expressions\n- Science: Photosynthesis and Motion & Time');
+                          setNewSpaceIcon('GraduationCap');
+                        }}
+                        className="px-2.5 py-1.5 text-left rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-neutral-200 hover:text-white transition-all cursor-pointer truncate"
+                      >
+                        🎓 Class 7 STEM Hub
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setNewSpaceTitle('Full-Stack Architecture');
+                          setNewSpaceDesc('System design, TypeScript/React components, and backend APIs.');
+                          setNewSpaceInstructions('Focus on production-grade TypeScript, robust error handling, minimal latency, and clean architecture.');
+                          setNewSpaceNotes('# Architecture Notes\n- Keep API calls minimal and idempotent\n- Modular component design with clean types');
+                          setNewSpaceIcon('Code');
+                        }}
+                        className="px-2.5 py-1.5 text-left rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-neutral-200 hover:text-white transition-all cursor-pointer truncate"
+                      >
+                        💻 Full-Stack Dev
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setNewSpaceTitle('Cyber Cat Coder Prototyping');
+                          setNewSpaceDesc('Rapid prototyping, creative algorithms, and interactive UI components.');
+                          setNewSpaceInstructions('Respond as the Cyber Cat Coder: enthusiastic, sharp, delivering clean copy-paste code with playful tech humor.');
+                          setNewSpaceNotes('# Cyber Cat Scratchpad\n- Build lightning-fast web tools\n- React, Vite, Tailwind CSS, Lucide icons');
+                          setNewSpaceIcon('Sparkles');
+                        }}
+                        className="px-2.5 py-1.5 text-left rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-neutral-200 hover:text-white transition-all cursor-pointer truncate"
+                      >
+                        🐾 Cyber Cat Coder
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setNewSpaceTitle('Exam Prep & Flashcards');
+                          setNewSpaceDesc('Rapid question-answer drills, key formulas, and memory retention techniques.');
+                          setNewSpaceInstructions('Help the user memorize key concepts through active recall, concise summaries, flashcard generation, and mock test questions.');
+                          setNewSpaceNotes('# Exam Target\n- Key definitions and theorems\n- Practice questions to review');
+                          setNewSpaceIcon('Brain');
+                        }}
+                        className="px-2.5 py-1.5 text-left rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-neutral-200 hover:text-white transition-all cursor-pointer truncate"
+                      >
+                        🧠 Exam Preparation
+                      </button>
+                    </div>
+                  </div>
+
+                  {newSpaceError && (
+                    <div className="p-2.5 rounded-xl bg-red-950/70 border border-red-500/40 text-red-300 text-xs flex items-center gap-2 shrink-0">
+                      <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+                      <span>{newSpaceError}</span>
+                    </div>
+                  )}
+
+                  {/* Form Body */}
+                  <form onSubmit={handleCreateSpaceInChat} className="flex-1 overflow-y-auto space-y-3 pr-1 scrollbar-thin">
+                    <div>
+                      <label className="text-[11px] font-bold uppercase tracking-wider text-neutral-300 block mb-1">
+                        Space Title <span className="text-[#EF233C]">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={newSpaceTitle}
+                        onChange={(e) => {
+                          setNewSpaceTitle(e.target.value);
+                          if (newSpaceError) setNewSpaceError(null);
+                        }}
+                        placeholder="E.g. Class 7 STEM, or Rust Core Engine..."
+                        className="w-full rounded-xl bg-black/60 border border-white/20 px-3.5 py-2 text-sm text-white focus:outline-none focus:border-[#EF233C]"
+                        autoFocus
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[11px] font-bold uppercase tracking-wider text-neutral-300 block mb-1">
+                        Summary / Description
+                      </label>
+                      <input
+                        type="text"
+                        value={newSpaceDesc}
+                        onChange={(e) => setNewSpaceDesc(e.target.value)}
+                        placeholder="What is this workspace focused on?"
+                        className="w-full rounded-xl bg-black/60 border border-white/15 px-3 py-1.5 text-xs text-white focus:outline-none focus:border-[#EF233C]"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[11px] font-bold uppercase tracking-wider text-neutral-300 block mb-1 flex items-center justify-between">
+                        <span>Custom AI Persona / Instructions</span>
+                        <span className="text-[9px] text-amber-400 font-normal lowercase">Injected into chats</span>
+                      </label>
+                      <textarea
+                        value={newSpaceInstructions}
+                        onChange={(e) => setNewSpaceInstructions(e.target.value)}
+                        rows={2}
+                        placeholder="E.g. Act as a patient tutor for Class 7 students. Provide step-by-step solutions with formulas."
+                        className="w-full rounded-xl bg-black/60 border border-white/15 px-3 py-1.5 text-xs text-white focus:outline-none focus:border-[#EF233C] resize-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[11px] font-bold uppercase tracking-wider text-neutral-300 block mb-1">
+                        Initial Scratchpad Notes
+                      </label>
+                      <textarea
+                        value={newSpaceNotes}
+                        onChange={(e) => setNewSpaceNotes(e.target.value)}
+                        rows={3}
+                        placeholder="Equations, key links, study topics, or code snippets..."
+                        className="w-full rounded-xl bg-black/60 border border-white/15 px-3 py-1.5 text-xs text-white font-mono focus:outline-none focus:border-[#EF233C] resize-none"
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between pt-2 border-t border-white/10 shrink-0">
+                      <div className="flex items-center gap-1">
+                        <span className="text-[10px] text-neutral-400 mr-1">Icon:</span>
+                        {(['FolderKanban', 'GraduationCap', 'Code', 'Sparkles', 'Brain'] as const).map((ic) => (
+                          <button
+                            key={ic}
+                            type="button"
+                            onClick={() => setNewSpaceIcon(ic)}
+                            className={`p-1 rounded-lg border text-xs cursor-pointer transition-all ${
+                              newSpaceIcon === ic
+                                ? 'bg-[#EF233C]/20 border-[#EF233C] text-white'
+                                : 'bg-white/5 border-white/10 text-neutral-400 hover:text-white'
+                            }`}
+                          >
+                            {ic === 'GraduationCap' && '🎓'}
+                            {ic === 'Code' && '💻'}
+                            {ic === 'Sparkles' && '✨'}
+                            {ic === 'Brain' && '🧠'}
+                            {ic === 'FolderKanban' && '📁'}
+                          </button>
+                        ))}
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setShowCreateSpaceModal(false)}
+                          className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-neutral-300 text-xs font-semibold cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={newSpaceSaving}
+                          className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-[#EF233C] hover:bg-[#d90429] disabled:opacity-50 text-white text-xs font-bold shadow-md cursor-pointer active:scale-95 transition-all"
+                        >
+                          {newSpaceSaving ? (
+                            <span>Creating...</span>
+                          ) : (
+                            <>
+                              <Plus className="w-3.5 h-3.5" />
+                              <span>Create & Attach</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  </form>
+                </div>
               </div>
             )}
 
@@ -2020,6 +2459,26 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
             <div className="flex-1 flex overflow-hidden min-h-0 relative">
               {/* Chat Column */}
               <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
+                {/* Active Space Banner */}
+                {currentSpace && (
+                  <div className="mx-2.5 sm:mx-4 mt-2 px-3 py-1.5 rounded-xl bg-emerald-950/50 border border-emerald-500/40 flex items-center justify-between text-xs text-emerald-200 shadow-sm shrink-0">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <FolderKanban className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      <span className="truncate">
+                        Active Space: <strong className="text-white font-semibold">{currentSpace.title}</strong>
+                        {currentSpace.customInstructions ? ' • Custom persona active' : ''}
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => handleSelectSpace(null)}
+                      className="text-[10px] text-neutral-400 hover:text-red-400 transition-colors ml-2 shrink-0 cursor-pointer font-medium"
+                      title="Detach space and return to global context"
+                    >
+                      Detach
+                    </button>
+                  </div>
+                )}
+
                 {/* Messages Scroll Area */}
                 <div
                   ref={chatContainerRef}

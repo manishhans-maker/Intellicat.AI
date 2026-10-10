@@ -419,7 +419,8 @@ export default function App() {
                 activeSpace={activeSpace}
                 onSelectSpace={setActiveSpace}
                 onLaunchSpaceChat={(space) => {
-                  handleOpenChat('normal', `Working in project space "${space.title}": ${space.notes || ''}`);
+                  setActiveSpace(space);
+                  handleOpenChat('normal', `Working in project space "${space.title}": ${space.notes ? '\n\n' + space.notes.slice(0, 300) : ''}`);
                 }}
               />
             </motion.div>
@@ -436,6 +437,8 @@ export default function App() {
         onOpenBuyVip={handleOpenBuyVip}
         isVipMember={isVipMember}
         isFounder={isFounder}
+        activeSpace={activeSpace}
+        onSelectSpace={setActiveSpace}
       />
 
       {/* VIP Checkout / Purchase Modal */}

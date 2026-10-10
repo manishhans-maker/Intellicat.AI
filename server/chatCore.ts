@@ -246,10 +246,13 @@ export function markSearchQuotaExhausted(durationMs = 24 * 60 * 60 * 1000) {
 }
 
 // Candidate Gemini Models with fallback resilience per system skills
-// gemini-3.6-flash provides fast, high-quality reasoning
-// gemini-3.1-flash-lite provides ultra-low latency, with gemini-flash-latest and gemini-3.8-flash as fallbacks
+// gemini-3.6-flash & gemini-3.4-flash provide rock-solid reasoning & uptime
+// gemini-3.5-flash-lite provides ultra-low latency, with 3.5-flash and 3.8-flash as fallbacks
 export const GEMINI_CANDIDATE_MODELS = [
+  'gemini-3.4-flash',
   'gemini-3.6-flash',
+  'gemini-3.5-flash-lite',
+  'gemini-3.5-flash',
   'gemini-3.1-flash-lite',
   'gemini-flash-latest',
   'gemini-3.8-flash',

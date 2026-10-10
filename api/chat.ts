@@ -240,6 +240,7 @@ async function resolveGroqModel(groq: Groq, preferredModel?: string): Promise<st
 // Primary Gemini model cascade: default to ultra-stable 3.6 Flash
 const GEMINI_PRIMARY_MODEL = "gemini-3.6-flash";
 const GEMINI_MODELS_CASCADE = [
+  "gemini-3.4-flash",
   "gemini-3.6-flash",
   "gemini-3.5-flash",
   "gemini-3.5-flash-lite",
@@ -638,13 +639,12 @@ export default async function handler(req: any, res: any) {
       });
     }
 
-    // Normalize requested Gemini models (mapping decommissioned 2.5 flash or old 3.1 pro aliases)
+    // Normalize requested Gemini models (mapping decommissioned 3.1 pro aliases to 3.5 flash lite, 2.5/2.0 to 3.4 flash)
     let effectiveGeminiModel = requestedModel;
-    if (effectiveGeminiModel === "gemini-2.5-flash" || effectiveGeminiModel === "gemini-2.0-flash") {
-      // 2.5 Flash is no longer available on Google API, seamlessly route to ultra-stable 3.5 Flash workhorse
-      effectiveGeminiModel = "gemini-3.5-flash";
-    } else if (effectiveGeminiModel === "gemini-3.1-pro-preview" || effectiveGeminiModel === "gemini-pro") {
+    if (effectiveGeminiModel === "gemini-3.1-pro-preview" || effectiveGeminiModel === "gemini-3.1-pro" || effectiveGeminiModel === "gemini-pro") {
       effectiveGeminiModel = "gemini-3.5-flash-lite";
+    } else if (effectiveGeminiModel === "gemini-2.0-flash" || effectiveGeminiModel === "gemini-2.5-flash") {
+      effectiveGeminiModel = "gemini-3.4-flash";
     }
 
     // Verify model authorization based on plan tier
