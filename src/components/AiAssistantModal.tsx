@@ -575,19 +575,11 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
       });
 
     const loadData = async () => {
-      if (user?.uid) {
-        const userConvs = await loadUserConversations(user.uid);
-        if (isMounted) {
-          setConversations(userConvs);
-          // When app is started or loaded, always start fresh from a clean New Chat
-          if (!currentConversationId) {
-            setCurrentConversationId(null);
-            setMessages([getWelcomeMessage(mode)]);
-          }
-        }
-      } else {
-        // Guest / Not logged in
-        if (!currentConversationId || messages.length === 0) {
+      const activeUid = user?.uid || 'guest';
+      const userConvs = await loadUserConversations(activeUid);
+      if (isMounted) {
+        setConversations(userConvs);
+        if (!currentConversationId) {
           setCurrentConversationId(null);
           setMessages([getWelcomeMessage(mode)]);
         }
@@ -1070,9 +1062,10 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
       setCurrentConversationId(activeConvId);
 
       const newTitle = generateAutomaticTitle(text || 'Image Analysis');
+      const activeUid = user?.uid || 'guest';
       const newConv: Conversation = {
         id: activeConvId,
-        userId: user.uid,
+        userId: activeUid,
         title: newTitle,
         mode,
         provider,
@@ -1081,13 +1074,14 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
         lastMessagePreview: text.slice(0, 80),
       };
 
-      await saveConversation(user.uid, newConv);
+      await saveConversation(activeUid, newConv);
       setConversations((prev) => [newConv, ...prev]);
     }
 
-    // Save user message to Firestore
-    if (user?.uid && activeConvId) {
-      saveMessage(user.uid, activeConvId, userMsg);
+    const activeUidForMsg = user?.uid || 'guest';
+    // Save user message
+    if (activeConvId) {
+      saveMessage(activeUidForMsg, activeConvId, userMsg);
     }
 
     // 5. Connect SSE to /api/chat with Memory Context & Grounding
@@ -1311,15 +1305,16 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
         throw new Error(streamError);
       }
 
-      // Save finalized assistant message to Firestore
-      if (user?.uid && activeConvId && accumulatedContent) {
+      // Save finalized assistant message
+      if (activeConvId && accumulatedContent) {
+        const activeUid = user?.uid || 'guest';
         const finalizedMsg: ChatMessage = {
           ...assistantMsg,
           content: accumulatedContent,
           provider: streamProvider,
           citations: gatheredCitations.length > 0 ? gatheredCitations : undefined,
         };
-        await saveMessage(user.uid, activeConvId, finalizedMsg);
+        await saveMessage(activeUid, activeConvId, finalizedMsg);
       }
     } catch (err: any) {
       if (err.name === 'AbortError') {

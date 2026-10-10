@@ -94,9 +94,13 @@ export function generateAutomaticTitle(prompt: string): string {
 /**
  * Load all user conversations with Firestore + localStorage fallback
  */
-export async function loadUserConversations(userId: string): Promise<Conversation[]> {
-  if (!userId) return [];
-  const localList = getLocalConversations(userId);
+export async function loadUserConversations(userId: string = 'guest'): Promise<Conversation[]> {
+  const effectiveUserId = userId || 'guest';
+  const localList = getLocalConversations(effectiveUserId);
+
+  if (!userId || userId === 'guest') {
+    return localList;
+  }
 
   try {
     const convsRef = collection(db, 'users', userId, 'conversations');
@@ -130,11 +134,12 @@ export async function loadUserConversations(userId: string): Promise<Conversatio
 /**
  * Save or update a conversation in Firestore and local storage
  */
-export async function saveConversation(userId: string, conv: Conversation): Promise<void> {
-  if (!userId || !conv.id) return;
+export async function saveConversation(userId: string = 'guest', conv: Conversation): Promise<void> {
+  if (!conv.id) return;
+  const effectiveUserId = userId || 'guest';
 
   // 1. Update local cache immediately for zero-latency UI
-  const currentLocal = getLocalConversations(userId);
+  const currentLocal = getLocalConversations(effectiveUserId);
   const idx = currentLocal.findIndex((c) => c.id === conv.id);
   let updatedLocal: Conversation[];
   if (idx >= 0) {
@@ -143,9 +148,11 @@ export async function saveConversation(userId: string, conv: Conversation): Prom
   } else {
     updatedLocal = [conv, ...currentLocal];
   }
-  setLocalConversations(userId, updatedLocal);
+  setLocalConversations(effectiveUserId, updatedLocal);
 
-  // 2. Persist to Firestore
+  // 2. Persist to Firestore if user is authenticated
+  if (!userId || userId === 'guest') return;
+
   try {
     const docRef = doc(db, 'users', userId, 'conversations', conv.id);
     const dataToSave = {
@@ -237,11 +244,11 @@ export async function renameConversation(userId: string, convId: string, newTitl
 /**
  * Load all messages for a conversation
  */
-export async function loadConversationMessages(userId: string, convId: string): Promise<ChatMessage[]> {
+export async function loadConversationMessages(userId: string = 'guest', convId: string): Promise<ChatMessage[]> {
   if (!convId) return [];
   const local = getLocalMessages(convId);
 
-  if (!userId) return local;
+  if (!userId || userId === 'guest') return local;
 
   try {
     const msgsRef = collection(db, 'users', userId, 'conversations', convId, 'messages');
@@ -266,7 +273,7 @@ export async function loadConversationMessages(userId: string, convId: string): 
 /**
  * Save an individual message to Firestore and local cache
  */
-export async function saveMessage(userId: string, convId: string, msg: ChatMessage): Promise<void> {
+export async function saveMessage(userId: string = 'guest', convId: string, msg: ChatMessage): Promise<void> {
   if (!convId || !msg.id) return;
 
   // 1. Update local cache
@@ -281,8 +288,8 @@ export async function saveMessage(userId: string, convId: string, msg: ChatMessa
   }
   setLocalMessages(convId, updatedMsgs);
 
-  // 2. Persist to Firestore
-  if (!userId) return;
+  // 2. Persist to Firestore if user is authenticated
+  if (!userId || userId === 'guest') return;
 
   try {
     const docRef = doc(db, 'users', userId, 'conversations', convId, 'messages', msg.id);
