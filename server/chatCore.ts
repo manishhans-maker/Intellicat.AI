@@ -235,7 +235,7 @@ export async function resolveGroqModel(groq: Groq): Promise<string> {
 
 // Track Google Search tool quota state to avoid redundant 429 failures
 // Search grounding tool quota is currently unavailable on standard keys, so we default to standard inference
-let searchQuotaDisabledUntil = Date.now() + 24 * 60 * 60 * 1000;
+let searchQuotaDisabledUntil = 0;
 
 export function isSearchQuotaExhausted(): boolean {
   return Date.now() < searchQuotaDisabledUntil;

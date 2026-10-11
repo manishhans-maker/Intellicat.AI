@@ -745,23 +745,22 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
     setError(null);
     setAttachments([]);
 
-    if (user?.uid) {
-      const msgs = await loadConversationMessages(user.uid, convId);
-      setMessages(msgs.length > 0 ? msgs : [getWelcomeMessage(selectedConv.mode)]);
-    }
+    const activeUid = user?.uid || 'guest';
+    const msgs = await loadConversationMessages(activeUid, convId);
+    setMessages(msgs.length > 0 ? msgs : [getWelcomeMessage(selectedConv.mode)]);
   };
 
   const handleRenameConversation = async (convId: string, newTitle: string) => {
-    if (!user?.uid) return;
-    await renameConversation(user.uid, convId, newTitle);
+    const activeUid = user?.uid || 'guest';
+    await renameConversation(activeUid, convId, newTitle);
     setConversations((prev) =>
       prev.map((c) => (c.id === convId ? { ...c, title: newTitle } : c))
     );
   };
 
   const handleDeleteConversation = async (convId: string) => {
-    if (!user?.uid) return;
-    await deleteConversation(user.uid, convId);
+    const activeUid = user?.uid || 'guest';
+    await deleteConversation(activeUid, convId);
     setConversations((prev) => prev.filter((c) => c.id !== convId));
     if (currentConversationId === convId) {
       handleNewChat();
@@ -769,8 +768,8 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
   };
 
   const handleTogglePin = async (convId: string, currentPinned: boolean) => {
-    if (!user?.uid) return;
-    await togglePinConversation(user.uid, convId, currentPinned);
+    const activeUid = user?.uid || 'guest';
+    await togglePinConversation(activeUid, convId, currentPinned);
     setConversations((prev) => {
       const updated = prev.map((c) => (c.id === convId ? { ...c, isPinned: !currentPinned } : c));
       return updated.sort((a, b) => {
@@ -782,8 +781,8 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
   };
 
   const handleToggleArchive = async (convId: string, currentArchived: boolean) => {
-    if (!user?.uid) return;
-    await toggleArchiveConversation(user.uid, convId, currentArchived);
+    const activeUid = user?.uid || 'guest';
+    await toggleArchiveConversation(activeUid, convId, currentArchived);
     setConversations((prev) =>
       prev.map((c) => (c.id === convId ? { ...c, isArchived: !currentArchived } : c))
     );
