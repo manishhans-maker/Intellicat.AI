@@ -63,8 +63,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onExportAllData,
   onClearAllHistory,
 }) => {
-  const { user, userProfile, remainingRequests, requestCount, maxRequests, isLimitReached } =
-    useAuth();
+  const {
+    user,
+    userProfile,
+    remainingRequests,
+    requestCount,
+    maxRequests,
+    isLimitReached,
+    cooldownStage,
+    isRecoveryStage,
+    cooldownRemainingSeconds,
+    cooldownFormatted,
+    renewQuotaNow,
+    isOwner,
+    isUnlimited,
+  } = useAuth();
+  const [resetSuccess, setResetSuccess] = useState(false);
 
   const [activeTab, setActiveTab] = useState<'memory' | 'model' | 'voice' | 'usage' | 'theme' | 'data'>('memory');
 
@@ -787,9 +801,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         Current Account Tier
                       </span>
                       <h4 className="text-base font-bold text-white capitalize flex items-center gap-2">
-                        <span>{userProfile?.tier || 'Free Explorer'} Tier</span>
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-mono">
-                          Limit Enforced
+                        <span>{isOwner ? 'Platform Owner 👑' : `${userProfile?.tier || 'Free Explorer'} Tier`}</span>
+                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-mono ${
+                          isUnlimited ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-300'
+                        }`}>
+                          {isUnlimited ? 'Unlimited' : isRecoveryStage ? 'Recovery Mode (5 Chats)' : 'Base Window (10 Chats)'}
                         </span>
                       </h4>
                     </div>
@@ -799,7 +815,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         Remaining Queries
                       </span>
                       <div className="text-lg font-black text-[#EF233C]">
-                        {remainingRequests} / {maxRequests}
+                        {isUnlimited ? '∞' : `${remainingRequests} / ${maxRequests}`}
                       </div>
                     </div>
                   </div>
@@ -809,14 +825,64 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <div
                       className="h-full bg-gradient-to-r from-emerald-500 via-amber-500 to-[#EF233C] transition-all duration-300"
                       style={{
-                        width: `${Math.min(100, (requestCount / (maxRequests || 1)) * 100)}%`,
+                        width: isUnlimited ? '100%' : `${Math.min(100, (requestCount / (maxRequests || 1)) * 100)}%`,
                       }}
                     />
                   </div>
 
                   <div className="flex items-center justify-between text-[11px] text-neutral-400">
-                    <span>Used: {requestCount} requests</span>
-                    <span>Max Allowed: {maxRequests} requests</span>
+                    <span>Used: {isUnlimited ? '0' : requestCount} requests</span>
+                    <span>Max Allowed: {isUnlimited ? 'Unlimited' : `${maxRequests} requests`}</span>
+                  </div>
+                </div>
+
+                {/* Cooldown Status & Diagnostics Card */}
+                <div className={`p-4 rounded-2xl border ${
+                  cooldownRemainingSeconds > 0
+                    ? 'bg-rose-950/20 border-rose-500/30'
+                    : isRecoveryStage
+                    ? 'bg-amber-950/20 border-amber-500/30'
+                    : 'bg-emerald-950/20 border-emerald-500/30'
+                } space-y-3`}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="text-base">
+                        {cooldownRemainingSeconds > 0 ? (cooldownStage === 2 ? '🛑' : '⏳') : (isRecoveryStage ? '🛡️' : '⚡')}
+                      </span>
+                      <div>
+                        <div className="text-xs font-bold text-white">
+                          {cooldownRemainingSeconds > 0
+                            ? (cooldownStage === 2 ? 'Extended 6-Hour Cooldown Active' : '3-Hour Cooldown Active')
+                            : (isRecoveryStage ? 'Recovery Refill Active (5 Chats Unlocked)' : 'System Ready • Quota Normal')}
+                        </div>
+                        <div className="text-[11px] text-neutral-400">
+                          {cooldownRemainingSeconds > 0
+                            ? `${cooldownFormatted} remaining until ${cooldownStage === 2 ? 'full 10-chat reset' : '5 recovery chats unlock'}`
+                            : (isRecoveryStage
+                                ? 'You are using your 5 replenishment recovery chats'
+                                : 'Ready to synthesize answers without rate limit delay')}
+                        </div>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        await renewQuotaNow();
+                        setResetSuccess(true);
+                        setTimeout(() => setResetSuccess(false), 2500);
+                      }}
+                      className="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border border-white/15"
+                    >
+                      {resetSuccess ? (
+                        <>
+                          <Check className="w-3.5 h-3.5 text-emerald-400" />
+                          <span className="text-emerald-400">Reset Complete!</span>
+                        </>
+                      ) : (
+                        <span>Instant Reset</span>
+                      )}
+                    </button>
                   </div>
                 </div>
 

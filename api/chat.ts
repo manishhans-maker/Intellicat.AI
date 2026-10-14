@@ -58,10 +58,10 @@ const COOLDOWN_STAGE_2_MS = 6 * 3600 * 1000; // 6 hours
 
 function checkAndIncrementQuota(
   userId: string | undefined,
-  tier: "free" | "pro" | "elite" | "vip" | "founder" = "free"
+  tier: "free" | "pro" | "elite" | "vip" | "founder" | "owner" = "free"
 ): { allowed: boolean; remaining: number; max: number; error?: string } {
-  // Only verified founder tier is truly unlimited
-  if (tier === "founder") {
+  // Founder and platform owner are truly unlimited
+  if (tier === "founder" || tier === "owner") {
     return { allowed: true, remaining: 999999, max: 999999 };
   }
 
@@ -616,12 +616,14 @@ export default async function handler(req: any, res: any) {
     }
 
     // Determine effective user plan tier strictly
-    let effectiveTier: "free" | "pro" | "elite" | "founder" = "free";
-    if (requestedUserTier === "pro") {
+    let effectiveTier: "free" | "pro" | "elite" | "founder" | "owner" = "free";
+    if (requestedUserTier === "owner" || isVipOrFounder) {
+      effectiveTier = "founder";
+    } else if (requestedUserTier === "pro") {
       effectiveTier = "pro";
     } else if (requestedUserTier === "elite") {
       effectiveTier = "elite";
-    } else if (requestedUserTier === "founder" && isVipOrFounder) {
+    } else if (requestedUserTier === "founder") {
       effectiveTier = "founder";
     } else {
       effectiveTier = "free";

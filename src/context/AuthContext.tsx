@@ -270,20 +270,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               effectiveTier = 'free';
             }
 
-            const activeMax = data.isRecovery
+            const isRec = isOwner ? false : Boolean(data.isRecovery);
+            const activeMax = isOwner
+              ? 999999
+              : isRec
               ? (TIER_RECOVERY_ALLOWANCE[effectiveTier] || 5)
               : (TIER_BASE_ALLOWANCE[effectiveTier] || 10);
 
-            const resolvedCount = isOwner ? 0 : Math.max(Number(data.requestCount) || 0, cachedUsage.count || 0);
+            const resolvedCount = isOwner ? 0 : (typeof data.requestCount === 'number' ? data.requestCount : 0);
+            const resolvedStage = isOwner ? 0 : (Number(data.cooldownStage) || 0) as 0 | 1 | 2;
+            const resolvedUntil = isOwner ? null : (data.cooldownUntil || null);
 
             const profile: UserProfile = {
               ...data,
               tier: effectiveTier,
               maxRequests: isOwner ? 999999 : activeMax,
               requestCount: resolvedCount,
-              cooldownStage: isOwner ? 0 : (data.cooldownStage ?? cachedUsage.cooldownStage ?? 0),
-              cooldownUntil: isOwner ? null : (data.cooldownUntil ?? cachedUsage.cooldownUntil ?? null),
-              isRecovery: isOwner ? false : Boolean(data.isRecovery || cachedUsage.isRecovery),
+              cooldownStage: resolvedStage,
+              cooldownUntil: resolvedUntil,
+              isRecovery: isRec,
             };
 
             setUserProfile(profile);
@@ -416,6 +421,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       const now = Date.now();
 
+      // Case 1: Active cooldown countdown
       if (cooldownStage > 0 && cooldownUntil) {
         const untilMs = new Date(cooldownUntil).getTime();
         const diffMs = untilMs - now;
@@ -427,19 +433,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setCooldownRemainingSeconds(0);
 
           if (cooldownStage === 1) {
-            // Stage 1 (3 hours) finished -> transition to Recovery Stage!
-            const newMax = TIER_RECOVERY_ALLOWANCE[tier];
+            // Stage 1 (3 hours) finished -> transition to Recovery Stage (e.g. 5 free chats)!
+            const newMax = TIER_RECOVERY_ALLOWANCE[tier] || 5;
             if (user?.uid) {
               const userRef = doc(db, 'users', user.uid);
-              updateDoc(userRef, {
+              await updateDoc(userRef, {
                 cooldownStage: 0,
                 cooldownUntil: null,
                 isRecovery: true,
                 requestCount: 0,
                 maxRequests: newMax,
                 updatedAt: new Date().toISOString(),
-              }).catch(() => {});
+              }).catch((e) => console.warn('Recovery transition Firestore error:', e));
+
+              try {
+                localStorage.setItem(
+                  `intelicat_user_usage_${user.uid}`,
+                  JSON.stringify({
+                    count: 0,
+                    cooldownStage: 0,
+                    cooldownUntil: null,
+                    isRecovery: true,
+                  })
+                );
+              } catch {}
             }
+
             setUserProfile((prev) =>
               prev
                 ? {
@@ -452,6 +471,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                   }
                 : null
             );
+
             setLocalUsage((prev) => {
               const next = { ...prev, cooldownStage: 0 as const, cooldownUntil: null, isRecovery: true, count: 0 };
               try {
@@ -463,11 +483,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               return next;
             });
           } else if (cooldownStage === 2) {
-            // Stage 2 (6 hours) finished -> complete full cycle reset!
-            const newMax = TIER_BASE_ALLOWANCE[tier];
+            // Stage 2 (6 hours) finished -> complete full cycle reset (e.g. 10 fresh chats)!
+            const newMax = TIER_BASE_ALLOWANCE[tier] || 10;
             if (user?.uid) {
               const userRef = doc(db, 'users', user.uid);
-              updateDoc(userRef, {
+              await updateDoc(userRef, {
                 cooldownStage: 0,
                 cooldownUntil: null,
                 isRecovery: false,
@@ -475,8 +495,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 maxRequests: newMax,
                 lastResetTime: new Date().toISOString(),
                 updatedAt: new Date().toISOString(),
-              }).catch(() => {});
+              }).catch((e) => console.warn('Full reset Firestore error:', e));
+
+              try {
+                localStorage.setItem(
+                  `intelicat_user_usage_${user.uid}`,
+                  JSON.stringify({
+                    count: 0,
+                    cooldownStage: 0,
+                    cooldownUntil: null,
+                    isRecovery: false,
+                  })
+                );
+              } catch {}
             }
+
             setUserProfile((prev) =>
               prev
                 ? {
@@ -490,6 +523,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                   }
                 : null
             );
+
             setLocalUsage((prev) => {
               const next = { ...prev, cooldownStage: 0 as const, cooldownUntil: null, isRecovery: false, count: 0 };
               try {
@@ -502,6 +536,53 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             });
           }
         }
+      } else if (cooldownStage === 0 && requestCount >= maxRequests && !isUnlimited) {
+        // Case 2: Self-heal if quota is exhausted but cooldown was never initiated
+        const nextStage: 1 | 2 = isRecoveryStage ? 2 : 1;
+        const durationMs = isRecoveryStage ? COOLDOWN_STAGE_2_MS : COOLDOWN_STAGE_1_MS;
+        const nextUntil = new Date(Date.now() + durationMs).toISOString();
+
+        setCooldownRemainingSeconds(Math.ceil(durationMs / 1000));
+
+        if (user?.uid) {
+          const userRef = doc(db, 'users', user.uid);
+          updateDoc(userRef, {
+            cooldownStage: nextStage,
+            cooldownUntil: nextUntil,
+            updatedAt: new Date().toISOString(),
+          }).catch(() => {});
+
+          try {
+            localStorage.setItem(
+              `intelicat_user_usage_${user.uid}`,
+              JSON.stringify({
+                count: requestCount,
+                cooldownStage: nextStage,
+                cooldownUntil: nextUntil,
+                isRecovery: isRecoveryStage,
+              })
+            );
+          } catch {}
+        }
+
+        setUserProfile((prev) =>
+          prev
+            ? {
+                ...prev,
+                cooldownStage: nextStage,
+                cooldownUntil: nextUntil,
+              }
+            : null
+        );
+
+        setLocalUsage((prev) => {
+          const next = { ...prev, cooldownStage: nextStage, cooldownUntil: nextUntil };
+          try {
+            localStorage.setItem('intelicat_quota_stage', String(nextStage));
+            localStorage.setItem('intelicat_quota_until', nextUntil);
+          } catch {}
+          return next;
+        });
       } else {
         setCooldownRemainingSeconds(0);
       }
@@ -510,7 +591,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     checkCooldownAndTick();
     const interval = setInterval(checkCooldownAndTick, 1000);
     return () => clearInterval(interval);
-  }, [cooldownStage, cooldownUntil, isUnlimited, tier, user?.uid]);
+  }, [cooldownStage, cooldownUntil, isUnlimited, tier, user?.uid, requestCount, maxRequests, isRecoveryStage]);
 
   const cooldownFormatted = useMemo(() => {
     if (cooldownRemainingSeconds <= 0) return '00:00:00';
@@ -601,14 +682,36 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           cooldownStage: 0,
           cooldownUntil: null,
           isRecovery: false,
-          maxRequests: TIER_BASE_ALLOWANCE[tier],
+          maxRequests: TIER_BASE_ALLOWANCE[tier] || 10,
           lastResetTime: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         });
+
+        try {
+          localStorage.setItem(
+            `intelicat_user_usage_${user.uid}`,
+            JSON.stringify({
+              count: 0,
+              cooldownStage: 0,
+              cooldownUntil: null,
+              isRecovery: false,
+            })
+          );
+        } catch {}
       } catch (e) {
         console.warn('Manual renew error:', e);
       }
     }
+
+    try {
+      localStorage.setItem('intelicat_quota_count', '0');
+      localStorage.setItem('intelicat_quota_stage', '0');
+      localStorage.removeItem('intelicat_quota_until');
+      localStorage.setItem('intelicat_quota_recovery', 'false');
+    } catch {}
+
+    setCooldownRemainingSeconds(0);
+
     setUserProfile((prev) =>
       prev
         ? {
@@ -617,18 +720,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             cooldownStage: 0,
             cooldownUntil: null,
             isRecovery: false,
-            maxRequests: TIER_BASE_ALLOWANCE[tier],
+            maxRequests: TIER_BASE_ALLOWANCE[tier] || 10,
             lastResetTime: new Date().toISOString(),
           }
         : null
     );
-    setLocalUsage((prev) => ({
-      ...prev,
+
+    setLocalUsage({
       count: 0,
       cooldownStage: 0,
       cooldownUntil: null,
       isRecovery: false,
-    }));
+    });
   };
 
   // Consume chat request & activate 3-hour or 6-hour cooldowns when limit is hit
