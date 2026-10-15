@@ -181,17 +181,12 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
   const [selectedModel, setSelectedModel] = useState<string>(() => {
     try {
       const saved = localStorage.getItem('intelicat_selected_model');
-      if (saved === 'gemini-2.5-flash' || saved === 'gemini-3.4-flash') {
-        localStorage.setItem('intelicat_selected_model', 'gemini-3.6-flash');
-        return 'gemini-3.6-flash';
-      }
-      if (saved === 'gemini-3.1-pro' || saved === 'gemini-3.1-pro-preview') return 'gemini-3.5-flash-lite';
       if (saved && AVAILABLE_AI_MODELS.some((m) => m.id === saved)) {
         return saved;
       }
-      return 'gemini-3.6-flash';
+      return 'gemini-3.5-flash-lite';
     } catch {
-      return 'gemini-3.6-flash';
+      return 'gemini-3.5-flash-lite';
     }
   });
   const [modelCategoryFilter, setModelCategoryFilter] = useState<'all' | 'gemini' | 'groq'>('all');
@@ -406,6 +401,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
 
   // Dedicated Built Website Artifact Split-Screen View
   const [isSplitView, setIsSplitView] = useState(false);
+  const [showMobilePreviewModal, setShowMobilePreviewModal] = useState(false);
 
   // Fullscreen / Maximize mode for laptops and smaller displays
   const [isFullscreen, setIsFullscreen] = useState<boolean>(() => {
@@ -438,24 +434,42 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
     for (let i = messages.length - 1; i >= 0; i--) {
       const msg = messages[i];
       if (msg.role === 'assistant' && msg.content) {
-        const codeBlockMatch = /```(\w+)?\n([\s\S]*?)```/.exec(msg.content);
-        if (codeBlockMatch) {
-          const lang = codeBlockMatch[1];
-          const code = codeBlockMatch[2];
-          const isMsgCatCode = msg.mode === 'cat-code' || mode === 'cat-code';
-          if (isPreviewableArtifact(lang, code, isMsgCatCode)) {
-            return {
-              language: lang,
+        const isMsgCode = msg.mode === 'cat-code' || msg.mode === 'coding' || mode === 'cat-code' || mode === 'coding';
+        // Robust regex matching ```language\n ... ``` or ```\n ... ``` with optional trailing whitespace and CRLF
+        const codeBlockRegex = /```([a-zA-Z0-9_-]*)[^\n]*\r?\n([\s\S]*?)```/g;
+        let match: RegExpExecArray | null;
+        let lastFound: { language: string; code: string; messageId: string; isCatCode: boolean } | null = null;
+        while ((match = codeBlockRegex.exec(msg.content)) !== null) {
+          const lang = (match[1] || '').trim();
+          const code = match[2] || '';
+          if (isPreviewableArtifact(lang, code, isMsgCode)) {
+            lastFound = {
+              language: lang || 'html',
               code,
               messageId: msg.id,
-              isCatCode: isMsgCatCode,
+              isCatCode: isMsgCode,
             };
           }
         }
+        if (lastFound) return lastFound;
       }
     }
     return null;
   }, [messages, mode]);
+
+  // Auto-launch side-by-side preview on desktop when an interactive website artifact is built
+  const autoPreviewOpenedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (latestArtifact && (mode === 'cat-code' || mode === 'coding')) {
+      const artifactKey = `${latestArtifact.messageId}-${latestArtifact.code.length}`;
+      if (autoPreviewOpenedRef.current !== artifactKey) {
+        autoPreviewOpenedRef.current = artifactKey;
+        if (typeof window !== 'undefined' && window.innerWidth >= 1024) {
+          setIsSplitView(true);
+        }
+      }
+    }
+  }, [latestArtifact, mode]);
 
   const getWelcomeMessage = (selectedMode: ChatMode = 'normal'): ChatMessage => {
     switch (selectedMode) {
@@ -1134,7 +1148,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
         mode,
         provider,
         model: selectedModel,
-        webSearch: webSearchEnabled,
+        webSearch: Boolean(webSearchEnabled || mode === 'search'),
         userId: user?.uid || undefined,
         isVipOrFounder: isUnlimitedAccount,
         userTier: tier,
@@ -1619,10 +1633,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                         if (typeof window !== 'undefined' && window.innerWidth >= 1024) {
                           setIsSplitView((prev) => !prev);
                         } else {
-                          const artifactEl = document.querySelector('[data-artifact="true"]');
-                          if (artifactEl) {
-                            artifactEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                          }
+                          setShowMobilePreviewModal(true);
                         }
                       }}
                       type="button"
@@ -2638,7 +2649,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                         ) : msg.content ? (
                           <MarkdownRenderer
                             content={msg.content}
-                            isCatCode={msg.mode === 'cat-code' || mode === 'cat-code'}
+                            isCatCode={msg.mode === 'cat-code' || msg.mode === 'coding' || mode === 'cat-code' || mode === 'coding'}
                           />
                         ) : msg.isError || (!loading && index === messages.length - 1) ? (
                           <div className="flex flex-col gap-2.5 py-1 text-red-300">
@@ -3101,6 +3112,44 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
         </div>
       </div>
     </motion.div>
+
+        {/* Fullscreen Mobile Website Artifact Preview Modal */}
+        {showMobilePreviewModal && latestArtifact && (
+          <div
+            className="fixed inset-0 z-[120] flex flex-col p-2 sm:p-4 bg-black/95 backdrop-blur-xl animate-in fade-in"
+            onClick={() => setShowMobilePreviewModal(false)}
+          >
+            <div
+              className="relative w-full h-full max-h-[96vh] bg-[#0c0c14] border border-white/20 rounded-2xl flex flex-col shadow-2xl overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between px-3 py-2 bg-[#12121c] border-b border-white/10 shrink-0">
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#EF233C]/20 border border-[#EF233C]/40 text-[#EF233C] text-xs font-bold shadow-sm">
+                    <Cat className="w-3.5 h-3.5 animate-pulse" />
+                    <span>Live Website Sandbox</span>
+                  </div>
+                  <span className="text-[11px] text-neutral-400">Interactive Preview</span>
+                </div>
+                <button
+                  onClick={() => setShowMobilePreviewModal(false)}
+                  type="button"
+                  className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-neutral-200 hover:text-white cursor-pointer"
+                  title="Close Preview"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="flex-1 overflow-hidden">
+                <ArtifactRunner
+                  language={latestArtifact.language}
+                  code={latestArtifact.code}
+                  isCatCode={latestArtifact.isCatCode}
+                />
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Fullscreen Photo Lightbox Modal */}
         {previewPhoto && (

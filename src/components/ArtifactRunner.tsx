@@ -51,20 +51,31 @@ export function isPreviewableArtifact(language?: string, code?: string, isCatCod
   const lang = (language || '').toLowerCase().trim();
   const trimmed = code.trim();
 
-  // If in Cat Code mode, any web-related code is treated as an artifact
+  // If in Cat Code or Coding mode, any web-related code snippet is treated as a live previewable website artifact
   if (isCatCode) {
     if (['html', 'htm', 'xhtml', 'svg', 'xml', 'jsx', 'tsx', 'react', 'js', 'javascript', 'typescript', 'ts', 'css'].includes(lang)) {
       if (trimmed.length > 20) return true;
     }
   }
 
-  // HTML or SVG
+  // HTML or SVG - always previewable
   if (['html', 'htm', 'xhtml', 'svg', 'xml'].includes(lang)) {
     return true;
   }
 
-  // React / JSX / TSX / TypeScript
-  if (['jsx', 'tsx', 'react', 'typescript', 'ts'].includes(lang)) {
+  // Any code containing case-insensitive HTML structure, doctype, or interactive canvas
+  if (
+    /<!doctype\s+html/i.test(trimmed) ||
+    /<html[\s>]/i.test(trimmed) ||
+    (/<head[\s>]/i.test(trimmed) && /<\/head>/i.test(trimmed)) ||
+    (/<body[\s>]/i.test(trimmed) && /<\/body>/i.test(trimmed)) ||
+    (/<div[\s>]/i.test(trimmed) && /<\/div>/i.test(trimmed) && (/<script[\s>]/i.test(trimmed) || /<style[\s>]/i.test(trimmed) || /class=/i.test(trimmed)))
+  ) {
+    return true;
+  }
+
+  // React / JSX / TSX / TypeScript components
+  if (['jsx', 'tsx', 'react', 'typescript', 'ts'].includes(lang) || trimmed.includes('import React') || trimmed.includes('export default')) {
     if (
       trimmed.includes('<') &&
       (trimmed.includes('return') ||
@@ -81,12 +92,12 @@ export function isPreviewableArtifact(language?: string, code?: string, isCatCod
     }
   }
 
-  // JavaScript with DOM manipulation or HTML tags
+  // JavaScript with DOM manipulation, canvas, or event listeners
   if (['javascript', 'js'].includes(lang)) {
     if (
-      trimmed.includes('<!DOCTYPE') ||
-      trimmed.includes('<html') ||
-      trimmed.includes('<div') ||
+      /<!doctype/i.test(trimmed) ||
+      /<html/i.test(trimmed) ||
+      /<div/i.test(trimmed) ||
       trimmed.includes('document.getElementById') ||
       trimmed.includes('document.querySelector') ||
       trimmed.includes('document.createElement') ||
@@ -96,16 +107,6 @@ export function isPreviewableArtifact(language?: string, code?: string, isCatCod
     ) {
       return true;
     }
-  }
-
-  // Explicit DOCTYPE or full HTML structure regardless of language tag
-  if (
-    trimmed.startsWith('<!DOCTYPE html') ||
-    trimmed.startsWith('<html') ||
-    (trimmed.includes('<body') && trimmed.includes('</body>')) ||
-    (trimmed.includes('<div') && trimmed.includes('</div>') && (trimmed.includes('<script') || trimmed.includes('<style') || trimmed.includes('class=')))
-  ) {
-    return true;
   }
 
   return false;

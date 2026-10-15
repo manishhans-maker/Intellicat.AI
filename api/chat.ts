@@ -237,18 +237,86 @@ async function resolveGroqModel(groq: Groq, preferredModel?: string): Promise<st
   return "llama-3.1-8b-instant";
 }
 
-// Primary Gemini model cascade: default to ultra-stable 3.6 Flash
-const GEMINI_PRIMARY_MODEL = "gemini-3.6-flash";
+// Primary Gemini model cascade: default to ultra-fast gemini-3.5-flash-lite
+const GEMINI_PRIMARY_MODEL = "gemini-3.5-flash-lite";
 const GEMINI_MODELS_CASCADE = [
-  "gemini-3.6-flash",
-  "gemini-3.8-flash",
-  "gemini-3.7-flash",
-  "gemini-3.5-flash",
   "gemini-3.5-flash-lite",
+  "gemini-3.5-flash",
+  "gemini-3.6-flash",
+  "gemini-3.7-flash",
   "gemini-3.1-flash-lite",
   "gemini-flash-latest",
-  "gemini-flash-lite-latest",
+  "gemini-3.8-flash",
 ];
+
+// Real-Time Web Search & Grounding Engine (Google News RSS + Wikipedia Facts)
+interface LiveSearchResult {
+  citations: { title: string; uri: string }[];
+  snippets: string[];
+}
+
+async function performRealtimeSearch(query: string): Promise<LiveSearchResult> {
+  const citations: { title: string; uri: string }[] = [];
+  const snippets: string[] = [];
+  const cleanQuery =
+    query
+      .replace(/(search for|who is|what is|tell me about|find news about|latest news on|can you search|please search)\s+/gi, "")
+      .trim() || query.trim();
+
+  // 1. Wikipedia Fact Retrieval
+  try {
+    const wikiUrl = `https://en.wikipedia.org/w/api.php?action=opensearch&search=${encodeURIComponent(cleanQuery)}&limit=3&namespace=0&format=json`;
+    const res = await fetch(wikiUrl, { signal: AbortSignal.timeout(2200) });
+    const data: any = await res.json();
+    if (data && Array.isArray(data[1]) && data[1].length > 0) {
+      for (let i = 0; i < Math.min(2, data[1].length); i++) {
+        const title = data[1][i];
+        const pageUrl = data[3]?.[i] || `https://en.wikipedia.org/wiki/${encodeURIComponent(title)}`;
+        try {
+          const sumRes = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`, {
+            signal: AbortSignal.timeout(1800),
+          });
+          const sumData: any = await sumRes.json();
+          if (sumData?.extract) {
+            citations.push({ title: sumData.title || title, uri: pageUrl });
+            snippets.push(`[Source: ${sumData.title || title}](${pageUrl}): ${sumData.extract}`);
+          }
+        } catch {
+          citations.push({ title, uri: pageUrl });
+        }
+      }
+    }
+  } catch (wikiErr) {
+    console.warn("Wiki search fallback notice:", wikiErr);
+  }
+
+  // 2. Google News Live Headlines
+  try {
+    const newsUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(cleanQuery)}&hl=en-US&gl=US&ceid=US:en`;
+    const res = await fetch(newsUrl, {
+      headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" },
+      signal: AbortSignal.timeout(2200),
+    });
+    const xml = await res.text();
+    const itemRegex = /<item>[\s\S]*?<title>([\s\S]*?)<\/title>[\s\S]*?<link>([\s\S]*?)<\/link>[\s\S]*?<pubDate>([\s\S]*?)<\/pubDate>/g;
+    let m;
+    let count = 0;
+    while ((m = itemRegex.exec(xml)) && count < 3) {
+      count++;
+      const cleanTitle = m[1].replace(/<!\[CDATA\[|\]\]>/g, "").replace(/&quot;/g, '"').replace(/&#39;/g, "'").trim();
+      const link = m[2].trim();
+      const pubDate = m[3]?.trim();
+      if (!citations.some((c) => c.title === cleanTitle)) {
+        citations.push({ title: cleanTitle, uri: link });
+        snippets.push(`[Recent Headline: ${cleanTitle}] (Published: ${pubDate || "Recent"})`);
+      }
+    }
+  } catch (newsErr) {
+    console.warn("News RSS fallback notice:", newsErr);
+  }
+
+  return { citations, snippets };
+}
 
 // --- Message Formatting ---
 interface ValidatedAttachment {
@@ -422,7 +490,8 @@ function getSystemInstruction(
   mode: string,
   studyGrade?: string,
   spaceContext?: string,
-  memoriesContext?: string
+  memoriesContext?: string,
+  liveSearchContext?: string
 ): string {
   let baseInstruction = "";
 
@@ -447,9 +516,10 @@ function getSystemInstruction(
 
     case "search":
       baseInstruction = `You are IntelicatAI in Web Search Mode.
-- Deliver up-to-date, fact-checked information synthesized clearly.
-- Always organize results logically with summaries, clear key takeaways, and references to credible sources.
-- Highlight verifiable facts, dates, and recent developments.`;
+- Deliver up-to-date, fact-checked information synthesized clearly and objectively.
+- Always organize results logically with a concise summary, key facts/bullet points, and references to credible sources.
+- Highlight verifiable facts, dates, scores, and recent developments.
+- When live web search snippets or news headlines are provided, synthesize them directly and cite the source URLs accurately.`;
       break;
 
     case "creative":
@@ -461,15 +531,17 @@ function getSystemInstruction(
 
     case "coding":
     case "cat-code":
-      baseInstruction = `You are IntelicatAI 🐾, the legendary Cybernetic Cat Coder.
-- Elite master of TypeScript, JavaScript, Python, Rust, Go, SQL, React, HTML/CSS, UI design, and Algorithms.
-- LIVE ARTIFACT & WEBSITE SYSTEM: The chat interface has an interactive Live Website Artifact engine that automatically renders web apps, games, landing pages, and components in real time!
-- When asked to build, create, or design any website, game, tool, calculator, dashboard, or web app:
-  * Provide the complete, self-contained, fully functioning runnable HTML/CSS/JavaScript or single-file React component in a single code block (e.g. \`\`\`html ... \`\`\` or \`\`\`jsx ... \`\`\`).
-  * Include interactive logic, state, modern Tailwind CSS classes, inline scripts, and nice styling so the user can immediately test, interact with, and play the website you built!
-  * Never use placeholders like "// implement later" or "<!-- add code here -->" — build the real, functioning app.
-- Highlight architectural patterns, edge cases, and performance with playful, sharp cybernetic cat personality.
-- Hunt down bugs with feline precision!`;
+      baseInstruction = `You are IntelicatAI, an Elite Senior Principal Software Architect and Systems Engineer.
+- High-Performance & Direct: Deliver concise, clean, production-grade code immediately. Zero fluff, zero unnecessary prelude, and zero chatty intros.
+- Code-First Priority:
+  1. For algorithms, functions, scripts, backend endpoints, and bug fixes: Immediately output the clean, fully-typed, optimized code block (TypeScript, Python, Go, Rust, SQL, etc.). Follow with a brief 2-3 bullet explanation of time/space complexity and edge cases.
+  2. LIVE WEBSITE PREVIEWS (Google AI Studio style): When the user asks to build, design, code, or create ANY website, web app, landing page, tool, calculator, game, dashboard, or UI:
+     - Provide the ENTIRE runnable application inside a single \`\`\`html code block.
+     - Include a full, self-contained HTML document with <!DOCTYPE html><html><head><script src="https://cdn.tailwindcss.com"></script></head><body>...<script>...</script></body></html>.
+     - Include all HTML structure, modern Tailwind CSS classes, inline JavaScript logic, state, and buttons so the user can test, click, and interact with the website immediately.
+     - The chat interface automatically launches the interactive Live Website Preview sandbox (with responsive Desktop, Tablet, and Mobile viewport modes and split screen), allowing the user to preview and interact with the website in real time just like Google AI Studio!
+     - Never use placeholders like "// implement later" or "<!-- add code here -->" — build the real, functioning app.
+  3. Clean formatting: Use standard markdown with explicit language tags (e.g. \`\`\`html, \`\`\`typescript, \`\`\`python).`;
       break;
 
     case "study":
@@ -509,6 +581,11 @@ function getSystemInstruction(
   // Append Active Memories Context if enabled
   if (memoriesContext && memoriesContext.trim()) {
     baseInstruction += `\n\n[User Memory Context — Personalize responses based on these known facts]:\n${memoriesContext.trim()}`;
+  }
+
+  // Append Real-time Web Search Grounding Context if retrieved
+  if (liveSearchContext && liveSearchContext.trim()) {
+    baseInstruction += `\n\n[Verified Real-Time Search Results & Live Facts]:\n${liveSearchContext.trim()}\n\n[Directive]: Synthesize these up-to-date facts accurately into your response and cite key sources.`;
   }
 
   return baseInstruction;
@@ -641,23 +718,25 @@ export default async function handler(req: any, res: any) {
       });
     }
 
-    // Normalize requested Gemini models (mapping legacy aliases and nonexistent models to robust 3.6 flash)
+    // Normalize requested Gemini models (mapping legacy aliases)
     let effectiveGeminiModel = requestedModel;
-    if (effectiveGeminiModel === "gemini-3.1-pro-preview" || effectiveGeminiModel === "gemini-3.1-pro" || effectiveGeminiModel === "gemini-pro") {
-      effectiveGeminiModel = "gemini-3.5-flash-lite";
-    } else if (
+    if (
+      effectiveGeminiModel === "gemini-3.1-pro-preview" ||
+      effectiveGeminiModel === "gemini-3.1-pro" ||
+      effectiveGeminiModel === "gemini-pro" ||
       effectiveGeminiModel === "gemini-2.0-flash" ||
       effectiveGeminiModel === "gemini-2.5-flash" ||
-      effectiveGeminiModel === "gemini-3.4-flash"
+      effectiveGeminiModel === "gemini-3.4-flash" ||
+      !effectiveGeminiModel
     ) {
-      effectiveGeminiModel = "gemini-3.6-flash";
+      effectiveGeminiModel = effectiveGeminiModel ? "gemini-3.5-flash-lite" : "gemini-3.5-flash-lite";
     }
 
     // Verify model authorization based on plan tier
     if (effectiveGeminiModel) {
       if (effectiveGeminiModel === "gemini-3.8-flash" && effectiveTier === "free") {
         return res.status(403).json({
-          error: "Gemini 3.8 Flash requires Intelicat Pro ($10) or Elite ($50). Please use Gemini 3.6 Flash (Default), Gemini 3.5 Flash (Ultra-Stable), or upgrade your plan.",
+          error: "Gemini 3.8 Flash requires Intelicat Pro ($10) or Elite ($50). Please use Gemini 3.5 Flash Lite (Default ⚡), Gemini 3.5 Flash (Ultra-Stable), or upgrade your plan.",
         });
       }
     }
@@ -667,6 +746,8 @@ export default async function handler(req: any, res: any) {
     const effectiveGroqKey = (customGroqKey || bodyGroqKey || headerGroqKey || process.env.GROQ_API_KEY || "").trim();
     const hasGroqKey = effectiveGroqKey.length > 0;
     const hasGeminiKey = Boolean(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim() !== "");
+
+    const isSearchRequested = Boolean(webSearch || mode === "search");
 
     const hasMediaAttachments = messages.some(
       (m: any) =>
@@ -680,9 +761,11 @@ export default async function handler(req: any, res: any) {
     );
     const hasImageAttachments = hasMediaAttachments;
 
-    // Provider routing logic with explicit model matching
+    // Provider routing logic with explicit model and search matching
     let activeProvider = requestedProvider;
-    if (hasMediaAttachments) {
+    if (isSearchRequested) {
+      activeProvider = "gemini";
+    } else if (hasMediaAttachments) {
       activeProvider = "gemini";
     } else if (requestedModel) {
       if (requestedModel.startsWith("gemini-")) {
@@ -697,8 +780,9 @@ export default async function handler(req: any, res: any) {
     }
 
     if (activeProvider === "auto") {
-      // If user is in fast mode or groq is available and no media, prefer Groq to save Gemini quota!
-      if (hasMediaAttachments) {
+      if (isSearchRequested) {
+        activeProvider = "gemini";
+      } else if (hasMediaAttachments) {
         activeProvider = "gemini";
       } else if (mode === "fast" && hasGroqKey) {
         activeProvider = "groq";
@@ -779,12 +863,47 @@ export default async function handler(req: any, res: any) {
       const ai = getAiClient();
       const formattedContents = formatGeminiContents(messages);
 
+      const lastUserQuery =
+        messages
+          .filter((m: any) => m.role === "user")
+          .slice(-1)[0]?.content || "";
+
+      let liveSearchCitations: { title: string; uri: string }[] = [];
+      let liveSearchFacts = "";
+
+      if (isSearchRequested && lastUserQuery) {
+        try {
+          const liveSearch = await performRealtimeSearch(lastUserQuery);
+          if (liveSearch.citations.length > 0) {
+            liveSearchCitations = liveSearch.citations;
+            res.write(`data: ${JSON.stringify({ citations: liveSearch.citations })}\n\n`);
+            if (typeof (res as any).flush === "function") {
+              (res as any).flush();
+            }
+          }
+          if (liveSearch.snippets.length > 0) {
+            liveSearchFacts = liveSearch.snippets.join("\n\n");
+          }
+        } catch (searchErr) {
+          console.warn("Real-time web search retrieval error:", searchErr);
+        }
+      }
+
+      const effectiveSystemInstruction = getSystemInstruction(
+        mode,
+        studyGrade,
+        spaceContext,
+        memoriesContext,
+        liveSearchFacts
+      );
+
       const geminiConfig: any = {
-        systemInstruction,
+        systemInstruction: effectiveSystemInstruction,
         temperature,
       };
 
-      if (webSearch) {
+      // If user requested web search but fallback retrieval found no facts, attempt googleSearch tool
+      if (isSearchRequested && !liveSearchFacts) {
         geminiConfig.tools = [{ googleSearch: {} }];
       }
 
@@ -805,7 +924,7 @@ export default async function handler(req: any, res: any) {
             config: geminiConfig,
           });
 
-          const emittedCitations = new Set<string>();
+          const emittedCitations = new Set<string>(liveSearchCitations.map((c) => c.uri));
 
           for await (const chunk of responseStream) {
             if (clientDisconnected) break;
@@ -873,14 +992,37 @@ export default async function handler(req: any, res: any) {
             break;
           }
 
-          // If web search tool caused error or 503, remove tools for fallback attempt
+          // If web search tool caused error or quota 429, fall back to realtime facts and remove tool
           if (geminiConfig.tools) {
             delete geminiConfig.tools;
+            if (isSearchRequested && !liveSearchFacts && lastUserQuery) {
+              try {
+                const liveSearch = await performRealtimeSearch(lastUserQuery);
+                if (liveSearch.citations.length > 0) {
+                  res.write(`data: ${JSON.stringify({ citations: liveSearch.citations })}\n\n`);
+                  if (typeof (res as any).flush === "function") {
+                    (res as any).flush();
+                  }
+                }
+                if (liveSearch.snippets.length > 0) {
+                  liveSearchFacts = liveSearch.snippets.join("\n\n");
+                  geminiConfig.systemInstruction = getSystemInstruction(
+                    mode,
+                    studyGrade,
+                    spaceContext,
+                    memoriesContext,
+                    liveSearchFacts
+                  );
+                }
+              } catch (fallbackErr) {
+                console.warn("Fallback realtime search error:", fallbackErr);
+              }
+            }
           }
 
-          // Brief 300ms pause before trying next candidate
+          // Brief 200ms pause before trying next candidate
           if (modelIdx < candidateModels.length - 1) {
-            await new Promise((resolve) => setTimeout(resolve, 300));
+            await new Promise((resolve) => setTimeout(resolve, 200));
           }
         }
       }
@@ -897,7 +1039,7 @@ export default async function handler(req: any, res: any) {
               })}\n\n`
             );
             const groq = getGroqClient(effectiveGroqKey);
-            const groqMessages = formatGroqMessages(messages, systemInstruction);
+            const groqMessages = formatGroqMessages(messages, effectiveSystemInstruction);
             const selectedModel = await resolveGroqModel(groq);
             const completion = await groq.chat.completions.create({
               model: selectedModel,
