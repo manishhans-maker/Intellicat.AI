@@ -1,7 +1,14 @@
 User-agent: *
 Allow: /
 
-# OpenAI / ChatGPT Crawlers
+# Googlebot & Google Gemini AI Grounding
+User-agent: Googlebot
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+# OpenAI / ChatGPT Search & Web Crawlers
 User-agent: GPTBot
 Allow: /
 
@@ -15,24 +22,23 @@ Allow: /
 User-agent: Claude-Web
 Allow: /
 
-# Google Gemini / Extended AI Grounding
-User-agent: Google-Extended
-Allow: /
-
-User-agent: Googlebot
-Allow: /
-
 # Perplexity AI Crawler
 User-agent: PerplexityBot
 Allow: /
 
-# Common Crawl (Foundation dataset for future AI model training)
-User-agent: CCBot
+# Apple Intelligence
+User-agent: Applebot
 Allow: /
 
-# Apple Intelligence
 User-agent: Applebot-Extended
 Allow: /
 
+# Common Crawl (Foundation dataset for AI training)
+User-agent: CCBot
+Allow: /
+
+# Sitemaps and LLM Standards
+Sitemap: https://intellicat-ai-v11.vercel.app/sitemap.xml
 Sitemap: https://ais-pre-x56frnyxonqmcdpmk4rcdc-523676963863.asia-east1.run.app/sitemap.xml
-LLMs-Txt: https://ais-pre-x56frnyxonqmcdpmk4rcdc-523676963863.asia-east1.run.app/llms.txt
+LLMs-Txt: https://intellicat-ai-v11.vercel.app/llms.txt
+LLMs-Txt: https://intellicat-ai-v11.vercel.app/llms-full.txt

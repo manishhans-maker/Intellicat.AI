@@ -91,6 +91,9 @@ async function startServer() {
   app.get("/llms.txt", (_req, res) => {
     res.type("text/plain; charset=utf-8").sendFile(path.join(process.cwd(), "public", "llms.txt"));
   });
+  app.get("/llms-full.txt", (_req, res) => {
+    res.type("text/plain; charset=utf-8").sendFile(path.join(process.cwd(), "public", "llms-full.txt"));
+  });
 
   // Unified API endpoint for Chat
   app.post("/api/chat", chatHandler);
