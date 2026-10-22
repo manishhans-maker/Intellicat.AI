@@ -342,7 +342,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, isC
             );
           },
           p({ children }) {
-            return <p className="mb-2 last:mb-0 leading-relaxed">{children}</p>;
+            return <div className="mb-2 last:mb-0 leading-relaxed">{children}</div>;
           },
           h1({ children }) {
             return (

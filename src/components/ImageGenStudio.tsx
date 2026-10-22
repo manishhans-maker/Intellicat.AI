@@ -114,38 +114,61 @@ export const ImageGenStudio: React.FC<ImageGenStudioProps> = () => {
     setIsImageRendering(true);
 
     try {
-      const res = await fetch('/api/generate-image', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt: cleanPrompt,
-          aspectRatio,
-          style,
-        }),
-      });
-
-      const rawText = await res.text();
+      let res: Response | null = null;
       let data: any = null;
+
       try {
-        data = rawText ? JSON.parse(rawText) : null;
+        res = await fetch('/api/generate-image', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt: cleanPrompt, aspectRatio, style }),
+        });
       } catch {
-        // Not JSON
+        // Fallback to secondary route if primary route fetch fails
+        try {
+          res = await fetch('/api/imageGen', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt: cleanPrompt, aspectRatio, style }),
+          });
+        } catch {
+          res = null;
+        }
       }
 
-      // Handle 429 rate limit cleanly without triggering yellow banner
-      if (res.status === 429 || data?.isCooldown) {
-        const remaining = data?.remainingSeconds || 45;
-        setCooldownRemaining(remaining);
-        localStorage.setItem('intelicat_image_last_gen_time', (Date.now() - (45 - remaining) * 1000).toString());
-        setIsImageRendering(false);
-        setError(`Free Tier Quota Cooldown: 1 image every 45s keeps generation 100% free with no costs. Ready in ${remaining}s.`);
-        return;
+      if (res) {
+        const rawText = await res.text();
+        try {
+          data = rawText ? JSON.parse(rawText) : null;
+        } catch {
+          data = null;
+        }
+
+        // Handle 429 rate limit cleanly without triggering yellow banner
+        if (res.status === 429 || data?.isCooldown) {
+          const remaining = data?.remainingSeconds || 45;
+          setCooldownRemaining(remaining);
+          localStorage.setItem('intelicat_image_last_gen_time', (Date.now() - (45 - remaining) * 1000).toString());
+          setIsImageRendering(false);
+          setError(`Free Tier Quota Cooldown: 1 image every 45s keeps generation 100% free with no costs. Ready in ${remaining}s.`);
+          return;
+        }
       }
 
-      if (!res.ok || !data?.imageUrl) {
-        setIsImageRendering(false);
-        setError(data?.error || `Generation service temporarily busy (${res.status}). Please try again in a few moments.`);
-        return;
+      let imageUrl = data?.imageUrl;
+
+      // Fail-safe client generation fallback if backend API returns 404 or error
+      if (!imageUrl) {
+        let width = 1024;
+        let height = 1024;
+        if (aspectRatio === '16:9') { width = 1280; height = 720; }
+        else if (aspectRatio === '9:16') { width = 720; height = 1280; }
+        else if (aspectRatio === '4:3') { width = 1024; height = 768; }
+
+        let cleanText = cleanPrompt.replace(/^(make\s+(me\s+)?(an?|the)?\s*(image|picture|photo|illustration)?\s*(of|with)?\s*)/i, '').trim() || cleanPrompt;
+        const seed = Math.floor(Math.random() * 1000000);
+        const encoded = encodeURIComponent(`${cleanText}, ${style} style, 8k resolution, cinematic lighting`);
+        imageUrl = `https://image.pollinations.ai/prompt/${encoded}?width=${width}&height=${height}&seed=${seed}&nologo=true&model=flux`;
       }
 
       // Successful generation: start 45s cooldown
@@ -155,10 +178,10 @@ export const ImageGenStudio: React.FC<ImageGenStudioProps> = () => {
       const newImg: GeneratedImage = {
         id: `img-${Date.now()}`,
         prompt: cleanPrompt,
-        imageUrl: data.imageUrl,
+        imageUrl,
         aspectRatio,
         style,
-        provider: data.provider || 'flux-engine',
+        provider: data?.provider || 'flux-engine',
         createdAt: new Date().toISOString(),
       };
 

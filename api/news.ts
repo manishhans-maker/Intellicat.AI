@@ -1,4 +1,3 @@
-import { Request, Response } from "express";
 import { GoogleGenAI } from "@google/genai";
 
 let geminiClient: GoogleGenAI | null = null;
@@ -62,10 +61,27 @@ function cleanHtmlTags(str: string): string {
     .trim();
 }
 
-export async function newsFeedHandler(req: Request, res: Response) {
+export async function newsFeedHandler(req: any, res: any) {
+  res.setHeader("Access-Control-Allow-Credentials", "true");
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS,POST");
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization"
+  );
+
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
+  }
+
+  // Handle summarize if route or body specifies it
+  if (req.body?.action === "summarize" || req.url?.includes("/summarize")) {
+    return newsSummarizeHandler(req, res);
+  }
+
   try {
-    const category = (typeof req.query.category === "string" ? req.query.category.toLowerCase() : "top") || "top";
-    const searchQuery = typeof req.query.q === "string" ? req.query.q.trim() : "";
+    const category = (typeof req.query?.category === "string" ? req.query.category.toLowerCase() : "top") || "top";
+    const searchQuery = typeof req.query?.q === "string" ? req.query.q.trim() : "";
 
     let targetUrl = CATEGORY_FEEDS[category] || CATEGORY_FEEDS.top;
     if (searchQuery) {
@@ -108,7 +124,6 @@ export async function newsFeedHandler(req: Request, res: Response) {
 
       if (!rawTitle || !rawLink) continue;
 
-      // Extract publication name from title if omitted in source tag (e.g. "Headline - Reuters")
       let cleanHeadline = rawTitle;
       let detectedSource = rawSource;
       const titleParts = rawTitle.split(" - ");
@@ -133,7 +148,7 @@ export async function newsFeedHandler(req: Request, res: Response) {
       });
     }
 
-    return res.json({
+    return res.status(200).json({
       success: true,
       category,
       count: articles.length,
@@ -142,7 +157,6 @@ export async function newsFeedHandler(req: Request, res: Response) {
     });
   } catch (err: any) {
     console.warn("News feed fetch warning:", err?.message || err);
-    // Provide structured fallback articles so the UI always functions beautifully
     const fallbackArticles: NewsArticle[] = [
       {
         id: "fb-1",
@@ -182,7 +196,7 @@ export async function newsFeedHandler(req: Request, res: Response) {
       },
     ];
 
-    return res.json({
+    return res.status(200).json({
       success: true,
       category: "top",
       count: fallbackArticles.length,
@@ -193,7 +207,19 @@ export async function newsFeedHandler(req: Request, res: Response) {
   }
 }
 
-export async function newsSummarizeHandler(req: Request, res: Response) {
+export async function newsSummarizeHandler(req: any, res: any) {
+  res.setHeader("Access-Control-Allow-Credentials", "true");
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS,POST");
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization"
+  );
+
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
+  }
+
   try {
     const { title, source, snippet } = req.body || {};
     if (!title) {
@@ -232,7 +258,7 @@ Respond strictly in valid JSON matching this schema:
         const raw = response.text || "";
         const cleaned = raw.replace(/```json\n?|\n?```/g, "").trim();
         const parsed = JSON.parse(cleaned);
-        return res.json({
+        return res.status(200).json({
           success: true,
           ...parsed,
         });
@@ -241,8 +267,7 @@ Respond strictly in valid JSON matching this schema:
       }
     }
 
-    // High quality editorial fallback
-    return res.json({
+    return res.status(200).json({
       success: true,
       executiveSummary: `${title}. Reported by ${source || "leading news agencies"}, this story highlights key developments in current events and industry movements.`,
       keyTakeaways: [
@@ -257,3 +282,5 @@ Respond strictly in valid JSON matching this schema:
     return res.status(500).json({ error: "Failed to generate AI news summary." });
   }
 }
+
+export default newsFeedHandler;

@@ -1,4 +1,3 @@
-import { Request, Response } from "express";
 import { GoogleGenAI } from "@google/genai";
 
 let geminiClient: GoogleGenAI | null = null;
@@ -17,9 +16,23 @@ const TRANSLATE_CANDIDATE_MODELS = [
   "gemini-3.7-flash",
 ];
 
-export async function translateHandler(req: Request, res: Response) {
+export async function translateHandler(req: any, res: any) {
+  // Set CORS headers
+  res.setHeader("Access-Control-Allow-Credentials", "true");
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS,POST");
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization"
+  );
+
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
+  }
+
   try {
-    const { text, sourceLang = "auto", targetLang = "English", tone = "natural" } = req.body || {};
+    const rawBody = req.body || (req.query ? req.query : {});
+    const { text, sourceLang = "auto", targetLang = "English", tone = "natural" } = rawBody;
 
     if (!text || typeof text !== "string" || text.trim() === "") {
       return res.status(400).json({ error: "Missing or empty text parameter to translate." });
@@ -74,8 +87,7 @@ ${trimmedText}
                 translationResult = parsed;
                 break;
               }
-            } catch (jsonErr) {
-              // fallback if response was not pure json
+            } catch {
               translationResult = {
                 translation: rawText.trim(),
                 detectedSourceLang: source === "auto" ? "Unknown" : source,
@@ -94,7 +106,7 @@ ${trimmedText}
     }
 
     if (translationResult) {
-      return res.json({
+      return res.status(200).json({
         success: true,
         translation: translationResult.translation,
         detectedSourceLang: translationResult.detectedSourceLang || (source === "auto" ? "Auto" : source),
@@ -104,8 +116,8 @@ ${trimmedText}
       });
     }
 
-    // Graceful offline fallback
-    return res.json({
+    // Graceful offline translation fallback
+    return res.status(200).json({
       success: true,
       translation: `[Translated to ${target}]: ${trimmedText}`,
       detectedSourceLang: source === "auto" ? "Auto" : source,
@@ -122,3 +134,5 @@ ${trimmedText}
     });
   }
 }
+
+export default translateHandler;

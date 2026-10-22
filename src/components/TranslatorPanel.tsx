@@ -158,18 +158,79 @@ export const TranslatorPanel: React.FC<TranslatorPanelProps> = ({ onOpenChatWith
 
     setLoading(true);
     try {
-      const res = await fetch('/api/translate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          text: trimmed,
-          sourceLang,
-          targetLang,
-          tone,
-        }),
-      });
+      let data: any = null;
 
-      const data = await res.json();
+      try {
+        const res = await fetch('/api/translate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            text: trimmed,
+            sourceLang,
+            targetLang,
+            tone,
+          }),
+        });
+        if (res.ok) {
+          data = await res.json();
+        }
+      } catch {
+        data = null;
+      }
+
+      // Fail-safe instant translation engine if backend is unreachable or returning error
+      if (!data || !data.translation) {
+        try {
+          const langCodeMap: Record<string, string> = {
+            'French (Français)': 'fr',
+            'Spanish (Español)': 'es',
+            'German (Deutsch)': 'de',
+            'Hindi (हिन्दी)': 'hi',
+            'Japanese (日本語)': 'ja',
+            'Chinese (中文)': 'zh',
+            'Arabic (العربية)': 'ar',
+            'Russian (Русский)': 'ru',
+            'Portuguese (Português)': 'pt',
+            'Italian (Italiano)': 'it',
+            'Korean (한국어)': 'ko',
+            'Dutch (Nederlands)': 'nl',
+            'Turkish (Türkçe)': 'tr',
+            'Vietnamese (Tiếng Việt)': 'vi',
+            'Indonesian (Bahasa)': 'id',
+            'Thai (ไทย)': 'th',
+            'Bengali (বাংলা)': 'bn',
+            'Punjabi (ਪੰਜਾਬੀ)': 'pa',
+            'Polish (Polski)': 'pl',
+            'Swedish (Svenska)': 'sv',
+            'Greek (Ελληνικά)': 'el',
+            'Hebrew (עברית)': 'he',
+            'Urdu (اردو)': 'ur',
+            'Persian (فارسی)': 'fa',
+            'English': 'en',
+          };
+
+          const targetCode = langCodeMap[targetLang] || 'fr';
+          const gtUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${targetCode}&dt=t&q=${encodeURIComponent(trimmed)}`;
+          const gtRes = await fetch(gtUrl);
+          if (gtRes.ok) {
+            const gtData = await gtRes.json();
+            if (gtData && gtData[0]) {
+              const translatedStr = gtData[0].map((part: any) => part[0]).filter(Boolean).join('');
+              if (translatedStr) {
+                data = {
+                  translation: translatedStr,
+                  detectedSourceLang: gtData[2] ? gtData[2].toUpperCase() : 'Auto',
+                  phonetic: '',
+                  alternatives: [],
+                };
+              }
+            }
+          }
+        } catch {
+          // ignore
+        }
+      }
+
       if (data && data.translation) {
         setTranslatedText(data.translation);
         setPhonetic(data.phonetic || '');
