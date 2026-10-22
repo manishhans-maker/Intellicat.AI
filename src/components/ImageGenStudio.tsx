@@ -13,6 +13,8 @@ import {
   ArrowRight,
   Cat,
   Zap,
+  Clock,
+  RotateCcw,
 } from 'lucide-react';
 import { GeneratedImage } from '../types';
 
@@ -69,13 +71,47 @@ export const ImageGenStudio: React.FC<ImageGenStudioProps> = () => {
     }
   }, [gallery]);
 
+  const [isImageRendering, setIsImageRendering] = useState(false);
+  const [cooldownRemaining, setCooldownRemaining] = useState<number>(() => {
+    try {
+      const last = localStorage.getItem('intelicat_image_last_gen_time');
+      if (last) {
+        const elapsed = Math.floor((Date.now() - parseInt(last, 10)) / 1000);
+        if (elapsed < 45) return 45 - elapsed;
+      }
+      return 0;
+    } catch {
+      return 0;
+    }
+  });
+
+  useEffect(() => {
+    if (cooldownRemaining <= 0) return;
+    const timer = setInterval(() => {
+      setCooldownRemaining((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [cooldownRemaining]);
+
   const handleGenerate = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     const cleanPrompt = prompt.trim();
     if (!cleanPrompt || loading) return;
 
+    if (cooldownRemaining > 0) {
+      setError(`Free Tier Cooldown: Please wait ${cooldownRemaining}s before generating the next image.`);
+      return;
+    }
+
     setLoading(true);
     setError(null);
+    setIsImageRendering(true);
 
     try {
       const res = await fetch('/api/generate-image', {
@@ -88,12 +124,34 @@ export const ImageGenStudio: React.FC<ImageGenStudioProps> = () => {
         }),
       });
 
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || 'Failed to generate image');
+      const rawText = await res.text();
+      let data: any = null;
+      try {
+        data = rawText ? JSON.parse(rawText) : null;
+      } catch {
+        // Not JSON
       }
 
-      const data = await res.json();
+      // Handle 429 rate limit cleanly without triggering yellow banner
+      if (res.status === 429 || data?.isCooldown) {
+        const remaining = data?.remainingSeconds || 45;
+        setCooldownRemaining(remaining);
+        localStorage.setItem('intelicat_image_last_gen_time', (Date.now() - (45 - remaining) * 1000).toString());
+        setIsImageRendering(false);
+        setError(`Free Tier Quota Cooldown: 1 image every 45s keeps generation 100% free with no costs. Ready in ${remaining}s.`);
+        return;
+      }
+
+      if (!res.ok || !data?.imageUrl) {
+        setIsImageRendering(false);
+        setError(data?.error || `Generation service temporarily busy (${res.status}). Please try again in a few moments.`);
+        return;
+      }
+
+      // Successful generation: start 45s cooldown
+      setCooldownRemaining(45);
+      localStorage.setItem('intelicat_image_last_gen_time', Date.now().toString());
+
       const newImg: GeneratedImage = {
         id: `img-${Date.now()}`,
         prompt: cleanPrompt,
@@ -107,7 +165,8 @@ export const ImageGenStudio: React.FC<ImageGenStudioProps> = () => {
       setGallery((prev) => [newImg, ...prev]);
       setSelectedImage(newImg);
     } catch (err: any) {
-      setError(err?.message || 'Error generating image.');
+      setIsImageRendering(false);
+      setError(err?.message || 'Error generating image. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -239,13 +298,22 @@ export const ImageGenStudio: React.FC<ImageGenStudioProps> = () => {
             {/* Generate Action Button */}
             <button
               type="submit"
-              disabled={loading || !prompt.trim()}
-              className="w-full py-3 rounded-xl bg-[#EF233C] hover:bg-[#d90429] disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-sm tracking-wide shadow-[0_0_20px_rgba(239,35,60,0.4)] transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-98"
+              disabled={loading || !prompt.trim() || cooldownRemaining > 0}
+              className={`w-full py-3 rounded-xl font-bold text-sm tracking-wide transition-all flex items-center justify-center gap-2 ${
+                cooldownRemaining > 0
+                  ? 'bg-neutral-800/90 border border-amber-500/40 text-amber-300 cursor-not-allowed shadow-inner'
+                  : 'bg-[#EF233C] hover:bg-[#d90429] disabled:opacity-50 disabled:cursor-not-allowed text-white shadow-[0_0_20px_rgba(239,35,60,0.4)] cursor-pointer active:scale-98'
+              }`}
             >
               {loading ? (
                 <>
                   <RefreshCw className="w-4 h-4 animate-spin" />
                   <span>Synthesizing Canvas...</span>
+                </>
+              ) : cooldownRemaining > 0 ? (
+                <>
+                  <Clock className="w-4 h-4 text-amber-400 animate-pulse" />
+                  <span>Next Free Image in {cooldownRemaining}s</span>
                 </>
               ) : (
                 <>
@@ -254,11 +322,27 @@ export const ImageGenStudio: React.FC<ImageGenStudioProps> = () => {
                 </>
               )}
             </button>
+
+            {/* Cooldown Progress Indicator */}
+            {cooldownRemaining > 0 && (
+              <div className="space-y-1.5 pt-0.5">
+                <div className="w-full h-1.5 bg-neutral-800/90 rounded-full overflow-hidden border border-white/5">
+                  <div
+                    className="h-full bg-gradient-to-r from-amber-500 to-[#EF233C] transition-all duration-1000 rounded-full"
+                    style={{ width: `${Math.round(((45 - cooldownRemaining) / 45) * 100)}%` }}
+                  />
+                </div>
+                <div className="flex items-center justify-between text-[11px] text-neutral-400 px-1">
+                  <span>Free Tier Rate Protection (1 per 45s)</span>
+                  <span className="font-bold text-amber-400">{cooldownRemaining}s</span>
+                </div>
+              </div>
+            )}
           </form>
 
           {error && (
             <div className="p-3 rounded-xl bg-red-950/80 border border-red-500/40 text-red-200 text-xs flex items-center gap-2">
-              <span className="font-bold">Error:</span> {error}
+              <span className="font-bold">Notice:</span> {error}
             </div>
           )}
         </div>
@@ -277,11 +361,21 @@ export const ImageGenStudio: React.FC<ImageGenStudioProps> = () => {
 
               {/* Image Display */}
               <div className="relative rounded-xl overflow-hidden bg-neutral-950 border border-white/10 flex items-center justify-center min-h-[300px] max-h-[500px]">
+                {isImageRendering && (
+                  <div className="absolute inset-0 bg-neutral-950/80 backdrop-blur-sm z-10 flex flex-col items-center justify-center gap-3">
+                    <RefreshCw className="w-8 h-8 text-[#EF233C] animate-spin" />
+                    <span className="text-xs font-semibold text-neutral-300">Rendering high-res canvas...</span>
+                  </div>
+                )}
                 <img
                   src={selectedImage.imageUrl}
                   alt={selectedImage.prompt}
                   referrerPolicy="no-referrer"
-                  className="w-full h-auto object-contain max-h-[500px] transition-transform duration-300 hover:scale-[1.01]"
+                  onLoad={() => setIsImageRendering(false)}
+                  onError={() => setIsImageRendering(false)}
+                  className={`w-full h-auto object-contain max-h-[500px] transition-all duration-300 hover:scale-[1.01] ${
+                    isImageRendering ? 'opacity-20' : 'opacity-100'
+                  }`}
                 />
               </div>
 
@@ -302,6 +396,19 @@ export const ImageGenStudio: React.FC<ImageGenStudioProps> = () => {
                     <Download className="w-3.5 h-3.5" />
                     <span>Download Full HD</span>
                   </a>
+
+                  <button
+                    onClick={() => {
+                      setPrompt(selectedImage.prompt);
+                      handleGenerate();
+                    }}
+                    disabled={loading || cooldownRemaining > 0}
+                    title={cooldownRemaining > 0 ? `Wait ${cooldownRemaining}s before regenerating` : 'Regenerate this prompt'}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-40 text-neutral-200 text-xs font-semibold transition-all cursor-pointer"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Regenerate</span>
+                  </button>
 
                   <button
                     onClick={() => handleCopyPrompt(selectedImage)}
@@ -345,9 +452,21 @@ export const ImageGenStudio: React.FC<ImageGenStudioProps> = () => {
           {/* History Gallery */}
           {gallery.length > 0 && (
             <div className="space-y-3">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-neutral-400 flex items-center gap-2">
-                <span>Recent Generations ({gallery.length})</span>
-              </h4>
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-neutral-400 flex items-center gap-2">
+                  <span>Recent Generations ({gallery.length})</span>
+                </h4>
+                <button
+                  onClick={() => {
+                    setGallery([]);
+                    setSelectedImage(null);
+                    localStorage.removeItem('intelicat_generated_images');
+                  }}
+                  className="text-[11px] text-neutral-500 hover:text-red-400 transition-colors cursor-pointer"
+                >
+                  Clear Gallery
+                </button>
+              </div>
 
               <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
                 {gallery.map((img) => (

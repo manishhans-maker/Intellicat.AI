@@ -15,6 +15,7 @@ import { StudyModePanel } from './components/StudyModePanel';
 import { SpacesPanel } from './components/SpacesPanel';
 import { TranslatorPanel } from './components/TranslatorPanel';
 import { NewsPanel } from './components/NewsPanel';
+import { ImageGenStudio } from './components/ImageGenStudio';
 import { SettingsModal } from './components/SettingsModal';
 import { OwnerApprovalModal } from './components/OwnerApprovalModal';
 import { ProjectSpace, StudyGrade, AiMode, AiProvider, UserPlanTier } from './types';
@@ -33,14 +34,15 @@ import {
   FolderKanban,
   Languages,
   Newspaper,
+  Palette,
 } from 'lucide-react';
 import { INTELLICAT_LOGO_URL } from './constants';
 
 export default function App() {
-  const [currentView, setCurrentView] = useState<'hero' | 'priority' | 'study' | 'spaces' | 'translator' | 'news'>(() => {
+  const [currentView, setCurrentView] = useState<'hero' | 'priority' | 'study' | 'spaces' | 'translator' | 'news' | 'image'>(() => {
     try {
       const hash = window.location.hash.replace('#', '');
-      if (hash === 'study' || hash === 'spaces' || hash === 'priority' || hash === 'translator' || hash === 'news') {
+      if (hash === 'study' || hash === 'spaces' || hash === 'priority' || hash === 'translator' || hash === 'news' || hash === 'image') {
         return hash as any;
       }
     } catch {
@@ -108,6 +110,10 @@ export default function App() {
         title: 'The Intelicat Gazette – Daily Newspaper & AI News Wire',
         desc: 'Explore real-time global newspapers, breaking headlines, and AI executive briefings across world events, tech, business, and science.',
       },
+      image: {
+        title: 'AI Image Studio – IntellicatAI Free FLUX Image Generator',
+        desc: 'Generate stunning photorealistic, anime, cyberpunk, and 3D digital art at $0 cost with IntellicatAI FLUX image generation studio.',
+      },
     };
 
     const currentSeo = seoMap[currentView] || seoMap.hero;
@@ -152,8 +158,8 @@ export default function App() {
   useEffect(() => {
     const handleHashChange = () => {
       const hash = window.location.hash.replace('#', '');
-      if (hash === 'study' || hash === 'spaces' || hash === 'priority') {
-        setCurrentView(hash);
+      if (hash === 'study' || hash === 'spaces' || hash === 'priority' || hash === 'translator' || hash === 'news' || hash === 'image') {
+        setCurrentView(hash as any);
       } else if (!hash) {
         setCurrentView('hero');
       }
@@ -457,6 +463,30 @@ export default function App() {
               <NewsPanel
                 onOpenChatWithQuery={(prompt) => handleOpenChat('search', prompt)}
               />
+            </motion.div>
+          ) : currentView === 'image' ? (
+            <motion.div
+              key="image-studio-view"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.3 }}
+              className="flex-1 p-4 sm:p-6 lg:p-8 flex flex-col relative z-10 overflow-y-auto"
+            >
+              <div className="mb-4 flex items-center justify-between">
+                <button
+                  onClick={() => setCurrentView('hero')}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-neutral-300 hover:text-white text-xs font-semibold transition-colors cursor-pointer border border-white/10"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  <span>Back to Overview</span>
+                </button>
+                <div className="text-xs text-rose-400 flex items-center gap-1.5 font-semibold">
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>FLUX.1 Studio • 100% Free AI Image Generation</span>
+                </div>
+              </div>
+              <ImageGenStudio onClose={() => setCurrentView('hero')} />
             </motion.div>
           ) : (
             <motion.div

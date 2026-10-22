@@ -29,8 +29,8 @@ import { INTELLICAT_LOGO_URL } from '../constants';
 import { useAuth } from '../context/AuthContext';
 
 interface NavbarProps {
-  currentView?: 'hero' | 'priority' | 'study' | 'spaces' | 'translator' | 'news';
-  onSelectView?: (view: 'hero' | 'priority' | 'study' | 'spaces' | 'translator' | 'news') => void;
+  currentView?: 'hero' | 'priority' | 'study' | 'spaces' | 'translator' | 'news' | 'image';
+  onSelectView?: (view: 'hero' | 'priority' | 'study' | 'spaces' | 'translator' | 'news' | 'image') => void;
   onGetStarted?: () => void;
   onOpenChat?: (mode: ChatMode) => void;
   onOpenInfo?: (tabId?: string) => void;
@@ -204,6 +204,20 @@ export const Navbar: React.FC<NavbarProps> = ({
         >
           <Newspaper className="w-3.5 h-3.5 text-cyan-400" />
           <span>News 📰</span>
+        </button>
+
+        {/* Free FLUX AI Image Generator Studio */}
+        <button
+          onClick={() => onSelectView?.('image')}
+          className={`flex items-center gap-1.5 px-3 py-1.5 text-xs sm:text-sm font-medium rounded-lg transition-all duration-200 cursor-pointer ${
+            currentView === 'image'
+              ? 'text-white bg-[#EF233C] shadow-md font-semibold'
+              : 'text-neutral-300 hover:text-white hover:bg-white/5'
+          }`}
+          title="Free FLUX AI Image Generation Studio ($0 Cost)"
+        >
+          <Sparkles className="w-3.5 h-3.5 text-rose-400" />
+          <span>Image Studio 🎨</span>
         </button>
 
         <button
@@ -729,6 +743,18 @@ export const Navbar: React.FC<NavbarProps> = ({
                   >
                     <Newspaper className="w-4 h-4 text-cyan-400" />
                     <span>Daily News 📰</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setMobileMenuOpen(false);
+                      onSelectView?.('image');
+                    }}
+                    className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold transition-colors cursor-pointer text-left ${
+                      currentView === 'image' ? 'bg-[#EF233C] text-white' : 'text-neutral-300 hover:bg-white/5 hover:text-white'
+                    }`}
+                  >
+                    <Sparkles className="w-4 h-4 text-rose-400" />
+                    <span>Image Studio 🎨 (Free FLUX)</span>
                   </button>
                   <button
                     onClick={() => {

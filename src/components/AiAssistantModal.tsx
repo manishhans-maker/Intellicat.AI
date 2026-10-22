@@ -1097,6 +1097,68 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
       saveMessage(activeUidForMsg, activeConvId, userMsg);
     }
 
+    // 4.5. Check if user is requesting free FLUX image generation
+    const isImageGenRequest = (() => {
+      const t = text.trim().toLowerCase();
+      if (t.startsWith('/image') || t.startsWith('/draw') || t.startsWith('/generate-image') || t.startsWith('/paint')) return true;
+      const hasVerb = /\b(generate|create|make|draw|paint|render|illustrate)\b/i.test(t);
+      const hasNoun = /\b(image|picture|photo|painting|wallpaper|drawing|artwork|illustration|portrait)\b/i.test(t);
+      const notQuery = !t.includes('how to') && !t.includes('can you code') && !t.includes('website') && !t.includes('write code') && !t.includes('can ai') && !t.includes('can you create') && !t.includes('can my ai') && !t.includes('how do you');
+      return hasVerb && hasNoun && notQuery;
+    })();
+
+    if (isImageGenRequest) {
+      let cleanPrompt = text
+        .replace(/^\/(image|draw|generate-image|paint)\s*/i, '')
+        .replace(/^(can you |could you |please )?(generate|create|make|draw|paint|render|illustrate)(\s+(an?|me|a high quality|a photo of|an image of|a picture of))*\s+/i, '')
+        .trim();
+      if (!cleanPrompt) cleanPrompt = text;
+
+      let chosenStyle = 'cyberpunk';
+      const lowerP = cleanPrompt.toLowerCase();
+      if (lowerP.includes('anime') || lowerP.includes('manga')) chosenStyle = 'anime';
+      else if (lowerP.includes('photo') || lowerP.includes('realistic') || lowerP.includes('real life')) chosenStyle = 'realistic';
+      else if (lowerP.includes('3d') || lowerP.includes('render') || lowerP.includes('pixar')) chosenStyle = '3d-render';
+      else if (lowerP.includes('watercolor') || lowerP.includes('artistic')) chosenStyle = 'watercolor';
+
+      assistantMsg.content = `🎨 *Cyber Cat is painting with FLUX.1 Engine at $0 cost...*`;
+      setMessages([...updatedMessages, { ...assistantMsg }]);
+
+      try {
+        const res = await fetch('/api/generate-image', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            prompt: cleanPrompt,
+            aspectRatio: '1:1',
+            style: chosenStyle,
+          }),
+        });
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.error || 'Failed to generate image.');
+        }
+
+        const imgData = await res.json();
+        const finalContent = `🎨 **AI Image Generated with FLUX.1 Engine** (100% Free • $0 Cost • Zero Token Quota Used)\n\nPrompt: *"${cleanPrompt}"*\n\n![${cleanPrompt}](${imgData.imageUrl})\n\n✨ **Style Preset**: ${chosenStyle.toUpperCase()} • **Dimensions**: 1024×1024 • **Engine**: FLUX.1 (Free High-Fidelity)\n👉 *Need widescreen (16:9), story mode (9:16), or custom presets? Open the [Image Studio](#image)!*`;
+
+        assistantMsg.content = finalContent;
+        setMessages([...updatedMessages, { ...assistantMsg }]);
+        if (activeConvId) {
+          saveMessage(activeUidForMsg, activeConvId, assistantMsg);
+        }
+        setLoading(false);
+        return;
+      } catch (genErr: any) {
+        assistantMsg.content = `⚠️ Could not generate image: ${genErr?.message || 'Upstream service busy'}. Please try again or open the [Image Studio](#image).`;
+        assistantMsg.isError = true;
+        setMessages([...updatedMessages, { ...assistantMsg }]);
+        setLoading(false);
+        return;
+      }
+    }
+
     // 5. Connect SSE to /api/chat with Memory Context & Grounding
     const startTime = performance.now();
     const abortController = new AbortController();
@@ -1359,16 +1421,16 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
   const samplePrompts =
     mode === 'normal'
       ? [
-          'Help me brainstorm creative marketing strategies for a launch',
-          'Explain how transformer neural networks work with analogies',
-          'Write a polished follow-up email after a design sprint',
+          'Generate an image of a cybernetic cat in neon futuristic Tokyo 2088',
+          'Explain how transformer neural networks work with intuitive analogies',
+          'Help me brainstorm creative viral launch strategies for my product',
           'What are high-impact cognitive habits for daily deep work?',
         ]
       : [
+          'Build an interactive particle simulator website with controls and canvas',
           'Write a production-ready TypeScript rate limiter with token bucket',
           'Debug why my React useEffect is causing infinite re-renders',
-          'Design an async Python worker queue with graceful cancellation',
-          'Write a high-performance SQL query to aggregate monthly active users',
+          'Generate an image of a sleek robot cat debugging code on multi-monitors',
         ];
 
   if (!isOpen) return null;
@@ -3027,6 +3089,21 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                             <span className="hidden xs:inline text-[11px]">Voice</span>
                           </>
                         )}
+                      </button>
+
+                      {/* Free FLUX Image Generator Quick Action */}
+                      <button
+                        onClick={() => {
+                          setInput((prev) => (prev ? prev : '/image '));
+                          if (textareaRef.current) textareaRef.current.focus();
+                        }}
+                        type="button"
+                        disabled={loading || (cooldownRemainingSeconds > 0 && !isUnlimitedAccount)}
+                        className="h-8 sm:h-9 px-2 sm:px-2.5 rounded-lg flex items-center gap-1.5 text-neutral-300 hover:text-rose-400 hover:bg-white/10 transition-colors cursor-pointer shrink-0 disabled:opacity-40 text-xs font-semibold border border-transparent hover:border-rose-500/30"
+                        title="Generate free high-quality AI images with FLUX.1 ($0 cost)"
+                      >
+                        <Sparkles className="w-3.5 h-3.5 text-rose-400" />
+                        <span className="text-[11px]">Image 🎨</span>
                       </button>
                     </div>
 

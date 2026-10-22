@@ -1,3 +1,6 @@
+let lastGenerationTimestamp = 0;
+const COOLDOWN_MS = 45000;
+
 export default async function imageGenHandler(req: any, res: any) {
   res.setHeader("Access-Control-Allow-Credentials", "true");
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -7,22 +10,44 @@ export default async function imageGenHandler(req: any, res: any) {
     "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization"
   );
 
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
+
   if (req.method === "OPTIONS") {
     return res.status(200).end();
   }
 
-  if (req.method !== "POST") {
-    return res.status(405).json({ error: "Method not allowed. Use POST." });
+  if (req.method !== "POST" && req.method !== "GET") {
+    return res.status(405).json({ error: "Method not allowed. Use POST or GET." });
   }
 
   try {
-    const { prompt, aspectRatio = "1:1", style = "cyberpunk" } = req.body || {};
+    const rawData = req.method === "POST" ? req.body : req.query;
+    const { prompt, aspectRatio = "1:1", style = "cyberpunk" } = rawData || {};
 
     if (!prompt || typeof prompt !== "string" || prompt.trim() === "") {
       return res.status(400).json({ error: "Prompt is required for image generation." });
     }
 
-    const trimmedPrompt = prompt.trim();
+    // Rate-limit check to prevent Pollinations 402/yellow error screen
+    const now = Date.now();
+    const elapsed = now - lastGenerationTimestamp;
+    if (elapsed < COOLDOWN_MS) {
+      const remainingSeconds = Math.ceil((COOLDOWN_MS - elapsed) / 1000);
+      return res.status(429).json({
+        error: `Free Tier Cooldown: 1 image every 45s. Next generation ready in ${remainingSeconds}s.`,
+        remainingSeconds,
+        isCooldown: true,
+      });
+    }
+
+    // Clean conversational prefixes from prompt
+    let cleanPrompt = prompt.trim();
+    cleanPrompt = cleanPrompt.replace(/^(make\s+(me\s+)?(an?|the)?\s*(image|picture|photo|illustration|drawing)?\s*(of|with)?\s*)/i, '');
+    cleanPrompt = cleanPrompt.replace(/^(generate\s+(an?|the)?\s*(image|picture|photo|illustration|drawing)?\s*(of|with)?\s*)/i, '');
+    cleanPrompt = cleanPrompt.replace(/^(create\s+(an?|the)?\s*(image|picture|photo|illustration|drawing)?\s*(of|with)?\s*)/i, '');
+    cleanPrompt = cleanPrompt.trim() || prompt.trim();
+
+    const trimmedPrompt = cleanPrompt;
 
     // Map aspect ratios to pixel dimensions
     let width = 1024;
@@ -70,6 +95,8 @@ export default async function imageGenHandler(req: any, res: any) {
     const seed = Math.floor(Math.random() * 1000000);
     const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${width}&height=${height}&seed=${seed}&nologo=true&model=flux`;
 
+    lastGenerationTimestamp = Date.now();
+
     return res.status(200).json({
       imageUrl,
       prompt: trimmedPrompt,
@@ -77,6 +104,7 @@ export default async function imageGenHandler(req: any, res: any) {
       aspectRatio,
       style,
       provider: "pollinations-flux",
+      cooldownSeconds: 45,
       createdAt: new Date().toISOString(),
     });
   } catch (error: any) {

@@ -7,7 +7,7 @@ import { INTELLICAT_LOGO_URL } from '../constants';
 interface HeroContentProps {
   onOpenChat?: (mode: ChatMode, prompt?: string) => void;
   onOpenBuyVip?: () => void;
-  onSelectView?: (view: 'hero' | 'priority' | 'study' | 'spaces' | 'translator' | 'news') => void;
+  onSelectView?: (view: 'hero' | 'priority' | 'study' | 'spaces' | 'translator' | 'news' | 'image') => void;
 }
 
 export const HeroContent: React.FC<HeroContentProps> = ({
@@ -148,6 +148,18 @@ export const HeroContent: React.FC<HeroContentProps> = ({
           >
             <Newspaper className="w-3.5 h-3.5 text-cyan-400 group-hover:scale-110 transition-transform" />
             <span>Daily News 📰</span>
+          </button>
+        )}
+
+        {/* Free FLUX Image Generator Studio */}
+        {onSelectView && (
+          <button
+            onClick={() => onSelectView('image')}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/40 text-xs font-semibold text-rose-300 transition-all cursor-pointer shadow-sm group hover:scale-105"
+            title="100% Free FLUX AI Image Generator Studio ($0 Cost)"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-rose-400 group-hover:rotate-12 transition-transform" />
+            <span>Image Studio 🎨</span>
           </button>
         )}
       </motion.div>

@@ -416,6 +416,35 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, isC
           td({ children }) {
             return <td className="px-3 py-2 border-b border-white/5 text-neutral-300">{children}</td>;
           },
+          img({ src, alt }) {
+            return (
+              <div className="my-3.5 rounded-2xl overflow-hidden border border-white/15 bg-black/80 shadow-2xl group max-w-lg">
+                <div className="relative overflow-hidden bg-neutral-950">
+                  <img
+                    src={src}
+                    alt={alt || "IntellicatAI Generated Art"}
+                    loading="lazy"
+                    className="w-full h-auto object-cover max-h-[500px] transition-transform duration-300 group-hover:scale-[1.02]"
+                  />
+                </div>
+                {alt && (
+                  <div className="px-3.5 py-2.5 bg-[#0e0e16] border-t border-white/10 flex items-center justify-between gap-2 text-xs">
+                    <span className="text-neutral-300 font-medium truncate pr-2">{alt}</span>
+                    <a
+                      href={src}
+                      download="intelicat-ai-art.jpg"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/40 text-rose-300 text-[11px] font-semibold transition-colors shrink-0 shadow-sm cursor-pointer"
+                    >
+                      <Download className="w-3 h-3 text-rose-400" />
+                      <span>Download</span>
+                    </a>
+                  </div>
+                )}
+              </div>
+            );
+          },
         }}
       >
         {sanitizedContent}

@@ -100,8 +100,9 @@ async function startServer() {
   // Unified API endpoint for Chat
   app.post("/api/chat", chatHandler);
 
-  // Dedicated Image Generation Studio endpoint (Disabled per user request)
-  // app.post("/api/generate-image", imageGenHandler);
+  // Dedicated Image Generation Studio endpoint (FLUX.1 100% Free)
+  app.post("/api/generate-image", imageGenHandler);
+  app.get("/api/generate-image", imageGenHandler);
 
   // Dedicated Web Search Service endpoint
   app.get("/api/search", searchServiceHandler);
