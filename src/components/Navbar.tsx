@@ -18,6 +18,8 @@ import {
   Search,
   Menu,
   X,
+  Languages,
+  Newspaper,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
@@ -27,8 +29,8 @@ import { INTELLICAT_LOGO_URL } from '../constants';
 import { useAuth } from '../context/AuthContext';
 
 interface NavbarProps {
-  currentView?: 'hero' | 'priority' | 'study' | 'spaces';
-  onSelectView?: (view: 'hero' | 'priority' | 'study' | 'spaces') => void;
+  currentView?: 'hero' | 'priority' | 'study' | 'spaces' | 'translator' | 'news';
+  onSelectView?: (view: 'hero' | 'priority' | 'study' | 'spaces' | 'translator' | 'news') => void;
   onGetStarted?: () => void;
   onOpenChat?: (mode: ChatMode) => void;
   onOpenInfo?: (tabId?: string) => void;
@@ -174,6 +176,34 @@ export const Navbar: React.FC<NavbarProps> = ({
         >
           <FolderKanban className="w-3.5 h-3.5 text-emerald-400" />
           <span>Spaces</span>
+        </button>
+
+        {/* AI Translator (Voice & Text) */}
+        <button
+          onClick={() => onSelectView?.('translator')}
+          className={`flex items-center gap-1.5 px-3 py-1.5 text-xs sm:text-sm font-medium rounded-lg transition-all duration-200 cursor-pointer ${
+            currentView === 'translator'
+              ? 'text-white bg-[#EF233C] shadow-md font-semibold'
+              : 'text-neutral-300 hover:text-white hover:bg-white/5'
+          }`}
+          title="Voice & Text AI Translator"
+        >
+          <Languages className="w-3.5 h-3.5 text-blue-400" />
+          <span>Translator 🌐</span>
+        </button>
+
+        {/* Global News & Newspapers */}
+        <button
+          onClick={() => onSelectView?.('news')}
+          className={`flex items-center gap-1.5 px-3 py-1.5 text-xs sm:text-sm font-medium rounded-lg transition-all duration-200 cursor-pointer ${
+            currentView === 'news'
+              ? 'text-white bg-[#EF233C] shadow-md font-semibold'
+              : 'text-neutral-300 hover:text-white hover:bg-white/5'
+          }`}
+          title="Daily Newspaper & AI Global News"
+        >
+          <Newspaper className="w-3.5 h-3.5 text-cyan-400" />
+          <span>News 📰</span>
         </button>
 
         <button
@@ -675,6 +705,30 @@ export const Navbar: React.FC<NavbarProps> = ({
                   >
                     <FolderKanban className="w-4 h-4 text-emerald-400" />
                     <span>Spaces</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setMobileMenuOpen(false);
+                      onSelectView?.('translator');
+                    }}
+                    className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold transition-colors cursor-pointer text-left ${
+                      currentView === 'translator' ? 'bg-[#EF233C] text-white' : 'text-neutral-300 hover:bg-white/5 hover:text-white'
+                    }`}
+                  >
+                    <Languages className="w-4 h-4 text-blue-400" />
+                    <span>Translator 🌐</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setMobileMenuOpen(false);
+                      onSelectView?.('news');
+                    }}
+                    className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold transition-colors cursor-pointer text-left ${
+                      currentView === 'news' ? 'bg-[#EF233C] text-white' : 'text-neutral-300 hover:bg-white/5 hover:text-white'
+                    }`}
+                  >
+                    <Newspaper className="w-4 h-4 text-cyan-400" />
+                    <span>Daily News 📰</span>
                   </button>
                   <button
                     onClick={() => {

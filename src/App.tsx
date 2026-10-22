@@ -13,6 +13,8 @@ import { AuthModal } from './components/AuthModal';
 import { RobotBackground } from './components/RobotBackground';
 import { StudyModePanel } from './components/StudyModePanel';
 import { SpacesPanel } from './components/SpacesPanel';
+import { TranslatorPanel } from './components/TranslatorPanel';
+import { NewsPanel } from './components/NewsPanel';
 import { SettingsModal } from './components/SettingsModal';
 import { OwnerApprovalModal } from './components/OwnerApprovalModal';
 import { ProjectSpace, StudyGrade, AiMode, AiProvider, UserPlanTier } from './types';
@@ -29,15 +31,17 @@ import {
   ArrowLeft,
   GraduationCap,
   FolderKanban,
+  Languages,
+  Newspaper,
 } from 'lucide-react';
 import { INTELLICAT_LOGO_URL } from './constants';
 
 export default function App() {
-  const [currentView, setCurrentView] = useState<'hero' | 'priority' | 'study' | 'spaces'>(() => {
+  const [currentView, setCurrentView] = useState<'hero' | 'priority' | 'study' | 'spaces' | 'translator' | 'news'>(() => {
     try {
       const hash = window.location.hash.replace('#', '');
-      if (hash === 'study' || hash === 'spaces' || hash === 'priority') {
-        return hash;
+      if (hash === 'study' || hash === 'spaces' || hash === 'priority' || hash === 'translator' || hash === 'news') {
+        return hash as any;
       }
     } catch {
       // fallback
@@ -95,6 +99,14 @@ export default function App() {
       priority: {
         title: 'VIP Priority Access & Latency Pipeline – IntellicatAI',
         desc: 'Unlock ultra-low latency inference, priority VIP queue access, custom models, and dedicated compute passes with IntellicatAI VIP.',
+      },
+      translator: {
+        title: 'AI Translator – IntellicatAI Speech & Text Multilingual Suite',
+        desc: 'Translate voice and text across 60+ languages in real time with speech recognition, pronunciation guides, and cultural context.',
+      },
+      news: {
+        title: 'The Intelicat Gazette – Daily Newspaper & AI News Wire',
+        desc: 'Explore real-time global newspapers, breaking headlines, and AI executive briefings across world events, tech, business, and science.',
       },
     };
 
@@ -266,6 +278,7 @@ export default function App() {
                   <HeroContent
                     onOpenChat={(mode, prompt) => handleOpenChat(mode, prompt)}
                     onOpenBuyVip={handleOpenBuyVip}
+                    onSelectView={setCurrentView}
                   />
                 </div>
 
@@ -391,6 +404,58 @@ export default function App() {
                 onLaunchStudyChat={(prompt, grade) => {
                   handleOpenChat('study', prompt);
                 }}
+              />
+            </motion.div>
+          ) : currentView === 'translator' ? (
+            <motion.div
+              key="translator-view"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.3 }}
+              className="flex-1 p-4 sm:p-6 lg:p-8 flex flex-col relative z-10 overflow-y-auto"
+            >
+              <div className="mb-4 flex items-center justify-between">
+                <button
+                  onClick={() => setCurrentView('hero')}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-neutral-300 hover:text-white text-xs font-semibold transition-colors cursor-pointer border border-white/10"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  <span>Back to Overview</span>
+                </button>
+                <div className="text-xs text-blue-400 flex items-center gap-1.5 font-semibold">
+                  <Languages className="w-3.5 h-3.5" />
+                  <span>Voice & Text AI Translator</span>
+                </div>
+              </div>
+              <TranslatorPanel
+                onOpenChatWithQuery={(prompt) => handleOpenChat('normal', prompt)}
+              />
+            </motion.div>
+          ) : currentView === 'news' ? (
+            <motion.div
+              key="news-view"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.3 }}
+              className="flex-1 p-4 sm:p-6 lg:p-8 flex flex-col relative z-10 overflow-y-auto"
+            >
+              <div className="mb-4 flex items-center justify-between">
+                <button
+                  onClick={() => setCurrentView('hero')}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-neutral-300 hover:text-white text-xs font-semibold transition-colors cursor-pointer border border-white/10"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  <span>Back to Overview</span>
+                </button>
+                <div className="text-xs text-cyan-400 flex items-center gap-1.5 font-semibold">
+                  <Newspaper className="w-3.5 h-3.5" />
+                  <span>The Intelicat Gazette • Live News</span>
+                </div>
+              </div>
+              <NewsPanel
+                onOpenChatWithQuery={(prompt) => handleOpenChat('search', prompt)}
               />
             </motion.div>
           ) : (

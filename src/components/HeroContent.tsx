@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ArrowRight, Crown, Sparkles, Cat, Code, MessageSquare, Send } from 'lucide-react';
+import { ArrowRight, Crown, Sparkles, Cat, Code, MessageSquare, Send, Languages, Newspaper } from 'lucide-react';
 import { motion } from 'motion/react';
 import { ChatMode } from './AiAssistantModal';
 import { INTELLICAT_LOGO_URL } from '../constants';
@@ -7,11 +7,13 @@ import { INTELLICAT_LOGO_URL } from '../constants';
 interface HeroContentProps {
   onOpenChat?: (mode: ChatMode, prompt?: string) => void;
   onOpenBuyVip?: () => void;
+  onSelectView?: (view: 'hero' | 'priority' | 'study' | 'spaces' | 'translator' | 'news') => void;
 }
 
 export const HeroContent: React.FC<HeroContentProps> = ({
   onOpenChat,
   onOpenBuyVip,
+  onSelectView,
 }) => {
   const [questionInput, setQuestionInput] = useState('');
 
@@ -124,6 +126,30 @@ export const HeroContent: React.FC<HeroContentProps> = ({
           <Crown className="w-3.5 h-3.5 text-amber-400 group-hover:rotate-12 transition-transform" />
           <span>Buy VIP Pass</span>
         </button>
+
+        {/* Translator Tool Quick Launch */}
+        {onSelectView && (
+          <button
+            onClick={() => onSelectView('translator')}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-blue-500/15 hover:bg-blue-500/25 border border-blue-500/40 text-xs font-semibold text-blue-300 transition-all cursor-pointer shadow-sm group hover:scale-105"
+            title="Speech & Text Voice Translator"
+          >
+            <Languages className="w-3.5 h-3.5 text-blue-400 group-hover:scale-110 transition-transform" />
+            <span>Translator 🌐</span>
+          </button>
+        )}
+
+        {/* Global News & Newspapers Quick Launch */}
+        {onSelectView && (
+          <button
+            onClick={() => onSelectView('news')}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/40 text-xs font-semibold text-cyan-300 transition-all cursor-pointer shadow-sm group hover:scale-105"
+            title="Live Daily Newspaper & Global News AI"
+          >
+            <Newspaper className="w-3.5 h-3.5 text-cyan-400 group-hover:scale-110 transition-transform" />
+            <span>Daily News 📰</span>
+          </button>
+        )}
       </motion.div>
 
       {/* Interactive Mobile & Desktop Asking Bar - Type your question directly */}

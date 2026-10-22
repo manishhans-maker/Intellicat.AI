@@ -222,9 +222,94 @@
         }
       },
       "required": ["id", "userId", "title", "createdAt", "updatedAt"]
+    },
+    "PaymentRequest": {
+      "title": "Payment Verification Request",
+      "description": "UPI manual verification requests submitted by users and managed by the owner with approve and revoke capabilities",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique request document ID"
+        },
+        "uid": {
+          "type": "string",
+          "description": "User UID who submitted the request"
+        },
+        "name": {
+          "type": "string",
+          "description": "User display name"
+        },
+        "email": {
+          "type": "string",
+          "description": "User email address"
+        },
+        "tierId": {
+          "type": "string",
+          "description": "Requested plan tier identifier"
+        },
+        "tierName": {
+          "type": "string",
+          "description": "Human-readable tier name"
+        },
+        "amountInr": {
+          "type": "number",
+          "description": "Amount in INR"
+        },
+        "amountUsd": {
+          "type": "number",
+          "description": "Amount in USD"
+        },
+        "utrNumber": {
+          "type": "string",
+          "description": "12-digit UPI transaction reference number"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending_verification", "approved", "rejected", "revoked"],
+          "description": "Payment verification and rank lifecycle status"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "ISO timestamp of request submission"
+        },
+        "approvedAt": {
+          "type": "string",
+          "description": "ISO timestamp when rank was approved"
+        },
+        "approvedBy": {
+          "type": "string",
+          "description": "Admin email who approved the rank"
+        },
+        "rejectedAt": {
+          "type": "string",
+          "description": "ISO timestamp when request was rejected"
+        },
+        "rejectedBy": {
+          "type": "string",
+          "description": "Admin email who rejected the request"
+        },
+        "revokedAt": {
+          "type": "string",
+          "description": "ISO timestamp when approved rank was revoked"
+        },
+        "revokedBy": {
+          "type": "string",
+          "description": "Admin email who revoked the approved rank"
+        },
+        "revocationReason": {
+          "type": "string",
+          "description": "Reason why the rank was revoked"
+        }
+      },
+      "required": ["id", "uid", "name", "email", "tierId", "tierName", "amountInr", "utrNumber", "status", "createdAt"]
     }
   },
   "firestore": {
+    "/payment_requests/{reqId}": {
+      "schema": "PaymentRequest",
+      "description": "Stores UPI verification requests and manual approval/revocation logs"
+    },
     "/users/{userId}": {
       "schema": "User",
       "description": "Stores user profiles, subscription tier, and AI request counts"

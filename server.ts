@@ -7,6 +7,8 @@ import { isSearchQuotaExhausted } from "./server/chatCore";
 import chatHandler from "./api/chat";
 import imageGenHandler from "./api/imageGen";
 import searchServiceHandler from "./api/searchService";
+import { translateHandler } from "./api/translate";
+import { newsFeedHandler, newsSummarizeHandler } from "./api/news";
 
 dotenv.config();
 
@@ -104,6 +106,13 @@ async function startServer() {
   // Dedicated Web Search Service endpoint
   app.get("/api/search", searchServiceHandler);
   app.post("/api/search", searchServiceHandler);
+
+  // Dedicated AI Translation endpoint
+  app.post("/api/translate", translateHandler);
+
+  // Dedicated Live Newspaper & News AI endpoints
+  app.get("/api/news", newsFeedHandler);
+  app.post("/api/news/summarize", newsSummarizeHandler);
 
   // Vite middleware for development vs static build for production
   if (process.env.NODE_ENV !== "production") {
