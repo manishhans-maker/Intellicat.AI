@@ -18,6 +18,7 @@ import { NewsPanel } from './components/NewsPanel';
 import { ImageGenStudio } from './components/ImageGenStudio';
 import { SettingsModal } from './components/SettingsModal';
 import { OwnerApprovalModal } from './components/OwnerApprovalModal';
+import { CodingWorkspace } from './components/CodeWorkspace/CodingWorkspace';
 import { ProjectSpace, StudyGrade, AiMode, AiProvider, UserPlanTier } from './types';
 import { useAuth } from './context/AuthContext';
 import { AnimatePresence, motion } from 'motion/react';
@@ -39,10 +40,10 @@ import {
 import { INTELLICAT_LOGO_URL } from './constants';
 
 export default function App() {
-  const [currentView, setCurrentView] = useState<'hero' | 'priority' | 'study' | 'spaces' | 'translator' | 'news' | 'image'>(() => {
+  const [currentView, setCurrentView] = useState<'hero' | 'priority' | 'study' | 'spaces' | 'translator' | 'news' | 'image' | 'code'>(() => {
     try {
       const hash = window.location.hash.replace('#', '');
-      if (hash === 'study' || hash === 'spaces' || hash === 'priority' || hash === 'translator' || hash === 'news' || hash === 'image') {
+      if (hash === 'study' || hash === 'spaces' || hash === 'priority' || hash === 'translator' || hash === 'news' || hash === 'image' || hash === 'code') {
         return hash as any;
       }
     } catch {
@@ -113,6 +114,10 @@ export default function App() {
       image: {
         title: 'AI Image Studio – IntellicatAI Free FLUX Image Generator',
         desc: 'Generate stunning photorealistic, anime, cyberpunk, and 3D digital art at $0 cost with IntellicatAI FLUX image generation studio.',
+      },
+      code: {
+        title: 'IntellicatAI Code – Real-Time AI App Builder & Live Preview',
+        desc: 'Build full web apps with IntellicatAI Code: instant chat instructions, live app preview, rollback checkpoints, and automatic code updates.',
       },
     };
 
@@ -488,7 +493,7 @@ export default function App() {
               </div>
               <ImageGenStudio onClose={() => setCurrentView('hero')} />
             </motion.div>
-          ) : (
+          ) : currentView === 'spaces' ? (
             <motion.div
               key="spaces-view"
               initial={{ opacity: 0, y: 10 }}
@@ -519,6 +524,20 @@ export default function App() {
                 }}
               />
             </motion.div>
+          ) : (
+            <motion.div
+              key="code-workspace-view"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.25 }}
+              className="flex-1 flex flex-col relative z-10 w-full"
+            >
+              <CodingWorkspace
+                userId={user?.uid}
+                onClose={() => setCurrentView('hero')}
+              />
+            </motion.div>
           )}
         </AnimatePresence>
       </div>
@@ -534,6 +553,10 @@ export default function App() {
         isFounder={isFounder}
         activeSpace={activeSpace}
         onSelectSpace={setActiveSpace}
+        onOpenCodeWorkspace={() => {
+          setAiChatOpen(false);
+          setCurrentView('code');
+        }}
       />
 
       {/* VIP Checkout / Purchase Modal */}
@@ -571,8 +594,13 @@ export default function App() {
 
         {/* Floating Trigger 2: Cat Code */}
         <button
-          onClick={() => handleOpenChat('cat-code')}
-          className="flex items-center gap-2 px-4 py-2.5 rounded-full bg-black/90 hover:bg-black border-2 border-[#EF233C] text-white shadow-[0_0_25px_rgba(239,35,60,0.4)] backdrop-blur-xl hover:scale-105 active:scale-95 transition-all group cursor-pointer"
+          onClick={() => setCurrentView('code')}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-full border-2 text-white shadow-xl backdrop-blur-xl hover:scale-105 active:scale-95 transition-all group cursor-pointer ${
+            currentView === 'code'
+              ? 'bg-[#EF233C] border-white shadow-[0_0_30px_rgba(239,35,60,0.6)]'
+              : 'bg-black/90 hover:bg-black border-[#EF233C] shadow-[0_0_25px_rgba(239,35,60,0.4)]'
+          }`}
+          title="Open AI Coding Agent Workspace"
         >
           <span className="relative flex h-2.5 w-2.5">
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
@@ -619,8 +647,10 @@ export default function App() {
         </button>
 
         <button
-          onClick={() => handleOpenChat('cat-code')}
-          className="flex flex-col items-center justify-center py-1 px-2.5 rounded-xl text-neutral-400 hover:text-[#EF233C] transition-all cursor-pointer min-w-[50px]"
+          onClick={() => setCurrentView('code')}
+          className={`flex flex-col items-center justify-center py-1 px-2.5 rounded-xl transition-all cursor-pointer min-w-[50px] ${
+            currentView === 'code' ? 'text-[#EF233C]' : 'text-neutral-400 hover:text-[#EF233C]'
+          }`}
         >
           <Cat className="w-4 h-4 text-[#EF233C]" />
           <span className="text-[10px] font-bold mt-0.5">Code 🐾</span>

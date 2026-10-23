@@ -191,6 +191,11 @@ service cloud.firestore {
         allow update: if isSignedIn() && request.auth.uid == userId && isValidId(spaceId) && isValidSpace(incoming(), userId);
         allow delete: if isSignedIn() && request.auth.uid == userId;
       }
+
+      // Coding Projects subcollection
+      match /coding_projects/{projectId} {
+        allow read, write: if isSignedIn() && request.auth.uid == userId;
+      }
     }
   }
 }

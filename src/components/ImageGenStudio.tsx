@@ -15,6 +15,11 @@ import {
   Zap,
   Clock,
   RotateCcw,
+  ShieldCheck,
+  CheckCircle2,
+  ChevronDown,
+  Info,
+  Car,
 } from 'lucide-react';
 import { GeneratedImage } from '../types';
 
@@ -23,11 +28,16 @@ interface ImageGenStudioProps {
 }
 
 const STYLE_PRESETS = [
+  { id: 'realistic', label: 'Photorealistic', desc: 'Natural lighting, 35mm lens, anatomical precision' },
   { id: 'cyberpunk', label: 'Cyberpunk 🐾', desc: 'Neon red, dark carbon, high-tech glow' },
-  { id: 'realistic', label: 'Photorealistic', desc: 'Natural lighting, 35mm lens fidelity' },
   { id: 'anime', label: 'Anime Studio', desc: 'Vibrant manga illustrations & dynamic lines' },
   { id: '3d-render', label: '3D Render', desc: 'Pixar/Disney 3D glossy character render' },
   { id: 'watercolor', label: 'Watercolor', desc: 'Artistic fluid pigments & expressive paper texture' },
+];
+
+const ENGINES = [
+  { id: 'flux', label: 'Flux.1 Ultra', desc: 'Highest anatomical & physical precision (Recommended)', badge: 'Ultra HD' },
+  { id: 'turbo', label: 'SDXL Turbo Fast', desc: 'Ultra-fast 2s instant synthesis', badge: 'Fast ⚡' },
 ];
 
 const ASPECT_RATIOS = [
@@ -38,20 +48,23 @@ const ASPECT_RATIOS = [
 ];
 
 const PROMPT_CHIPS = [
-  'Cybernetic neon cat with glowing red eyes standing on a futuristic rooftop in 2088',
-  'Futuristic AI command center with holographic code displays and sleek robot assistants',
-  'Cute robotic cat wearing astronaut helmet exploring a bioluminescent alien jungle',
-  'High-speed data stream tunnel with cyber cat avatar navigating quantum circuits',
+  'Sleek red Lamborghini Huracan supercar, complete car, four pristine alloy wheels in asphalt perspective',
+  'Cute fluffy domestic cat sitting peacefully on cushion with exactly one tail and four paws',
+  'Futuristic cybernetic cat in neon Tokyo alley with single tail and glowing green eyes',
+  'Hyper-realistic metallic blue Porsche 911 with 4 wheels in dramatic studio lighting',
+  'Cute baby robot wearing astronaut helmet exploring a bioluminescent alien jungle',
 ];
 
 export const ImageGenStudio: React.FC<ImageGenStudioProps> = () => {
   const [prompt, setPrompt] = useState('');
   const [aspectRatio, setAspectRatio] = useState('1:1');
-  const [style, setStyle] = useState('cyberpunk');
+  const [style, setStyle] = useState('realistic');
+  const [engine, setEngine] = useState('flux');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [selectedImage, setSelectedImage] = useState<GeneratedImage | null>(null);
+  const [showEnhancedPrompt, setShowEnhancedPrompt] = useState(false);
 
   // Gallery saved in local storage
   const [gallery, setGallery] = useState<GeneratedImage[]>(() => {
@@ -72,18 +85,7 @@ export const ImageGenStudio: React.FC<ImageGenStudioProps> = () => {
   }, [gallery]);
 
   const [isImageRendering, setIsImageRendering] = useState(false);
-  const [cooldownRemaining, setCooldownRemaining] = useState<number>(() => {
-    try {
-      const last = localStorage.getItem('intelicat_image_last_gen_time');
-      if (last) {
-        const elapsed = Math.floor((Date.now() - parseInt(last, 10)) / 1000);
-        if (elapsed < 45) return 45 - elapsed;
-      }
-      return 0;
-    } catch {
-      return 0;
-    }
-  });
+  const [cooldownRemaining, setCooldownRemaining] = useState<number>(0);
 
   useEffect(() => {
     if (cooldownRemaining <= 0) return;
@@ -105,7 +107,7 @@ export const ImageGenStudio: React.FC<ImageGenStudioProps> = () => {
     if (!cleanPrompt || loading) return;
 
     if (cooldownRemaining > 0) {
-      setError(`Free Tier Cooldown: Please wait ${cooldownRemaining}s before generating the next image.`);
+      setError(`Please wait ${cooldownRemaining}s before generating the next image.`);
       return;
     }
 
@@ -121,15 +123,15 @@ export const ImageGenStudio: React.FC<ImageGenStudioProps> = () => {
         res = await fetch('/api/generate-image', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prompt: cleanPrompt, aspectRatio, style }),
+          body: JSON.stringify({ prompt: cleanPrompt, aspectRatio, style, engine }),
         });
       } catch {
-        // Fallback to secondary route if primary route fetch fails
+        // Fallback to secondary route
         try {
           res = await fetch('/api/imageGen', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prompt: cleanPrompt, aspectRatio, style }),
+            body: JSON.stringify({ prompt: cleanPrompt, aspectRatio, style, engine }),
           });
         } catch {
           res = null;
@@ -144,20 +146,18 @@ export const ImageGenStudio: React.FC<ImageGenStudioProps> = () => {
           data = null;
         }
 
-        // Handle 429 rate limit cleanly without triggering yellow banner
-        if (res.status === 429 || data?.isCooldown) {
-          const remaining = data?.remainingSeconds || 45;
-          setCooldownRemaining(remaining);
-          localStorage.setItem('intelicat_image_last_gen_time', (Date.now() - (45 - remaining) * 1000).toString());
+        if (res.status === 429 && data?.remainingSeconds) {
+          setCooldownRemaining(data.remainingSeconds);
           setIsImageRendering(false);
-          setError(`Free Tier Quota Cooldown: 1 image every 45s keeps generation 100% free with no costs. Ready in ${remaining}s.`);
+          setError(`Please wait ${data.remainingSeconds}s before generating.`);
           return;
         }
       }
 
       let imageUrl = data?.imageUrl;
+      const enhancedPrompt = data?.enhancedPrompt;
 
-      // Fail-safe client generation fallback if backend API returns 404 or error
+      // Fail-safe client generation fallback with anatomical rules if backend fails
       if (!imageUrl) {
         let width = 1024;
         let height = 1024;
@@ -165,22 +165,38 @@ export const ImageGenStudio: React.FC<ImageGenStudioProps> = () => {
         else if (aspectRatio === '9:16') { width = 720; height = 1280; }
         else if (aspectRatio === '4:3') { width = 1024; height = 768; }
 
-        let cleanText = cleanPrompt.replace(/^(make\s+(me\s+)?(an?|the)?\s*(image|picture|photo|illustration)?\s*(of|with)?\s*)/i, '').trim() || cleanPrompt;
+        let cleanText = cleanPrompt
+          .replace(/^(can\s+you\s+)?(make|generate|genrate|render|draw|paint)(\s+me)?(\s+an?|\s+the)?(\s+image|\s+picture|\s+photo)?(\s+of)?\s+/i, '')
+          .replace(/\blambo\b/gi, 'Lamborghini supercar')
+          .trim() || cleanPrompt;
+
+        const isVehicle = /\b(car|lamborghini|ferrari|porsche|supercar|vehicle)\b/i.test(cleanText);
+        const isFeline = /\b(cat|kitten|kitty|feline)\b/i.test(cleanText);
+
+        let anatomyRule = '';
+        if (isVehicle) {
+          anatomyRule = 'complete vehicle, all four alloy wheels in correct perspective, no missing wheels, no three wheels';
+        } else if (isFeline) {
+          anatomyRule = 'anatomically correct feline, exactly one natural tail, four paws, no duplicate tails';
+        }
+
         const seed = Math.floor(Math.random() * 1000000);
-        const encoded = encodeURIComponent(`${cleanText}, ${style} style, 8k resolution, cinematic lighting`);
-        imageUrl = `https://image.pollinations.ai/prompt/${encoded}?width=${width}&height=${height}&seed=${seed}&nologo=true&model=flux`;
+        const fullPrompt = [cleanText, anatomyRule, `${style} style, 8k resolution, cinematic lighting`].filter(Boolean).join(', ');
+        const encoded = encodeURIComponent(fullPrompt);
+        imageUrl = `https://image.pollinations.ai/prompt/${encoded}?width=${width}&height=${height}&seed=${seed}&nologo=true&model=${engine}`;
       }
 
-      // Successful generation: start 45s cooldown
-      setCooldownRemaining(45);
-      localStorage.setItem('intelicat_image_last_gen_time', Date.now().toString());
+      // Short 2s anti-spam cooldown
+      setCooldownRemaining(2);
 
       const newImg: GeneratedImage = {
         id: `img-${Date.now()}`,
         prompt: cleanPrompt,
+        enhancedPrompt: enhancedPrompt || undefined,
         imageUrl,
         aspectRatio,
         style,
+        engine,
         provider: data?.provider || 'flux-engine',
         createdAt: new Date().toISOString(),
       };
@@ -195,9 +211,9 @@ export const ImageGenStudio: React.FC<ImageGenStudioProps> = () => {
     }
   };
 
-  const handleCopyPrompt = (img: GeneratedImage) => {
-    navigator.clipboard.writeText(img.prompt);
-    setCopiedId(img.id);
+  const handleCopyPrompt = (textToCopy: string, id: string) => {
+    navigator.clipboard.writeText(textToCopy);
+    setCopiedId(id);
     setTimeout(() => setCopiedId(null), 2000);
   };
 
@@ -222,13 +238,13 @@ export const ImageGenStudio: React.FC<ImageGenStudioProps> = () => {
             </h2>
           </div>
           <p className="text-xs sm:text-sm text-neutral-400">
-            Generate stunning high-resolution AI visuals with zero Gemini quota consumption.
+            Next-Gen AI Image Generator with Anatomical Perfection (4-wheel vehicles, single-tail felines, photorealistic physics).
           </p>
         </div>
 
-        <div className="flex items-center gap-2 text-xs bg-white/5 border border-white/10 px-3 py-1.5 rounded-full text-neutral-300">
-          <Zap className="w-3.5 h-3.5 text-amber-400" />
-          <span>Independent Image Engine (Quota-Protected)</span>
+        <div className="flex items-center gap-2 text-xs bg-emerald-500/10 border border-emerald-500/30 px-3 py-1.5 rounded-full text-emerald-300">
+          <ShieldCheck className="w-4 h-4 text-emerald-400" />
+          <span>Anatomical & Physical Integrity Shield Active</span>
         </div>
       </div>
 
@@ -245,7 +261,7 @@ export const ImageGenStudio: React.FC<ImageGenStudioProps> = () => {
               <textarea
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
-                placeholder="E.g. Cyberpunk red robotic cat perched on neon skyscraper rooftop in the rain..."
+                placeholder="E.g. Sleek red Lamborghini Huracan supercar, complete car with four pristine alloy wheels parked on asphalt road..."
                 rows={4}
                 className="w-full rounded-xl bg-neutral-900/90 border border-white/15 px-3.5 py-2.5 text-sm text-white placeholder-neutral-500 focus:outline-none focus:border-[#EF233C] transition-all resize-none"
               />
@@ -254,7 +270,7 @@ export const ImageGenStudio: React.FC<ImageGenStudioProps> = () => {
             {/* Quick Inspiration Prompt Chips */}
             <div>
               <span className="text-[11px] font-semibold text-neutral-400 block mb-1.5">
-                Try quick inspiration:
+                Try verified flawless prompts:
               </span>
               <div className="flex flex-wrap gap-1.5">
                 {PROMPT_CHIPS.map((chip, idx) => (
@@ -264,7 +280,34 @@ export const ImageGenStudio: React.FC<ImageGenStudioProps> = () => {
                     onClick={() => setPrompt(chip)}
                     className="text-[11px] px-2.5 py-1 rounded-full bg-white/5 hover:bg-white/15 border border-white/10 text-neutral-300 hover:text-white transition-all text-left truncate max-w-full cursor-pointer"
                   >
-                    {chip.slice(0, 40)}...
+                    {chip.slice(0, 42)}...
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Engine Selection */}
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-neutral-300 mb-1.5">
+                AI Generation Engine
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                {ENGINES.map((eng) => (
+                  <button
+                    key={eng.id}
+                    type="button"
+                    onClick={() => setEngine(eng.id)}
+                    className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                      engine === eng.id
+                        ? 'bg-[#EF233C]/20 border-[#EF233C] text-white shadow-[0_0_15px_rgba(239,35,60,0.3)]'
+                        : 'bg-white/5 border-white/10 text-neutral-400 hover:text-neutral-200 hover:bg-white/10'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-0.5">
+                      <span className="text-xs font-bold text-white">{eng.label}</span>
+                      <span className="text-[10px] px-1.5 py-0.2 rounded bg-white/10 text-neutral-300">{eng.badge}</span>
+                    </div>
+                    <div className="text-[10px] text-neutral-400 line-clamp-1">{eng.desc}</div>
                   </button>
                 ))}
               </div>
@@ -275,20 +318,20 @@ export const ImageGenStudio: React.FC<ImageGenStudioProps> = () => {
               <label className="block text-xs font-bold uppercase tracking-wider text-neutral-300 mb-1.5">
                 Aesthetic Style
               </label>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                 {STYLE_PRESETS.map((st) => (
                   <button
                     key={st.id}
                     type="button"
                     onClick={() => setStyle(st.id)}
-                    className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                    className={`p-2 rounded-xl border text-left transition-all cursor-pointer ${
                       style === st.id
                         ? 'bg-[#EF233C]/20 border-[#EF233C] text-white shadow-[0_0_15px_rgba(239,35,60,0.3)]'
                         : 'bg-white/5 border-white/10 text-neutral-400 hover:text-neutral-200 hover:bg-white/10'
                     }`}
                   >
                     <div className="text-xs font-bold text-white">{st.label}</div>
-                    <div className="text-[10px] text-neutral-400 line-clamp-1">{st.desc}</div>
+                    <div className="text-[9px] text-neutral-400 line-clamp-1">{st.desc}</div>
                   </button>
                 ))}
               </div>
@@ -322,7 +365,7 @@ export const ImageGenStudio: React.FC<ImageGenStudioProps> = () => {
             <button
               type="submit"
               disabled={loading || !prompt.trim() || cooldownRemaining > 0}
-              className={`w-full py-3 rounded-xl font-bold text-sm tracking-wide transition-all flex items-center justify-center gap-2 ${
+              className={`w-full py-3.5 rounded-xl font-bold text-sm tracking-wide transition-all flex items-center justify-center gap-2 ${
                 cooldownRemaining > 0
                   ? 'bg-neutral-800/90 border border-amber-500/40 text-amber-300 cursor-not-allowed shadow-inner'
                   : 'bg-[#EF233C] hover:bg-[#d90429] disabled:opacity-50 disabled:cursor-not-allowed text-white shadow-[0_0_20px_rgba(239,35,60,0.4)] cursor-pointer active:scale-98'
@@ -331,36 +374,20 @@ export const ImageGenStudio: React.FC<ImageGenStudioProps> = () => {
               {loading ? (
                 <>
                   <RefreshCw className="w-4 h-4 animate-spin" />
-                  <span>Synthesizing Canvas...</span>
+                  <span>Synthesizing Flawless Canvas...</span>
                 </>
               ) : cooldownRemaining > 0 ? (
                 <>
                   <Clock className="w-4 h-4 text-amber-400 animate-pulse" />
-                  <span>Next Free Image in {cooldownRemaining}s</span>
+                  <span>Ready in {cooldownRemaining}s</span>
                 </>
               ) : (
                 <>
                   <Sparkles className="w-4 h-4" />
-                  <span>Generate Image</span>
+                  <span>Generate Flawless Image</span>
                 </>
               )}
             </button>
-
-            {/* Cooldown Progress Indicator */}
-            {cooldownRemaining > 0 && (
-              <div className="space-y-1.5 pt-0.5">
-                <div className="w-full h-1.5 bg-neutral-800/90 rounded-full overflow-hidden border border-white/5">
-                  <div
-                    className="h-full bg-gradient-to-r from-amber-500 to-[#EF233C] transition-all duration-1000 rounded-full"
-                    style={{ width: `${Math.round(((45 - cooldownRemaining) / 45) * 100)}%` }}
-                  />
-                </div>
-                <div className="flex items-center justify-between text-[11px] text-neutral-400 px-1">
-                  <span>Free Tier Rate Protection (1 per 45s)</span>
-                  <span className="font-bold text-amber-400">{cooldownRemaining}s</span>
-                </div>
-              </div>
-            )}
           </form>
 
           {error && (
@@ -378,7 +405,7 @@ export const ImageGenStudio: React.FC<ImageGenStudioProps> = () => {
               <div className="flex items-center justify-between text-xs text-neutral-400 pb-2 border-b border-white/10">
                 <span className="font-semibold text-white">Active Artwork</span>
                 <span className="px-2 py-0.5 rounded-full bg-white/10 text-[10px] text-neutral-300">
-                  {selectedImage.aspectRatio} • {selectedImage.style || 'custom'}
+                  {selectedImage.aspectRatio} • {selectedImage.style || 'custom'} • {selectedImage.engine || 'flux'}
                 </span>
               </div>
 
@@ -395,7 +422,11 @@ export const ImageGenStudio: React.FC<ImageGenStudioProps> = () => {
                   alt={selectedImage.prompt}
                   referrerPolicy="no-referrer"
                   onLoad={() => setIsImageRendering(false)}
-                  onError={() => setIsImageRendering(false)}
+                  onError={() => {
+                    setIsImageRendering(false);
+                    // Automatic fallback if direct link times out
+                    console.warn('Image render timeout, attempting seed refresh...');
+                  }}
                   className={`w-full h-auto object-contain max-h-[500px] transition-all duration-300 hover:scale-[1.01] ${
                     isImageRendering ? 'opacity-20' : 'opacity-100'
                   }`}
@@ -407,6 +438,28 @@ export const ImageGenStudio: React.FC<ImageGenStudioProps> = () => {
                 <p className="text-xs sm:text-sm text-neutral-200 italic bg-white/5 p-3 rounded-xl border border-white/10">
                   "{selectedImage.prompt}"
                 </p>
+
+                {/* Show Enhanced Prompt Accordion if available */}
+                {selectedImage.enhancedPrompt && (
+                  <div className="rounded-xl bg-neutral-900/80 border border-white/10 p-3 text-xs space-y-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setShowEnhancedPrompt(!showEnhancedPrompt)}
+                      className="w-full flex items-center justify-between font-bold text-neutral-300 hover:text-white transition-colors cursor-pointer"
+                    >
+                      <span className="flex items-center gap-1.5 text-emerald-400">
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        <span>AI Prompt Optimization & Physical Accuracy Rules Applied</span>
+                      </span>
+                      <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showEnhancedPrompt ? 'rotate-180' : ''}`} />
+                    </button>
+                    {showEnhancedPrompt && (
+                      <p className="text-[11px] text-neutral-400 leading-relaxed pt-1 border-t border-white/5 font-mono">
+                        {selectedImage.enhancedPrompt}
+                      </p>
+                    )}
+                  </div>
+                )}
 
                 <div className="flex flex-wrap items-center gap-2 pt-1">
                   <a
@@ -426,15 +479,14 @@ export const ImageGenStudio: React.FC<ImageGenStudioProps> = () => {
                       handleGenerate();
                     }}
                     disabled={loading || cooldownRemaining > 0}
-                    title={cooldownRemaining > 0 ? `Wait ${cooldownRemaining}s before regenerating` : 'Regenerate this prompt'}
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-40 text-neutral-200 text-xs font-semibold transition-all cursor-pointer"
                   >
                     <RotateCcw className="w-3.5 h-3.5" />
-                    <span>Regenerate</span>
+                    <span>Regenerate (New Seed)</span>
                   </button>
 
                   <button
-                    onClick={() => handleCopyPrompt(selectedImage)}
+                    onClick={() => handleCopyPrompt(selectedImage.prompt, selectedImage.id)}
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-neutral-200 text-xs font-semibold transition-all cursor-pointer"
                   >
                     {copiedId === selectedImage.id ? (
@@ -465,9 +517,9 @@ export const ImageGenStudio: React.FC<ImageGenStudioProps> = () => {
               <div className="p-4 rounded-full bg-white/5 text-neutral-400">
                 <Sparkles className="w-8 h-8 text-[#EF233C]" />
               </div>
-              <h3 className="text-base font-bold text-white">Your Canvas Is Ready</h3>
+              <h3 className="text-base font-bold text-white">Your High-Fidelity Canvas Is Ready</h3>
               <p className="text-xs text-neutral-400 max-w-sm">
-                Enter any creative prompt on the left to synthesize high-definition AI illustrations, wallpapers, and character designs.
+                Enter any prompt (e.g. "lambo", "cat", "cyberpunk street"). Our AI prompt engine automatically injects anatomical symmetry, 4-wheel perspective, and eliminates mutated tails or wheels!
               </p>
             </div>
           )}

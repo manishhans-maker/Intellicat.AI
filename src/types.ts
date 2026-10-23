@@ -167,9 +167,11 @@ export interface ProjectSpace {
 export interface GeneratedImage {
   id: string;
   prompt: string;
+  enhancedPrompt?: string;
   imageUrl: string;
   aspectRatio: string;
   style?: string;
+  engine?: string;
   provider: string;
   createdAt: string;
 }

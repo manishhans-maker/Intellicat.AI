@@ -29,8 +29,8 @@ import { INTELLICAT_LOGO_URL } from '../constants';
 import { useAuth } from '../context/AuthContext';
 
 interface NavbarProps {
-  currentView?: 'hero' | 'priority' | 'study' | 'spaces' | 'translator' | 'news' | 'image';
-  onSelectView?: (view: 'hero' | 'priority' | 'study' | 'spaces' | 'translator' | 'news' | 'image') => void;
+  currentView?: 'hero' | 'priority' | 'study' | 'spaces' | 'translator' | 'news' | 'image' | 'code';
+  onSelectView?: (view: 'hero' | 'priority' | 'study' | 'spaces' | 'translator' | 'news' | 'image' | 'code') => void;
   onGetStarted?: () => void;
   onOpenChat?: (mode: ChatMode) => void;
   onOpenInfo?: (tabId?: string) => void;
@@ -247,8 +247,13 @@ export const Navbar: React.FC<NavbarProps> = ({
         </button>
 
         <button
-          onClick={() => (onOpenChat ? onOpenChat('cat-code') : onGetStarted?.())}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs sm:text-sm font-medium rounded-lg transition-all duration-200 text-neutral-300 hover:text-white hover:bg-white/5 cursor-pointer"
+          onClick={() => (onSelectView ? onSelectView('code') : onOpenChat ? onOpenChat('cat-code') : onGetStarted?.())}
+          className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs sm:text-sm font-medium rounded-lg transition-all duration-200 cursor-pointer ${
+            currentView === 'code'
+              ? 'text-white bg-[#EF233C] shadow-md font-semibold'
+              : 'text-neutral-300 hover:text-white hover:bg-white/5'
+          }`}
+          title="IntellicatAI Full AI Coding Workspace"
         >
           <Cat className="w-3.5 h-3.5 text-[#EF233C]" />
           <span>Cat Code 🐾</span>
@@ -789,13 +794,18 @@ export const Navbar: React.FC<NavbarProps> = ({
                   <button
                     onClick={() => {
                       setMobileMenuOpen(false);
-                      onOpenChat?.('cat-code');
+                      if (onSelectView) onSelectView('code');
+                      else onOpenChat?.('cat-code');
                     }}
-                    className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl bg-[#EF233C]/20 hover:bg-[#EF233C]/30 text-xs font-semibold text-red-200 border border-[#EF233C]/30 cursor-pointer"
+                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold border cursor-pointer ${
+                      currentView === 'code'
+                        ? 'bg-[#EF233C] text-white border-white/20'
+                        : 'bg-[#EF233C]/20 hover:bg-[#EF233C]/30 text-red-200 border-[#EF233C]/30'
+                    }`}
                   >
                     <span className="flex items-center gap-2">
                       <Cat className="w-4 h-4 text-[#EF233C]" />
-                      <span>Cyber Cat Code 🐾</span>
+                      <span>Cyber Cat Code Workspace 🐾</span>
                     </span>
                     <Code className="w-3 h-3 text-red-400" />
                   </button>

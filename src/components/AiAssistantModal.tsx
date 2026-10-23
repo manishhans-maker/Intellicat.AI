@@ -97,6 +97,7 @@ interface AiAssistantModalProps {
   isFounder?: boolean;
   activeSpace?: ProjectSpace | null;
   onSelectSpace?: (space: ProjectSpace | null) => void;
+  onOpenCodeWorkspace?: () => void;
 }
 
 export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
@@ -109,6 +110,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
   isFounder = false,
   activeSpace,
   onSelectSpace,
+  onOpenCodeWorkspace,
 }) => {
   const {
     user,
@@ -1688,6 +1690,23 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
 
                 {/* Right Top Actions */}
                 <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+                  {/* Full AI Coding Workspace Launcher (prominent in cat-code mode) */}
+                  {onOpenCodeWorkspace && (mode === 'cat-code' || mode === 'coding') && (
+                    <button
+                      onClick={() => {
+                        onClose();
+                        onOpenCodeWorkspace();
+                      }}
+                      type="button"
+                      className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-md cursor-pointer border bg-gradient-to-r from-[#EF233C] to-red-600 hover:from-red-600 hover:to-red-700 text-white border-red-500 shadow-red-600/30 active:scale-95"
+                      title="Open Full Multi-File AI Coding Workspace & IDE"
+                    >
+                      <Code className="w-3.5 h-3.5" />
+                      <span className="hidden xs:inline">Full Code IDE</span>
+                      <span className="xs:hidden">IDE</span>
+                    </button>
+                  )}
+
                   {/* Built Website Artifact Quick Toggle / Jump */}
                   {latestArtifact && (
                     <button

@@ -7,7 +7,7 @@ import { INTELLICAT_LOGO_URL } from '../constants';
 interface HeroContentProps {
   onOpenChat?: (mode: ChatMode, prompt?: string) => void;
   onOpenBuyVip?: () => void;
-  onSelectView?: (view: 'hero' | 'priority' | 'study' | 'spaces' | 'translator' | 'news' | 'image') => void;
+  onSelectView?: (view: 'hero' | 'priority' | 'study' | 'spaces' | 'translator' | 'news' | 'image' | 'code') => void;
 }
 
 export const HeroContent: React.FC<HeroContentProps> = ({
@@ -108,13 +108,13 @@ export const HeroContent: React.FC<HeroContentProps> = ({
         {/* Mode 2: Cat Code Button */}
         <button
           id="hero-cat-code-btn"
-          onClick={() => onOpenChat?.('cat-code')}
+          onClick={() => (onSelectView ? onSelectView('code') : onOpenChat?.('cat-code'))}
           className="flex items-center gap-2 px-4 py-2 rounded-full bg-[#EF233C]/20 hover:bg-[#EF233C]/35 border border-[#EF233C]/40 text-xs sm:text-sm font-semibold text-white transition-all cursor-pointer shadow-sm group hover:scale-105"
         >
           <Cat className="w-4 h-4 text-[#EF233C] group-hover:scale-110 transition-transform" />
           <span>Mode 2: Cat Code 🐾</span>
           <span className="text-[10px] text-[#EF233C] font-mono bg-[#EF233C]/20 px-1.5 py-0.5 rounded font-bold">
-            Gemini
+            Workspace
           </span>
         </button>
 

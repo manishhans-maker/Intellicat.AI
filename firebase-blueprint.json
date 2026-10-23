@@ -303,6 +303,22 @@
         }
       },
       "required": ["id", "uid", "name", "email", "tierId", "tierName", "amountInr", "utrNumber", "status", "createdAt"]
+    },
+    "CodingProject": {
+      "title": "IntelicatAI Coding Workspace Project",
+      "description": "Multi-file coding workspace project with file tree, editor tabs, agent checkpoints, and preview config",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "framework": { "type": "string" },
+        "files": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "name", "createdAt", "updatedAt"]
     }
   },
   "firestore": {
@@ -329,6 +345,10 @@
     "/users/{userId}/spaces/{spaceId}": {
       "schema": "Space",
       "description": "Stores project spaces, instructions, and notes owned by the user"
+    },
+    "/users/{userId}/coding_projects/{projectId}": {
+      "schema": "CodingProject",
+      "description": "Stores multi-file coding workspace projects owned by the user"
     }
   }
 }

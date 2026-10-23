@@ -9,6 +9,7 @@ import imageGenHandler from "./api/imageGen";
 import searchServiceHandler from "./api/searchService";
 import { translateHandler } from "./api/translate";
 import { newsFeedHandler, newsSummarizeHandler } from "./api/news";
+import codeAgentHandler from "./api/code-agent";
 
 dotenv.config();
 
@@ -114,6 +115,9 @@ async function startServer() {
   // Dedicated Live Newspaper & News AI endpoints
   app.get("/api/news", newsFeedHandler);
   app.post("/api/news/summarize", newsSummarizeHandler);
+
+  // Dedicated AI Coding Agent Workspace endpoint
+  app.post("/api/code-agent", codeAgentHandler);
 
   // Vite middleware for development vs static build for production
   if (process.env.NODE_ENV !== "production") {

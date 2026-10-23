@@ -238,15 +238,14 @@ async function resolveGroqModel(groq: Groq, preferredModel?: string): Promise<st
 }
 
 // Primary Gemini model cascade: default to ultra-fast gemini-3.5-flash-lite
-const GEMINI_PRIMARY_MODEL = "gemini-3.5-flash-lite";
+const GEMINI_PRIMARY_MODEL = "gemini-3.8-flash";
 const GEMINI_MODELS_CASCADE = [
-  "gemini-3.5-flash-lite",
+  "gemini-3.8-flash",
   "gemini-3.5-flash",
   "gemini-3.6-flash",
+  "gemini-3.5-flash-lite",
   "gemini-3.7-flash",
-  "gemini-3.1-flash-lite",
   "gemini-flash-latest",
-  "gemini-3.8-flash",
 ];
 
 // Real-Time Web Search & Grounding Engine (Google News RSS + Wikipedia Facts)
@@ -908,11 +907,6 @@ export default async function handler(req: any, res: any) {
         systemInstruction: effectiveSystemInstruction,
         temperature,
       };
-
-      // If user requested web search but fallback retrieval found no facts, attempt googleSearch tool
-      if (isSearchRequested && !liveSearchFacts) {
-        geminiConfig.tools = [{ googleSearch: {} }];
-      }
 
       let lastGeminiError: any = null;
 
