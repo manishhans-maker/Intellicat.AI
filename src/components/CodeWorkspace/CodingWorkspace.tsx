@@ -53,7 +53,11 @@ export const CodingWorkspace: React.FC<CodingWorkspaceProps> = ({ userId, onClos
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historySearch, setHistorySearch] = useState('');
   const [selectedModel, setSelectedModel] = useState<string>(() => {
-    return localStorage.getItem('intelicat_coding_model') || 'gemini-3.8-flash';
+    const saved = localStorage.getItem('intelicat_coding_model');
+    if (!saved || saved.includes('1.') || saved.includes('2.')) {
+      return 'gemini-3.8-flash';
+    }
+    return saved;
   });
 
   useEffect(() => {
@@ -321,6 +325,67 @@ export const CodingWorkspace: React.FC<CodingWorkspaceProps> = ({ userId, onClos
     setAgentHistory((prev) => [...prev, undoMsg]);
   };
 
+  // Create new file
+  const handleCreateFile = (path: string, content = '') => {
+    if (!activeProject) return;
+    const cleanPath = path.trim().replace(/^(\.\/|\/)/, '');
+    if (!cleanPath) return;
+
+    const ext = cleanPath.split('.').pop() || 'tsx';
+    const componentName = cleanPath.split('/').pop()?.replace(/\.[^/.]+$/, '') || 'Component';
+    const defaultCode =
+      content ||
+      `import React from 'react';\n\nexport default function ${componentName}() {\n  return (\n    <div className="p-4">\n      <h2 className="text-lg font-bold">${cleanPath}</h2>\n    </div>\n  );\n}\n`;
+
+    const updatedFiles = {
+      ...activeProject.files,
+      [cleanPath]: {
+        path: cleanPath,
+        content: defaultCode,
+        language: ext,
+        isModified: false,
+      },
+    };
+
+    const updatedTabs = activeProject.openTabs.includes(cleanPath)
+      ? activeProject.openTabs
+      : [...activeProject.openTabs, cleanPath];
+
+    const updatedProject: CodingProject = {
+      ...activeProject,
+      files: updatedFiles,
+      openTabs: updatedTabs,
+      activeFilePath: cleanPath,
+      updatedAt: new Date().toISOString(),
+    };
+
+    setActiveProject(updatedProject);
+    saveUserCodingProject(updatedProject);
+  };
+
+  // Delete file
+  const handleDeleteFile = (path: string) => {
+    if (!activeProject) return;
+    if (Object.keys(activeProject.files).length <= 1) return;
+
+    const updatedFiles = { ...activeProject.files };
+    delete updatedFiles[path];
+
+    const updatedTabs = activeProject.openTabs.filter((t) => t !== path);
+    const primaryPath = updatedTabs[0] || Object.keys(updatedFiles)[0] || 'src/App.tsx';
+
+    const updatedProject: CodingProject = {
+      ...activeProject,
+      files: updatedFiles,
+      openTabs: updatedTabs,
+      activeFilePath: primaryPath,
+      updatedAt: new Date().toISOString(),
+    };
+
+    setActiveProject(updatedProject);
+    saveUserCodingProject(updatedProject);
+  };
+
   const filteredHistory = projects.filter(
     (p) =>
       p.name.toLowerCase().includes(historySearch.toLowerCase()) ||
@@ -575,6 +640,8 @@ export const CodingWorkspace: React.FC<CodingWorkspaceProps> = ({ userId, onClos
                 saveUserCodingProject({ ...activeProject, files: updatedFiles });
               }}
               onSaveFile={() => saveUserCodingProject(activeProject)}
+              onCreateFile={handleCreateFile}
+              onDeleteFile={handleDeleteFile}
             />
           )}
         </div>
@@ -621,6 +688,8 @@ export const CodingWorkspace: React.FC<CodingWorkspaceProps> = ({ userId, onClos
                   saveUserCodingProject({ ...activeProject, files: updatedFiles });
                 }}
                 onSaveFile={() => saveUserCodingProject(activeProject)}
+                onCreateFile={handleCreateFile}
+                onDeleteFile={handleDeleteFile}
               />
             ) : (
               <LivePreviewSandbox

@@ -247,13 +247,9 @@ export const Navbar: React.FC<NavbarProps> = ({
         </button>
 
         <button
-          onClick={() => (onSelectView ? onSelectView('code') : onOpenChat ? onOpenChat('cat-code') : onGetStarted?.())}
-          className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs sm:text-sm font-medium rounded-lg transition-all duration-200 cursor-pointer ${
-            currentView === 'code'
-              ? 'text-white bg-[#EF233C] shadow-md font-semibold'
-              : 'text-neutral-300 hover:text-white hover:bg-white/5'
-          }`}
-          title="IntellicatAI Full AI Coding Workspace"
+          onClick={() => (onOpenChat ? onOpenChat('cat-code') : onGetStarted?.())}
+          className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs sm:text-sm font-medium rounded-lg transition-all duration-200 text-neutral-300 hover:text-white hover:bg-white/5 cursor-pointer"
+          title="IntellicatAI Classic Cat Code Mode"
         >
           <Cat className="w-3.5 h-3.5 text-[#EF233C]" />
           <span>Cat Code 🐾</span>

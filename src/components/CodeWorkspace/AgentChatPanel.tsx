@@ -142,8 +142,8 @@ export const AgentChatPanel: React.FC<AgentChatPanelProps> = ({
               >
                 <option value="gemini-3.8-flash" className="bg-[#11121d] text-white">Gemini 3.8 Flash (⚡ Recommended)</option>
                 <option value="gemini-3.5-flash" className="bg-[#11121d] text-white">Gemini 3.5 Flash (Stable)</option>
-                <option value="gemini-3.6-flash" className="bg-[#11121d] text-white">Gemini 3.6 Flash</option>
                 <option value="gemini-3.5-flash-lite" className="bg-[#11121d] text-white">Gemini 3.5 Flash Lite (Fast)</option>
+                <option value="gemini-3.6-flash" className="bg-[#11121d] text-white">Gemini 3.6 Flash</option>
                 <option value="gemini-flash-latest" className="bg-[#11121d] text-white">Gemini Flash Latest</option>
               </select>
             </div>

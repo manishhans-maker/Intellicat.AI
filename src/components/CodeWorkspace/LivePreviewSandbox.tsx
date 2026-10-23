@@ -293,7 +293,7 @@ export const LivePreviewSandbox: React.FC<LivePreviewSandboxProps> = ({
         var transpiled = Babel.transform(rawCode, {
           presets: [
             ['react', { runtime: 'classic' }],
-            'typescript'
+            ['typescript', { ignoreExtensions: true }]
           ],
           plugins: [
             'strip-imports-exports'
@@ -308,9 +308,31 @@ export const LivePreviewSandbox: React.FC<LivePreviewSandboxProps> = ({
         // Execute code
         eval(transpiled);
 
+        // Auto-expose all top-level declared components to window so sandbox can render them
+        var foundDecls = transpiled.match(/(?:var|let|const|function)\s+([A-Z][A-Za-z0-9_]*)/g) || [];
+        foundDecls.forEach(function(declStr) {
+          var name = declStr.replace(/^(var|let|const|function)\s+/, '').trim();
+          if (name && name !== 'React' && name !== 'ReactDOM' && name !== 'Babel') {
+            try {
+              var boundVal = eval(name);
+              if (boundVal && (typeof boundVal === 'function' || typeof boundVal === 'object')) {
+                window[name] = boundVal;
+              }
+            } catch(e) {}
+          }
+        });
+
         // Render main component
         var targetName = ${JSON.stringify(componentName)};
-        var targetComp = typeof window[targetName] !== 'undefined' ? window[targetName] : (window.App || window[Object.keys(window).find(function(k) { return k.match(/^[A-Z]/); })]);
+        var targetComp = window[targetName] || window.App;
+        if (!targetComp) {
+          var possibleCompNames = Object.keys(window).filter(function(k) {
+            return k.match(/^[A-Z]/) && typeof window[k] === 'function' && k !== 'React' && k !== 'ReactDOM' && k !== 'Babel';
+          });
+          if (possibleCompNames.length > 0) {
+            targetComp = window[possibleCompNames[possibleCompNames.length - 1]];
+          }
+        }
 
         if (targetComp) {
           var root = ReactDOM.createRoot(document.getElementById('root'));

@@ -18,7 +18,6 @@ import { NewsPanel } from './components/NewsPanel';
 import { ImageGenStudio } from './components/ImageGenStudio';
 import { SettingsModal } from './components/SettingsModal';
 import { OwnerApprovalModal } from './components/OwnerApprovalModal';
-import { CodingWorkspace } from './components/CodeWorkspace/CodingWorkspace';
 import { ProjectSpace, StudyGrade, AiMode, AiProvider, UserPlanTier } from './types';
 import { useAuth } from './context/AuthContext';
 import { AnimatePresence, motion } from 'motion/react';
@@ -524,21 +523,7 @@ export default function App() {
                 }}
               />
             </motion.div>
-          ) : (
-            <motion.div
-              key="code-workspace-view"
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              transition={{ duration: 0.25 }}
-              className="flex-1 flex flex-col relative z-10 w-full"
-            >
-              <CodingWorkspace
-                userId={user?.uid}
-                onClose={() => setCurrentView('hero')}
-              />
-            </motion.div>
-          )}
+          ) : null}
         </AnimatePresence>
       </div>
 
@@ -553,10 +538,6 @@ export default function App() {
         isFounder={isFounder}
         activeSpace={activeSpace}
         onSelectSpace={setActiveSpace}
-        onOpenCodeWorkspace={() => {
-          setAiChatOpen(false);
-          setCurrentView('code');
-        }}
       />
 
       {/* VIP Checkout / Purchase Modal */}
@@ -592,15 +573,11 @@ export default function App() {
           <span className="text-xs sm:text-sm font-semibold">Talk</span>
         </button>
 
-        {/* Floating Trigger 2: Cat Code */}
+        {/* Floating Trigger 2: Cat Code Mode */}
         <button
-          onClick={() => setCurrentView('code')}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-full border-2 text-white shadow-xl backdrop-blur-xl hover:scale-105 active:scale-95 transition-all group cursor-pointer ${
-            currentView === 'code'
-              ? 'bg-[#EF233C] border-white shadow-[0_0_30px_rgba(239,35,60,0.6)]'
-              : 'bg-black/90 hover:bg-black border-[#EF233C] shadow-[0_0_25px_rgba(239,35,60,0.4)]'
-          }`}
-          title="Open AI Coding Agent Workspace"
+          onClick={() => handleOpenChat('cat-code')}
+          className="flex items-center gap-2 px-4 py-2.5 rounded-full border-2 text-white shadow-xl backdrop-blur-xl hover:scale-105 active:scale-95 transition-all group cursor-pointer bg-black/90 hover:bg-black border-[#EF233C] shadow-[0_0_25px_rgba(239,35,60,0.4)]"
+          title="Open AI Cat Code Mode"
         >
           <span className="relative flex h-2.5 w-2.5">
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
@@ -647,10 +624,8 @@ export default function App() {
         </button>
 
         <button
-          onClick={() => setCurrentView('code')}
-          className={`flex flex-col items-center justify-center py-1 px-2.5 rounded-xl transition-all cursor-pointer min-w-[50px] ${
-            currentView === 'code' ? 'text-[#EF233C]' : 'text-neutral-400 hover:text-[#EF233C]'
-          }`}
+          onClick={() => handleOpenChat('cat-code')}
+          className="flex flex-col items-center justify-center py-1 px-2.5 rounded-xl transition-all cursor-pointer min-w-[50px] text-neutral-400 hover:text-[#EF233C]"
         >
           <Cat className="w-4 h-4 text-[#EF233C]" />
           <span className="text-[10px] font-bold mt-0.5">Code 🐾</span>

@@ -521,13 +521,13 @@ export async function saveUserCodingProject(project: CodingProject): Promise<voi
       await setDoc(docRef, {
         id: project.id,
         userId: project.userId,
-        name: project.name,
+        name: project.name || 'Untitled Project',
         description: project.description || '',
-        framework: project.framework,
-        files: JSON.stringify(project.files),
-        activeFilePath: project.activeFilePath,
-        openTabs: project.openTabs,
-        createdAt: project.createdAt,
+        framework: project.framework || 'react',
+        files: JSON.stringify(project.files || {}),
+        activeFilePath: project.activeFilePath || 'src/App.tsx',
+        openTabs: project.openTabs || ['src/App.tsx'],
+        createdAt: project.createdAt || updatedProject.updatedAt,
         updatedAt: updatedProject.updatedAt,
       }, { merge: true });
     }

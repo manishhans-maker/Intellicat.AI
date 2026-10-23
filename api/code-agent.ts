@@ -1,4 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
+import Groq from "groq-sdk";
 
 let geminiClient: GoogleGenAI | null = null;
 function getGeminiClient(): GoogleGenAI | null {
@@ -13,10 +14,11 @@ function getGeminiClient(): GoogleGenAI | null {
 }
 
 const CANDIDATE_MODELS = [
-  "gemini-2.0-flash-lite",
-  "gemini-1.5-flash",
-  "gemini-1.5-pro",
+  "gemini-3.6-flash",
+  "gemini-3.5-flash",
+  "gemini-3.5-flash-lite",
   "gemini-flash-latest",
+  "gemini-3.8-flash",
 ];
 
 interface FileContextInput {
@@ -89,62 +91,62 @@ export default async function codeAgentHandler(req: any, res: any) {
       ? history.slice(-6).map((h: any) => `[${h.role === 'user' ? 'USER REQUEST' : 'AGENT ACTION'}]: ${h.text || h.summary || ''}`).join("\n")
       : "";
 
-    const systemPrompt = `You are the IntelicatAI Cyber Cat Principal Software Engineer & Autonomous Coding Agent.
-You are tasked with analyzing a software project and implementing the user's requested changes with world-class production quality.
+    const systemPrompt = `You are a professional software engineer.
+You are tasked with implementing the user's requested changes to the codebase.
+The user's framework is ${framework}.
 
-Project Framework: ${framework}
-Active File: ${activeFilePath || "None"}
-Repository File Tree:
-- ${formattedTree || "Empty project"}
+CRITICAL REQUIREMENTS:
+1. MULTI-FILE ARCHITECTURE: Structure the application across multiple files. Do not put everything in one file. Use 'src/components/...' for components, 'src/utils/...' for utilities, 'src/types/...' for types, etc.
+2. FULL CODE: In "fileChanges", you MUST provide the FULL, complete source code for every file you create or modify. Do not use placeholders (e.g., "// existing code...").
+3. OUTPUT FORMAT: Respond ONLY with a valid JSON object. No other text.
 
-${formattedHistory ? `[CONVERSATION HISTORY]:\n${formattedHistory}\n` : ""}
-${formattedErrors ? `[CURRENT RUNTIME / BUILD ERRORS TO INVESTIGATE]:\n${formattedErrors}\n` : ""}
-${selectedCode ? `[USER SELECTED CODE SNIPPET IN ACTIVE FILE]:\n${selectedCode}\n` : ""}
-
-[PROJECT FILES CONTEXT]:
-${formattedFiles || "No files provided. Infer or create necessary files."}
-
-TASK INSTRUCTIONS (MULTI-FILE ARCHITECTURE LIKE AI STUDIO):
-1. Carefully inspect the user's request: "${task}".
-2. Follow intent: "${intent}".
-3. Formulate an actionable Implementation Plan (2-4 clear steps).
-4. MULTI-FILE CODE GENERATION (CRITICAL): Do NOT cram everything into a single file. Just like AI Studio or professional IDEs, structure the app across multiple modular files when appropriate!
-   - Create separate components in 'src/components/...' (e.g., 'src/components/Header.tsx', 'src/components/Dashboard.tsx', 'src/components/FeatureCard.tsx', etc.).
-   - Create utility helpers in 'src/utils/...' or types in 'src/types/...'.
-   - Update 'src/App.tsx' to import and orchestrate these modular components.
-5. PATH ACCURACY (CRITICAL): The "path" in "fileChanges" MUST match the exact relative path or new path (e.g. use 'src/components/Header.tsx', 'src/App.tsx', etc.).
-6. FULL CODE REQUIREMENT: In "fileChanges", ALWAYS provide the FULL, complete source code in "content". NEVER output snippets, placeholders like '// existing code...', or truncated sections. The code must be 100% runnable and compile cleanly.
-7. Code Quality: Modern React 19 functional components, TypeScript types, Lucide icons, responsive Tailwind CSS classes, and clean error handling.
-
-OUTPUT FORMAT:
-Respond strictly with valid JSON with NO surrounding conversational markdown outside of the JSON block:
+JSON FORMAT:
 {
   "success": true,
   "plan": {
-    "taskSummary": "Short 1-sentence summary of the task",
-    "steps": ["Step 1...", "Step 2...", "Step 3..."],
-    "targetFiles": ["src/App.tsx", "src/components/Header.tsx"]
+    "taskSummary": "Short summary",
+    "steps": ["Step 1", "Step 2"],
+    "targetFiles": ["file1.tsx", "file2.tsx"]
   },
   "fileChanges": [
     {
-      "path": "src/components/Header.tsx",
+      "path": "src/components/Example.tsx",
       "action": "create",
-      "content": "Full complete code content for new component",
-      "reason": "Created modular header component"
+      "content": "Full complete code here",
+      "reason": "Created new component"
     },
     {
       "path": "src/App.tsx",
       "action": "modify",
-      "content": "Full complete code content for App.tsx importing Header",
-      "reason": "Integrated modular components"
+      "content": "Full complete updated code here",
+      "reason": "Integrated component"
     }
   ],
-  "explanation": "Markdown explanation of the architecture, key decisions, and how to verify the changes",
-  "checks": [
-    { "passed": true, "message": "Verification or static assertion notice" }
-  ],
-  "summary": "Concise summary of changes made, tests, and next steps"
-}`;
+  "explanation": "Short technical explanation of changes.",
+  "summary": "Concise summary."
+}
+
+CONTEXT:
+Repository File Tree:
+- ${formattedTree || "Empty project"}
+
+[CONVERSATION HISTORY]:
+${formattedHistory}
+
+[USER REQUEST]:
+${task}
+
+[ACTIVE FILE]:
+${activeFilePath}
+
+[CURRENT RUNTIME ERRORS]:
+${formattedErrors}
+
+[SELECTED CODE]:
+${selectedCode}
+
+[FILE CONTENTS]:
+${formattedFiles}`;
 
     let agentResponse: any = null;
     let lastError: any = null;
@@ -201,6 +203,27 @@ Respond strictly with valid JSON with NO surrounding conversational markdown out
         console.warn(`Coding agent candidate [${model}] error:`, err?.message || err);
         lastError = err;
         continue;
+      }
+    }
+
+    if (!agentResponse && process.env.GROQ_API_KEY) {
+      try {
+        const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+        const completion = await groq.chat.completions.create({
+          model: "llama-3.3-70b-versatile",
+          messages: [
+            { role: "system", content: "You are an expert AI software engineer. Respond ONLY with valid JSON." },
+            { role: "user", content: systemPrompt }
+          ],
+          temperature: 0.15,
+          response_format: { type: "json_object" }
+        });
+        const groqText = completion.choices[0]?.message?.content || "";
+        if (groqText) {
+          agentResponse = JSON.parse(groqText);
+        }
+      } catch (groqErr) {
+        console.warn("Groq code agent fallback error:", groqErr);
       }
     }
 

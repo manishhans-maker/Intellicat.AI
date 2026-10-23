@@ -169,6 +169,7 @@ export interface GeneratedImage {
   prompt: string;
   enhancedPrompt?: string;
   imageUrl: string;
+  fallbackUrl?: string;
   aspectRatio: string;
   style?: string;
   engine?: string;

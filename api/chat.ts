@@ -237,15 +237,15 @@ async function resolveGroqModel(groq: Groq, preferredModel?: string): Promise<st
   return "llama-3.1-8b-instant";
 }
 
-// Primary Gemini model cascade: default to ultra-fast gemini-3.5-flash-lite
-const GEMINI_PRIMARY_MODEL = "gemini-3.8-flash";
+// Primary Gemini model cascade: default to high-availability gemini-3.6-flash
+const GEMINI_PRIMARY_MODEL = "gemini-3.6-flash";
 const GEMINI_MODELS_CASCADE = [
-  "gemini-3.8-flash",
-  "gemini-3.5-flash",
   "gemini-3.6-flash",
+  "gemini-3.5-flash",
   "gemini-3.5-flash-lite",
-  "gemini-3.7-flash",
   "gemini-flash-latest",
+  "gemini-3.7-flash",
+  "gemini-3.8-flash",
 ];
 
 // Real-Time Web Search & Grounding Engine (Google News RSS + Wikipedia Facts)

@@ -98,21 +98,32 @@ MANDATORY PHYSICAL & ANATOMICAL RULES:
 5. Add professional composition, camera angle, and cinematic studio lighting.
 6. Output ONLY the optimized prompt text. Do NOT wrap in quotes. Do NOT add preamble or explanations.`;
 
-  try {
-    const response = await ai.models.generateContent({
-      model: "gemini-3.8-flash",
-      contents: `${systemInstruction}\n\nUser Request: "${userPrompt.slice(0, 500)}"`,
-      config: {
-        temperature: 0.2,
-      },
-    });
+  const candidateModels = [
+    "gemini-3.6-flash",
+    "gemini-3.5-flash",
+    "gemini-3.5-flash-lite",
+    "gemini-flash-latest",
+    "gemini-3.8-flash"
+  ];
 
-    const optimized = response.text?.trim();
-    if (optimized && optimized.length > 15) {
-      return optimized.replace(/^["']|["']$/g, '');
+  for (const model of candidateModels) {
+    try {
+      const response = await ai.models.generateContent({
+        model,
+        contents: `${systemInstruction}\n\nUser Request: "${userPrompt.slice(0, 500)}"`,
+        config: {
+          temperature: 0.2,
+        },
+      });
+
+      const optimized = response.text?.trim();
+      if (optimized && optimized.length > 15) {
+        return optimized.replace(/^["']|["']$/g, '');
+      }
+    } catch {
+      // Continue to next candidate model
+      continue;
     }
-  } catch (err) {
-    console.warn("AI prompt optimization fallback:", err);
   }
 
   return heuristicPromptEnhancer(userPrompt, style);
@@ -196,16 +207,19 @@ export default async function generateImageHandler(req: any, res: any) {
 
     // Model selection: flux or turbo
     const selectedModel = engine === "turbo" ? "turbo" : "flux";
-    const encodedPrompt = encodeURIComponent(enhancedPrompt);
+    const cleanPromptText = enhancedPrompt.slice(0, 800).trim();
+    const encodedPrompt = encodeURIComponent(cleanPromptText);
     const seed = Math.floor(Math.random() * 1000000);
 
-    const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${width}&height=${height}&seed=${seed}&nologo=true&model=${selectedModel}`;
+    const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${width}&height=${height}&seed=${seed}&nologo=true&model=${selectedModel}&enhance=true`;
+    const fallbackUrl = `https://pollinations.ai/p/${encodedPrompt}?width=${width}&height=${height}&seed=${seed}&nologo=true&model=${selectedModel}`;
 
     // Record client IP timestamp
     ipCooldownMap.set(clientIp, Date.now());
 
     return res.status(200).json({
       imageUrl,
+      fallbackUrl,
       prompt: prompt.trim(),
       enhancedPrompt,
       aspectRatio,

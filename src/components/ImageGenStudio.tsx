@@ -194,6 +194,7 @@ export const ImageGenStudio: React.FC<ImageGenStudioProps> = () => {
         prompt: cleanPrompt,
         enhancedPrompt: enhancedPrompt || undefined,
         imageUrl,
+        fallbackUrl: data?.fallbackUrl || undefined,
         aspectRatio,
         style,
         engine,
@@ -424,8 +425,18 @@ export const ImageGenStudio: React.FC<ImageGenStudioProps> = () => {
                   onLoad={() => setIsImageRendering(false)}
                   onError={() => {
                     setIsImageRendering(false);
-                    // Automatic fallback if direct link times out
-                    console.warn('Image render timeout, attempting seed refresh...');
+                    if (selectedImage) {
+                      if (selectedImage.fallbackUrl && selectedImage.imageUrl !== selectedImage.fallbackUrl) {
+                        setSelectedImage({ ...selectedImage, imageUrl: selectedImage.fallbackUrl });
+                      } else {
+                        const freshSeed = Math.floor(Math.random() * 1000000);
+                        const cleanPromptText = encodeURIComponent(selectedImage.prompt.slice(0, 300));
+                        const recoveryUrl = `https://pollinations.ai/p/${cleanPromptText}?width=1024&height=1024&seed=${freshSeed}&nologo=true`;
+                        if (selectedImage.imageUrl !== recoveryUrl) {
+                          setSelectedImage({ ...selectedImage, imageUrl: recoveryUrl });
+                        }
+                      }
+                    }
                   }}
                   className={`w-full h-auto object-contain max-h-[500px] transition-all duration-300 hover:scale-[1.01] ${
                     isImageRendering ? 'opacity-20' : 'opacity-100'

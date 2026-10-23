@@ -108,13 +108,13 @@ export const HeroContent: React.FC<HeroContentProps> = ({
         {/* Mode 2: Cat Code Button */}
         <button
           id="hero-cat-code-btn"
-          onClick={() => (onSelectView ? onSelectView('code') : onOpenChat?.('cat-code'))}
+          onClick={() => onOpenChat?.('cat-code')}
           className="flex items-center gap-2 px-4 py-2 rounded-full bg-[#EF233C]/20 hover:bg-[#EF233C]/35 border border-[#EF233C]/40 text-xs sm:text-sm font-semibold text-white transition-all cursor-pointer shadow-sm group hover:scale-105"
         >
           <Cat className="w-4 h-4 text-[#EF233C] group-hover:scale-110 transition-transform" />
           <span>Mode 2: Cat Code 🐾</span>
           <span className="text-[10px] text-[#EF233C] font-mono bg-[#EF233C]/20 px-1.5 py-0.5 rounded font-bold">
-            Workspace
+            Classic
           </span>
         </button>
 
