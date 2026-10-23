@@ -13,10 +13,9 @@ function getGeminiClient(): GoogleGenAI | null {
 }
 
 const CANDIDATE_MODELS = [
-  "gemini-3.8-flash",
-  "gemini-3.5-flash",
-  "gemini-3.6-flash",
-  "gemini-3.5-flash-lite",
+  "gemini-2.0-flash-lite",
+  "gemini-1.5-flash",
+  "gemini-1.5-pro",
   "gemini-flash-latest",
 ];
 
@@ -162,10 +161,14 @@ Respond strictly with valid JSON with NO surrounding conversational markdown out
 
         const rawText = response.text || "";
         if (rawText) {
-          const cleaned = rawText.replace(/```json\n?|\n?```/g, "").trim();
+          // Robust JSON extraction: look for the first '{' and last '}'
+          const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+          const cleaned = jsonMatch ? jsonMatch[0] : rawText.replace(/```json\n?|\n?```/g, "").trim();
+          
           try {
             agentResponse = JSON.parse(cleaned);
           } catch (jsonErr) {
+            console.error(`JSON Parse failed for model ${model}. Raw text:\n${rawText.slice(0, 500)}...`);
             try {
               const fixed = cleaned + (cleaned.endsWith("}") ? "" : "}");
               agentResponse = JSON.parse(fixed);
