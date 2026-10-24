@@ -114,16 +114,16 @@ export const AgentChatPanel: React.FC<AgentChatPanelProps> = ({
       {/* Agent Header */}
       <div className="p-3 bg-[#11121d] border-b border-white/10 flex items-center justify-between shrink-0 gap-2">
         <div className="flex items-center gap-2.5 min-w-0">
-          <div className="w-8 h-8 rounded-xl bg-[#EF233C]/20 border border-[#EF233C]/40 flex items-center justify-center text-[#EF233C] shrink-0">
-            <Cat className="w-4.5 h-4.5 animate-pulse" />
+          <div className="w-8 h-8 rounded-xl overflow-hidden bg-black border border-white/20 shadow-[0_0_12px_rgba(239,35,60,0.3)] shrink-0 flex items-center justify-center">
+            <img src="/assets/intellicat-logo.png" alt="IntellicatAI Cat Agent" className="w-full h-full object-cover" />
           </div>
           <div className="min-w-0">
             <div className="text-xs font-bold text-white flex items-center gap-1.5 truncate">
-              <span>AI Web App Creator</span>
+              <span>IntellicatAI Agent</span>
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
             </div>
             <div className="text-[10px] text-neutral-400 truncate">
-              Describe your app ideas & see updates live
+              Code Mode 2.0 Autonomous Engineering
             </div>
           </div>
         </div>
@@ -170,7 +170,9 @@ export const AgentChatPanel: React.FC<AgentChatPanelProps> = ({
         {history.length === 0 && (
           <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/10 space-y-3">
             <div className="flex items-start gap-3">
-              <span className="text-2xl">✨</span>
+              <div className="w-10 h-10 rounded-xl overflow-hidden bg-black border border-white/20 shadow-md shrink-0 flex items-center justify-center">
+                <img src="/assets/intellicat-logo.png" alt="IntellicatAI" className="w-full h-full object-cover" />
+              </div>
               <div>
                 <h4 className="text-xs font-bold text-white">What would you like to build or edit?</h4>
                 <p className="text-[11px] text-neutral-400 mt-1 leading-relaxed">

@@ -1864,7 +1864,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                   className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-black transition-all cursor-pointer whitespace-nowrap min-h-[32px] bg-gradient-to-r from-red-600 via-amber-600 to-amber-500 text-white shadow-md shadow-amber-500/25 border border-amber-300 hover:scale-105 active:scale-95"
                   title="Switch to IntellicatAI Code Mode 2.0 (Autonomous Agent & IDE)"
                 >
-                  <Zap className="w-3.5 h-3.5 text-yellow-200 animate-pulse" />
+                  <img src="/assets/intellicat-logo.png" alt="Code 2.0 Logo" className="w-4 h-4 rounded-md object-cover inline-block" />
                   <span>Code 2.0 ⚡</span>
                 </button>
                 <button

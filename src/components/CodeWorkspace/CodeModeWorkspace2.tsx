@@ -434,8 +434,8 @@ export const CodeModeWorkspace2: React.FC<CodeModeWorkspaceProps> = ({ userId, o
   if (!activeProject) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center p-12 text-neutral-400 bg-[#07090f] text-xs space-y-3">
-        <div className="w-10 h-10 rounded-2xl bg-gradient-to-r from-red-600 to-amber-600 flex items-center justify-center text-white shadow-lg animate-pulse">
-          <Zap className="w-5 h-5 text-yellow-300" />
+        <div className="w-14 h-14 rounded-2xl overflow-hidden shadow-[0_0_25px_rgba(239,35,60,0.35)] border border-white/20 bg-black flex items-center justify-center">
+          <img src="/assets/intellicat-logo.png" alt="IntellicatAI" className="w-full h-full object-cover" />
         </div>
         <p className="font-semibold text-white">Initializing Code Mode 2.0 Autonomous Agent...</p>
         <p className="text-[11px] text-neutral-500">Connecting project files & live runtime</p>
@@ -461,9 +461,9 @@ export const CodeModeWorkspace2: React.FC<CodeModeWorkspaceProps> = ({ userId, o
           <div className="h-4 w-[1px] bg-white/10 shrink-0" />
 
           {/* Logo / Badge */}
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="p-1.5 rounded-xl bg-gradient-to-r from-red-600 to-amber-600 text-white shadow-sm shrink-0">
-              <Zap className="w-4 h-4 text-yellow-300 animate-pulse" />
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-8 h-8 rounded-xl overflow-hidden bg-black border border-white/20 shadow-[0_0_12px_rgba(239,35,60,0.3)] shrink-0 flex items-center justify-center">
+              <img src="/assets/intellicat-logo.png" alt="IntellicatAI Cat Logo" className="w-full h-full object-cover" />
             </div>
 
             <div className="min-w-0">

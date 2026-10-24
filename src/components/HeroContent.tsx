@@ -102,7 +102,7 @@ export const HeroContent: React.FC<HeroContentProps> = ({
           className="flex items-center gap-2 px-4 py-2.5 rounded-full bg-gradient-to-r from-red-600 via-amber-600 to-amber-500 hover:from-red-500 hover:to-amber-400 border border-amber-300 text-xs sm:text-sm font-extrabold text-white transition-all cursor-pointer shadow-[0_0_25px_rgba(245,158,11,0.5)] group hover:scale-105 active:scale-95"
           title="Launch IntellicatAI Code Mode 2.0 Software Engineering Agent"
         >
-          <Zap className="w-4 h-4 text-yellow-200 animate-pulse group-hover:scale-125 transition-transform" />
+          <img src="/assets/intellicat-logo.png" alt="Code 2.0 Logo" className="w-5 h-5 rounded-lg object-cover shadow-sm group-hover:scale-110 transition-transform" />
           <span>Code Mode 2.0 ⚡</span>
           <span className="text-[10px] bg-black/50 text-amber-300 px-2 py-0.5 rounded-full font-mono font-black uppercase tracking-wider border border-amber-400/40">
             Agent IDE

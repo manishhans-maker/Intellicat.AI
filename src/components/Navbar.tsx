@@ -265,7 +265,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           }`}
           title="IntellicatAI Code Mode 2.0 (Autonomous Agent IDE)"
         >
-          <Zap className="w-3.5 h-3.5 text-yellow-300 animate-pulse" />
+          <img src="/assets/intellicat-logo.png" alt="Cat Logo" className="w-4 h-4 rounded-md object-cover inline-block" />
           <span>Code 2.0 ⚡</span>
         </button>
 
@@ -657,7 +657,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           className="md:hidden flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-gradient-to-r from-red-600 via-amber-600 to-amber-500 text-white font-extrabold text-xs border border-amber-300 shadow-[0_0_12px_rgba(245,158,11,0.4)] active:scale-95 cursor-pointer shrink-0"
           title="Open Code Mode 2.0 Agent IDE"
         >
-          <Zap className="w-3.5 h-3.5 text-yellow-200 animate-pulse" />
+          <img src="/assets/intellicat-logo.png" alt="Cat Logo" className="w-4 h-4 rounded-full object-cover inline-block" />
           <span>Code 2.0 ⚡</span>
         </button>
 
