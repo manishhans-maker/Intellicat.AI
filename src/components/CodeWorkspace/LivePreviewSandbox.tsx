@@ -36,6 +36,7 @@ export const LivePreviewSandbox: React.FC<LivePreviewSandboxProps> = ({
 
   // Clear logs on explicit reload
   const handleReload = () => {
+    setLogs([]);
     setRefreshKey((k) => k + 1);
   };
 
@@ -85,7 +86,8 @@ export const LivePreviewSandbox: React.FC<LivePreviewSandboxProps> = ({
           console.info = function() { sendLog('info', arguments); _info.apply(console, arguments); };
 
           window.onerror = function(msg, url, line, col, error) {
-            var fullMsg = msg + ' (Line ' + line + (col ? ':' + col : '') + ')';
+            var fullMsg = (error && error.message) ? error.message : msg;
+            if (line) fullMsg += ' (line ' + line + (col ? ':' + col : '') + ')';
             window.parent.postMessage({ type: 'SANDBOX_CONSOLE', logType: 'error', message: fullMsg }, '*');
             return false;
           };
@@ -161,15 +163,15 @@ export const LivePreviewSandbox: React.FC<LivePreviewSandboxProps> = ({
 
       // Clean identifier default exports (e.g. export default App; or export default Calculator;)
       cleaned = cleaned.replace(/^\s*export\s+default\s+([A-Za-z0-9_$]+);?/gm, function (_, name) {
-        return `window.App = ${name}; try { window.${name} = ${name}; } catch(e){};`;
+        return `window.App = ${name}; try { window.${name} = ${name}; } catch(e){}; exports.default = ${name};`;
       });
 
       // Clean named exports
       cleaned = cleaned.replace(/^\s*export\s+(?:const|let|var)\s+/gm, 'var ');
       cleaned = cleaned.replace(/^\s*export\s+function\s+/gm, 'function ');
       cleaned = cleaned.replace(/^\s*export\s+class\s+/gm, 'class ');
-      cleaned = cleaned.replace(/^\s*export\s+(?:type|interface|enum)\s+/gm, '/* export */ ');
-      cleaned = cleaned.replace(/^\s*export\s*\{[\s\S]*?\};?/gm, '');
+      cleaned = cleaned.replace(/^\s*export\s+(type|interface|enum)\s+/gm, '$1 ');
+      cleaned = cleaned.replace(/^\s*export\s+(?:type\s+)?\{[\s\S]*?\};?/gm, '');
 
       return { cleaned, lucideIconNames };
     };
@@ -232,6 +234,9 @@ export const LivePreviewSandbox: React.FC<LivePreviewSandboxProps> = ({
       if (!commonLucideIcons.includes(icon)) commonLucideIcons.push(icon);
     });
 
+    // Safely serialize code for script injection (prevent </script> breakout)
+    const serializedReactCode = JSON.stringify(combinedReactCode).replace(/<\/script>/gi, '<\\/script>');
+
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -241,7 +246,7 @@ export const LivePreviewSandbox: React.FC<LivePreviewSandboxProps> = ({
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.24.4/babel.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/lucide/0.344.0/umd/lucide.min.js"></script>
+  <script src="https://unpkg.com/lucide@0.344.0/dist/umd/lucide.min.js"></script>
   ${consoleCaptureScript}
   <style>
     body {
@@ -260,25 +265,25 @@ export const LivePreviewSandbox: React.FC<LivePreviewSandboxProps> = ({
 </head>
 <body>
   <div id="root">
-    <div style="min-height:100vh; display:flex; align-items:center; justify-center; flex-direction:column; padding:24px; color:#94a3b8; font-family:sans-serif;">
-      <div style="width:40px; height:40px; border-radius:12px; background:linear-gradient(135deg, #ef233c, #f59e0b); display:flex; align-items:center; justify-content:center; color:white; font-size:20px; margin-bottom:12px; box-shadow:0 10px 25px rgba(239,35,60,0.3);">
+    <div style="min-height:100vh; display:flex; align-items:center; justify-content:center; flex-direction:column; padding:24px; color:#94a3b8; font-family:sans-serif;">
+      <div style="width:44px; height:44px; border-radius:14px; background:linear-gradient(135deg, #ef233c, #f59e0b); display:flex; align-items:center; justify-content:center; color:white; font-size:22px; margin-bottom:12px; box-shadow:0 10px 25px rgba(239,35,60,0.35);">
         ⚡
       </div>
       <div style="font-size:14px; font-weight:bold; color:white;">Preparing App Preview...</div>
-      <div style="font-size:11px; margin-top:4px;">Compiling components & live runtime</div>
+      <div style="font-size:11px; margin-top:4px; opacity:0.8;">Compiling React components & runtime</div>
     </div>
   </div>
 
   <div id="error-display" style="display:none; padding:20px; font-family:system-ui, monospace; background:#0b0c16; color:#f87171; min-height:100vh;">
-    <div style="max-width:580px; margin:24px auto; background:rgba(239,35,60,0.08); border:1px solid rgba(239,35,60,0.3); border-radius:16px; padding:20px; box-shadow:0 20px 40px rgba(0,0,0,0.5);">
+    <div style="max-width:580px; margin:24px auto; background:rgba(239,35,60,0.08); border:1px solid rgba(239,35,60,0.35); border-radius:16px; padding:20px; box-shadow:0 20px 40px rgba(0,0,0,0.5);">
       <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
         <span style="font-size:20px;">⚠️</span>
         <h3 style="margin:0; font-size:14px; font-weight:bold; color:#fca5a5;">App Preview Notice</h3>
       </div>
-      <p style="margin:0 0 12px 0; font-size:12px; color:#cbd5e1;">A runtime or syntax error was detected while rendering:</p>
+      <p style="margin:0 0 12px 0; font-size:12px; color:#cbd5e1;">A runtime or syntax error occurred in the sandbox:</p>
       <pre id="error-text" style="background:#05060a; padding:12px; border-radius:8px; font-size:11px; color:#fca5a5; overflow-x:auto; border:1px solid rgba(255,255,255,0.08); white-space:pre-wrap; word-break:break-word;"></pre>
       <div style="margin-top:14px; display:flex; gap:8px;">
-        <button onclick="location.reload()" style="padding:6px 12px; background:#ef233c; color:white; border:none; border-radius:8px; font-size:11px; font-weight:bold; cursor:pointer;">
+        <button onclick="location.reload()" style="padding:6px 14px; background:#ef233c; color:white; border:none; border-radius:8px; font-size:11px; font-weight:bold; cursor:pointer;">
           Retry Preview
         </button>
       </div>
@@ -302,13 +307,8 @@ export const LivePreviewSandbox: React.FC<LivePreviewSandboxProps> = ({
 
     function bootSandboxApp() {
       try {
-        if (typeof React === 'undefined' || typeof ReactDOM === 'undefined' || typeof Babel === 'undefined') {
-          showError('CDN dependencies loading failed. Please check internet connection and click Reload.');
-          return;
-        }
-
         // Global Environment & Module setup
-        window.exports = {};
+        window.exports = window.exports || {};
         window.module = { exports: window.exports };
         window.React = React;
         window.ReactDOM = ReactDOM;
@@ -322,7 +322,7 @@ export const LivePreviewSandbox: React.FC<LivePreviewSandboxProps> = ({
         window.useReducer = React.useReducer;
         window.useId = React.useId || function() { return 'id-' + Math.random().toString(36).substr(2, 6); };
 
-        // Universal Icon Generator
+        // Universal SVG Lucide Icon Generator
         function makeIconComponent(iconName) {
           return function(props) {
             var p = props || {};
@@ -330,15 +330,40 @@ export const LivePreviewSandbox: React.FC<LivePreviewSandboxProps> = ({
             var className = p.className || '';
             var strokeWidth = p.strokeWidth || 2;
             var color = p.color || 'currentColor';
-            var slug = iconName.replace(/([A-Z])/g, '-$1').toLowerCase().replace(/^-/, '');
+
+            if (window.lucide && window.lucide.icons && window.lucide.icons[iconName]) {
+              var iconTuple = window.lucide.icons[iconName];
+              var defaultAttrs = iconTuple[1] || {};
+              var children = iconTuple[2] || [];
+
+              var svgAttrs = Object.assign({}, defaultAttrs, {
+                width: size,
+                height: size,
+                stroke: color,
+                strokeWidth: strokeWidth,
+                className: className,
+              });
+              delete svgAttrs['stroke-width'];
+              delete svgAttrs['stroke-linecap'];
+              delete svgAttrs['stroke-linejoin'];
+              svgAttrs.strokeLinecap = 'round';
+              svgAttrs.strokeLinejoin = 'round';
+
+              var childEls = children.map(function(c, idx) {
+                var cTag = c[0];
+                var cAttrs = Object.assign({ key: idx }, c[1]);
+                return React.createElement(cTag, cAttrs);
+              });
+
+              return React.createElement('svg', svgAttrs, childEls);
+            }
+
+            // Fallback for custom or missing icon names
             return React.createElement('span', {
               className: 'inline-flex items-center justify-center ' + className,
-              style: { width: size, height: size, display: 'inline-flex', verticalAlign: 'middle' },
+              style: { width: size, height: size, display: 'inline-flex', verticalAlign: 'middle', fontSize: Math.max(10, size - 4) },
               title: iconName
-            }, React.createElement('i', {
-              'data-lucide': slug,
-              style: { width: '100%', height: '100%' }
-            }));
+            }, '⚡');
           };
         }
 
@@ -348,9 +373,9 @@ export const LivePreviewSandbox: React.FC<LivePreviewSandboxProps> = ({
           window[icon] = makeIconComponent(icon);
         });
 
-        var rawCode = ${JSON.stringify(combinedReactCode)};
+        var rawCode = ${serializedReactCode};
 
-        // Dynamically find any uppercase tags in the code and auto-create a fallback component if missing
+        // Dynamically find any uppercase tags in the code and auto-create a fallback icon component if missing
         var tagMatches = rawCode.match(/<([A-Z][A-Za-z0-9_]*)/g) || [];
         tagMatches.forEach(function(m) {
           var name = m.slice(1);
@@ -359,36 +384,27 @@ export const LivePreviewSandbox: React.FC<LivePreviewSandboxProps> = ({
           }
         });
 
-        // Transpile React / TS code safely using standard Babel presets
+        // Transpile React / TypeScript code safely using standard Babel presets
         var transpiled = Babel.transform(rawCode, {
-          presets: [
-            ['react', { runtime: 'classic' }],
-            ['typescript', { ignoreExtensions: true }]
-          ],
+          presets: ['react', 'typescript'],
           filename: 'App.tsx'
         }).code;
 
-        // Post-strip any lingering import or export statements
+        // Clean any leftover module statements
         transpiled = transpiled.replace(/^\\s*import\\s+[\\s\\S]*?from\\s*['\"][^'\"]+['\"];?/gm, '');
         transpiled = transpiled.replace(/^\\s*import\\s+['\"][^'\"]+['\"];?/gm, '');
 
-        // Execute code in global scope
-        eval(transpiled);
-
-        // Bind declared top-level functions/classes to window
-        var declMatches = transpiled.match(/(?:var|let|const|function)\\s+([A-Z][A-Za-z0-9_]*)/g) || [];
-        declMatches.forEach(function(declStr) {
-          var name = declStr.replace(/^(?:var|let|const|function)\\s+/, '').trim();
-          if (name && name !== 'React' && name !== 'ReactDOM' && name !== 'Babel') {
-            try {
-              var val = eval(name);
-              if (val) window[name] = val;
-            } catch(e) {}
-          }
-        });
-
-        // Determine main component
         var targetName = ${JSON.stringify(componentName)};
+
+        // Append explicit global attachments so components are guaranteed on window
+        var glueCode = '\\n' +
+          'if (typeof ' + targetName + ' !== \"undefined\") { window[' + JSON.stringify(targetName) + '] = ' + targetName + '; window.App = ' + targetName + '; window.exports.default = ' + targetName + '; }\\n' +
+          'if (typeof App !== \"undefined\") { window.App = App; window.exports.default = App; }\\n';
+
+        // Execute in global scope using indirect eval
+        (1, eval)(transpiled + glueCode);
+
+        // Determine main component to render
         var targetComp = window[targetName] || window.App || window.exports.default || (window.module && window.module.exports);
 
         if (!targetComp) {
@@ -403,14 +419,34 @@ export const LivePreviewSandbox: React.FC<LivePreviewSandboxProps> = ({
         if (targetComp) {
           var rootElement = document.getElementById('root');
           rootElement.innerHTML = '';
-          var root = ReactDOM.createRoot(rootElement);
-          root.render(React.createElement(targetComp));
 
-          setTimeout(function() {
-            if (window.lucide && window.lucide.createIcons) {
-              window.lucide.createIcons();
+          // React Error Boundary Component
+          class SandboxErrorBoundary extends React.Component {
+            constructor(props) {
+              super(props);
+              this.state = { hasError: false, error: null };
             }
-          }, 120);
+            static getDerivedStateFromError(error) {
+              return { hasError: true, error: error };
+            }
+            componentDidCatch(error, errorInfo) {
+              var errMessage = error ? (error.stack || error.message || String(error)) : 'Unknown component error';
+              showError(errMessage);
+            }
+            render() {
+              if (this.state.hasError) {
+                return null;
+              }
+              return this.props.children;
+            }
+          }
+
+          var root = ReactDOM.createRoot(rootElement);
+          root.render(
+            React.createElement(SandboxErrorBoundary, null,
+              React.createElement(targetComp)
+            )
+          );
         } else {
           showError('No valid React component found in App.tsx to render.');
         }
@@ -419,11 +455,26 @@ export const LivePreviewSandbox: React.FC<LivePreviewSandboxProps> = ({
       }
     }
 
-    // Execute immediately or on load
+    // Polling loader: waits for React, ReactDOM, and Babel to be fully ready before booting
+    function waitForLibs(callback, retriesLeft) {
+      if (typeof React !== 'undefined' && typeof ReactDOM !== 'undefined' && typeof Babel !== 'undefined') {
+        callback();
+      } else if (retriesLeft > 0) {
+        setTimeout(function() {
+          waitForLibs(callback, retriesLeft - 1);
+        }, 50);
+      } else {
+        showError('Preview libraries failed to load from CDN. Please check your network connection and click Reload.');
+      }
+    }
+
+    // Start boot sequence
     if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', bootSandboxApp);
+      document.addEventListener('DOMContentLoaded', function() {
+        waitForLibs(bootSandboxApp, 100);
+      });
     } else {
-      bootSandboxApp();
+      waitForLibs(bootSandboxApp, 100);
     }
   </script>
 </body>
@@ -599,7 +650,7 @@ export const LivePreviewSandbox: React.FC<LivePreviewSandboxProps> = ({
                   >
                     [{log.type}]
                   </span>
-                  <span className="flex-1 whitespace-pre-wrap break-words">{log.message}</span>
+                  <span className="break-all">{log.message}</span>
                 </div>
               ))
             )}
