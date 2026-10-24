@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   RotateCw,
   Terminal,
@@ -12,6 +12,8 @@ import {
   Maximize2,
   Minimize2,
   CheckCircle2,
+  Play,
+  Sparkles,
 } from 'lucide-react';
 import { ProjectFile, ConsoleLogEntry } from '../../types/codeAgent';
 
@@ -38,19 +40,28 @@ export const LivePreviewSandbox: React.FC<LivePreviewSandboxProps> = ({
   };
 
   // Compile bundled HTML
-  const bundledHtml = React.useMemo(() => {
-    let indexHtml = files['index.html']?.content || '';
+  const bundledHtml = useMemo(() => {
+    const indexHtml = files['index.html']?.content || '';
     const mainAppPath =
       Object.keys(files).find(
-        (p) => p === 'src/App.tsx' || p === 'App.tsx' || p === 'src/App.jsx' || p.endsWith('/App.tsx') || p.endsWith('/App.jsx')
-      ) || Object.keys(files).find((p) => p.endsWith('.tsx') || p.endsWith('.jsx')) || 'src/App.tsx';
+        (p) =>
+          p === 'src/App.tsx' ||
+          p === 'App.tsx' ||
+          p === 'src/App.jsx' ||
+          p === 'App.jsx' ||
+          p.endsWith('/App.tsx') ||
+          p.endsWith('/App.jsx')
+      ) ||
+      Object.keys(files).find((p) => p.endsWith('.tsx') || p.endsWith('.jsx')) ||
+      '';
 
-    const mainAppContent = files[mainAppPath]?.content || '';
+    const mainAppContent = mainAppPath && files[mainAppPath] ? files[mainAppPath].content : '';
     const stylesCss =
       files['src/styles.css']?.content ||
       files['styles.css']?.content ||
       files['style.css']?.content ||
       files['src/index.css']?.content ||
+      files['index.css']?.content ||
       '';
 
     const consoleCaptureScript = `
@@ -79,60 +90,113 @@ export const LivePreviewSandbox: React.FC<LivePreviewSandboxProps> = ({
             return false;
           };
           window.addEventListener('unhandledrejection', function(event) {
-            window.parent.postMessage({ type: 'SANDBOX_CONSOLE', logType: 'error', message: 'Unhandled Promise: ' + (event.reason ? (event.reason.message || event.reason) : 'Rejected') }, '*');
+            var reason = event.reason ? (event.reason.message || event.reason) : 'Rejected';
+            window.parent.postMessage({ type: 'SANDBOX_CONSOLE', logType: 'error', message: 'Unhandled Promise: ' + reason }, '*');
           });
         })();
       </script>
     `;
 
-    // 1. Pure HTML project (no React App.tsx)
-    if (indexHtml && !mainAppContent) {
+    // 1. Pure HTML / Canvas / Vanilla project OR no React App file
+    if (framework === 'html' || (indexHtml && !mainAppContent)) {
       let finalHtml = indexHtml;
-      if (!finalHtml.includes('cdn.tailwindcss')) {
-        finalHtml = finalHtml.replace(/<head>/i, '<head><script src="https://cdn.tailwindcss.com"></script>');
+      if (!finalHtml.trim()) {
+        finalHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>App Preview</title></head><body><div class="p-6 text-white font-sans">App content is loading...</div></body></html>`;
       }
-      finalHtml = finalHtml.replace(/<head>/i, `<head>${consoleCaptureScript}`);
+
+      if (!finalHtml.includes('cdn.tailwindcss.com')) {
+        if (finalHtml.includes('<head>')) {
+          finalHtml = finalHtml.replace(/<head>/i, '<head><script src="https://cdn.tailwindcss.com"></script>');
+        } else {
+          finalHtml = `<script src="https://cdn.tailwindcss.com"></script>` + finalHtml;
+        }
+      }
+
+      if (finalHtml.includes('<head>')) {
+        finalHtml = finalHtml.replace(/<head>/i, `<head>${consoleCaptureScript}`);
+      } else {
+        finalHtml = consoleCaptureScript + finalHtml;
+      }
       return finalHtml;
     }
 
     // 2. React SPA Compilation
-    const sanitizeReactCode = (code: string) => {
-      if (!code) return '';
+    const cleanReactSource = (code: string): { cleaned: string; lucideIconNames: string[] } => {
+      if (!code) return { cleaned: '', lucideIconNames: [] };
       let cleaned = code;
-      // Strip multi-line & single-line imports
-      cleaned = cleaned.replace(/^\s*import\s+[\s\S]*?from\s*['"][^'"]+['"];?/gm, '');
-      cleaned = cleaned.replace(/^\s*import\s+['"][^'"]+['"];?/gm, '');
-      cleaned = cleaned.replace(/^\s*import\s+[\s\S]*?$/gm, '');
-      cleaned = cleaned.replace(/^\s*export\s+[\s\S]*?from\s*['"][^'"]+['"];?/gm, '');
 
-      // Strip exports
-      cleaned = cleaned.replace(/export\s+default\s+function\s+([A-Za-z0-9_]+)/g, 'function $1');
-      cleaned = cleaned.replace(/export\s+default\s+class\s+([A-Za-z0-9_]+)/g, 'class $1');
-      cleaned = cleaned.replace(/export\s+default\s+const\s+/g, 'const ');
-      cleaned = cleaned.replace(/export\s+default\s+([A-Za-z0-9_]+);?/g, '');
-      cleaned = cleaned.replace(/export\s+function\s+/g, 'function ');
-      cleaned = cleaned.replace(/export\s+const\s+/g, 'const ');
-      cleaned = cleaned.replace(/export\s+class\s+/g, 'class ');
-      cleaned = cleaned.replace(/export\s+(type|interface|enum)\s+/g, '$1 ');
-      return cleaned;
+      // Extract all imported names from lucide-react before stripping imports
+      const lucideIconNames: string[] = [];
+      const lucideImportMatches = cleaned.match(/import\s*\{([^}]+)\}\s*from\s*['"]lucide-react['"]/g) || [];
+      lucideImportMatches.forEach((m) => {
+        const inside = m.replace(/import\s*\{/, '').replace(/\}\s*from.*/, '');
+        inside.split(',').forEach((n) => {
+          const name = n.trim().split(/\s+as\s+/).pop()?.trim();
+          if (name) lucideIconNames.push(name);
+        });
+      });
+
+      // Strip single & multiline imports
+      cleaned = cleaned.replace(/^\s*import\s+(?:type\s+)?[\s\S]*?from\s*['"][^'"]+['"];?/gm, '');
+      cleaned = cleaned.replace(/^\s*import\s+['"][^'"]+['"];?/gm, '');
+      cleaned = cleaned.replace(/^\s*import\s+type\s+[\s\S]*?;/gm, '');
+
+      // Clean function default exports
+      cleaned = cleaned.replace(/^\s*export\s+default\s+function(?:\s+([A-Za-z0-9_$]+))?\s*\(/gm, function (_, name) {
+        const fnName = name || 'App';
+        return `function ${fnName}(`;
+      });
+
+      // Clean class default exports
+      cleaned = cleaned.replace(/^\s*export\s+default\s+class(?:\s+([A-Za-z0-9_$]+))?/gm, function (_, name) {
+        const clsName = name || 'App';
+        return `class ${clsName} `;
+      });
+
+      // Clean arrow function default exports
+      cleaned = cleaned.replace(/^\s*export\s+default\s*(?:\([^)]*\)|[A-Za-z0-9_$]+)\s*=>/gm, function (match) {
+        const after = match.replace(/^\s*export\s+default\s*/, '');
+        return `const App = ${after}`;
+      });
+
+      // Clean identifier default exports (e.g. export default App; or export default Calculator;)
+      cleaned = cleaned.replace(/^\s*export\s+default\s+([A-Za-z0-9_$]+);?/gm, function (_, name) {
+        return `window.App = ${name}; try { window.${name} = ${name}; } catch(e){};`;
+      });
+
+      // Clean named exports
+      cleaned = cleaned.replace(/^\s*export\s+(?:const|let|var)\s+/gm, 'var ');
+      cleaned = cleaned.replace(/^\s*export\s+function\s+/gm, 'function ');
+      cleaned = cleaned.replace(/^\s*export\s+class\s+/gm, 'class ');
+      cleaned = cleaned.replace(/^\s*export\s+(?:type|interface|enum)\s+/gm, '/* export */ ');
+      cleaned = cleaned.replace(/^\s*export\s*\{[\s\S]*?\};?/gm, '');
+
+      return { cleaned, lucideIconNames };
     };
 
-    // Combine subcomponent files first
-    const otherCodeParts: string[] = [];
+    // Combine subcomponent files first so they are available in scope
+    const subcomponentCodeParts: string[] = [];
+    const collectedLucideIcons = new Set<string>();
+
     Object.entries(files).forEach(([path, file]) => {
       if (
         path !== mainAppPath &&
         (path.endsWith('.tsx') || path.endsWith('.ts') || path.endsWith('.jsx') || path.endsWith('.js'))
       ) {
         if (!path.includes('node_modules') && !path.includes('vite') && !path.includes('config')) {
-          otherCodeParts.push(sanitizeReactCode(file.content));
+          const { cleaned, lucideIconNames } = cleanReactSource(file.content);
+          subcomponentCodeParts.push(cleaned);
+          lucideIconNames.forEach((n) => collectedLucideIcons.add(n));
         }
       }
     });
 
-    const sanitizedMainApp = sanitizeReactCode(mainAppContent);
-    const combinedReactCode = [...otherCodeParts, sanitizedMainApp].join('\n\n');
+    const { cleaned: sanitizedMainApp, lucideIconNames: mainLucideIcons } = cleanReactSource(mainAppContent);
+    mainLucideIcons.forEach((n) => collectedLucideIcons.add(n));
 
+    const combinedReactCode = [...subcomponentCodeParts, sanitizedMainApp].join('\n\n');
+
+    // Detect target component name
     const matchComp =
       sanitizedMainApp.match(/function\s+([A-Z][A-Za-z0-9_]*)/) ||
       sanitizedMainApp.match(/const\s+([A-Z][A-Za-z0-9_]*)\s*=/) ||
@@ -160,22 +224,13 @@ export const LivePreviewSandbox: React.FC<LivePreviewSandboxProps> = ({
       'Box', 'Package', 'TerminalSquare', 'FileText', 'FilePlus', 'FolderPlus',
       'XCircle', 'PlusCircle', 'MinusCircle', 'PlayCircle', 'PauseCircle',
       'StopCircle', 'Repeat', 'Shuffle', 'Volume', 'Bell', 'BellOff', 'Trophy',
-      'Medal', 'Target', 'Rocket', 'Lightbulb', 'Brain', 'Radio', 'Tv', 'Watch'
+      'Medal', 'Target', 'Rocket', 'Lightbulb', 'Brain', 'Radio', 'Tv', 'Watch',
+      'Wand2', 'CheckCheck', 'Link', 'Undo2', 'Redo2', 'FilterX', 'Power',
     ];
 
-    const iconDeclarations = commonLucideIcons
-      .map((name) => {
-        return `window.${name} = (props) => {
-          var size = (props && props.size) || 18;
-          var className = (props && props.className) || '';
-          return React.createElement('span', {
-            className: 'inline-flex items-center justify-center ' + className,
-            style: { width: size, height: size, display: 'inline-flex' },
-            title: '${name}'
-          }, React.createElement('i', { 'data-lucide': '${name.toLowerCase().replace(/([A-Z])/g, '-$1').toLowerCase().replace(/^-/, '')}', style: { width: '100%', height: '100%' } }));
-        };`;
-      })
-      .join('\n');
+    collectedLucideIcons.forEach((icon) => {
+      if (!commonLucideIcons.includes(icon)) commonLucideIcons.push(icon);
+    });
 
     return `<!DOCTYPE html>
 <html lang="en">
@@ -183,23 +238,50 @@ export const LivePreviewSandbox: React.FC<LivePreviewSandboxProps> = ({
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.24.4/babel.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/lucide/0.344.0/umd/lucide.min.js"></script>
   ${consoleCaptureScript}
   <style>
-    body { margin: 0; min-height: 100vh; background: #07090f; color: #f1f5f9; font-family: system-ui, -apple-system, sans-serif; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: #07090f;
+      color: #f1f5f9;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+    #root {
+      min-height: 100vh;
+      width: 100%;
+    }
     ${stylesCss}
   </style>
 </head>
 <body>
-  <div id="root"></div>
-  <div id="error-display" style="display:none; padding:24px; color:#f87171; background:#0b0c14; min-height:100vh; font-family:monospace;">
-    <div style="max-width:600px; margin:20px auto; background:rgba(239,35,60,0.1); border:1px solid rgba(239,35,60,0.3); padding:20px; border-radius:16px;">
-      <h3 style="margin-top:0; font-size:15px; font-weight:bold; color:#fca5a5;">⚠️ App Sandbox Error Notice</h3>
-      <p style="font-size:12px; color:#cbd5e1; margin-bottom:12px;">An issue occurred while rendering the app component:</p>
-      <pre id="error-text" style="white-space:pre-wrap; word-break:break-word; font-size:11px; color:#fca5a5; background:black; padding:12px; border-radius:8px; border:1px solid rgba(255,255,255,0.1); font-family:monospace;"></pre>
+  <div id="root">
+    <div style="min-height:100vh; display:flex; align-items:center; justify-center; flex-direction:column; padding:24px; color:#94a3b8; font-family:sans-serif;">
+      <div style="width:40px; height:40px; border-radius:12px; background:linear-gradient(135deg, #ef233c, #f59e0b); display:flex; align-items:center; justify-content:center; color:white; font-size:20px; margin-bottom:12px; box-shadow:0 10px 25px rgba(239,35,60,0.3);">
+        ⚡
+      </div>
+      <div style="font-size:14px; font-weight:bold; color:white;">Preparing App Preview...</div>
+      <div style="font-size:11px; margin-top:4px;">Compiling components & live runtime</div>
+    </div>
+  </div>
+
+  <div id="error-display" style="display:none; padding:20px; font-family:system-ui, monospace; background:#0b0c16; color:#f87171; min-height:100vh;">
+    <div style="max-width:580px; margin:24px auto; background:rgba(239,35,60,0.08); border:1px solid rgba(239,35,60,0.3); border-radius:16px; padding:20px; box-shadow:0 20px 40px rgba(0,0,0,0.5);">
+      <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+        <span style="font-size:20px;">⚠️</span>
+        <h3 style="margin:0; font-size:14px; font-weight:bold; color:#fca5a5;">App Preview Notice</h3>
+      </div>
+      <p style="margin:0 0 12px 0; font-size:12px; color:#cbd5e1;">A runtime or syntax error was detected while rendering:</p>
+      <pre id="error-text" style="background:#05060a; padding:12px; border-radius:8px; font-size:11px; color:#fca5a5; overflow-x:auto; border:1px solid rgba(255,255,255,0.08); white-space:pre-wrap; word-break:break-word;"></pre>
+      <div style="margin-top:14px; display:flex; gap:8px;">
+        <button onclick="location.reload()" style="padding:6px 12px; background:#ef233c; color:white; border:none; border-radius:8px; font-size:11px; font-weight:bold; cursor:pointer;">
+          Retry Preview
+        </button>
+      </div>
     </div>
   </div>
 
@@ -207,159 +289,153 @@ export const LivePreviewSandbox: React.FC<LivePreviewSandboxProps> = ({
     function showError(errMessage) {
       var errDiv = document.getElementById('error-display');
       var errText = document.getElementById('error-text');
+      var rootDiv = document.getElementById('root');
       if (errDiv && errText) {
         errText.textContent = errMessage;
         errDiv.style.display = 'block';
+        if (rootDiv) rootDiv.style.display = 'none';
       }
       try {
         window.parent.postMessage({ type: 'SANDBOX_CONSOLE', logType: 'error', message: errMessage }, '*');
       } catch(e) {}
     }
 
-    window.addEventListener('DOMContentLoaded', function() {
+    function bootSandboxApp() {
       try {
         if (typeof React === 'undefined' || typeof ReactDOM === 'undefined' || typeof Babel === 'undefined') {
-          showError('CDN dependencies loading failed. Please check connection and click Reload.');
+          showError('CDN dependencies loading failed. Please check internet connection and click Reload.');
           return;
         }
 
-        var { useState, useEffect, useRef, useMemo, useCallback, createContext, useContext, useReducer } = React;
-        
-        // Icon Declarations
-        ${iconDeclarations}
+        // Global Environment & Module setup
+        window.exports = {};
+        window.module = { exports: window.exports };
+        window.React = React;
+        window.ReactDOM = ReactDOM;
+        window.useState = React.useState;
+        window.useEffect = React.useEffect;
+        window.useRef = React.useRef;
+        window.useMemo = React.useMemo;
+        window.useCallback = React.useCallback;
+        window.useContext = React.useContext;
+        window.createContext = React.createContext;
+        window.useReducer = React.useReducer;
+        window.useId = React.useId || function() { return 'id-' + Math.random().toString(36).substr(2, 6); };
+
+        // Universal Icon Generator
+        function makeIconComponent(iconName) {
+          return function(props) {
+            var p = props || {};
+            var size = p.size || 18;
+            var className = p.className || '';
+            var strokeWidth = p.strokeWidth || 2;
+            var color = p.color || 'currentColor';
+            var slug = iconName.replace(/([A-Z])/g, '-$1').toLowerCase().replace(/^-/, '');
+            return React.createElement('span', {
+              className: 'inline-flex items-center justify-center ' + className,
+              style: { width: size, height: size, display: 'inline-flex', verticalAlign: 'middle' },
+              title: iconName
+            }, React.createElement('i', {
+              'data-lucide': slug,
+              style: { width: '100%', height: '100%' }
+            }));
+          };
+        }
+
+        // Pre-register all common lucide icon components on window
+        var iconList = ${JSON.stringify(commonLucideIcons)};
+        iconList.forEach(function(icon) {
+          window[icon] = makeIconComponent(icon);
+        });
 
         var rawCode = ${JSON.stringify(combinedReactCode)};
 
-        // Auto-define any unhandled JSX component or icon tag
-        var matches = rawCode.match(/<([A-Z][A-Za-z0-9_]*)/g) || [];
-        matches.forEach(function(m) {
+        // Dynamically find any uppercase tags in the code and auto-create a fallback component if missing
+        var tagMatches = rawCode.match(/<([A-Z][A-Za-z0-9_]*)/g) || [];
+        tagMatches.forEach(function(m) {
           var name = m.slice(1);
           if (typeof window[name] === 'undefined' && !['App', 'React', 'ReactDOM'].includes(name)) {
-            window[name] = function(props) {
-              var size = (props && props.size) || 18;
-              var className = (props && props.className) || '';
-              var children = props && props.children;
-              return React.createElement('span', {
-                className: 'inline-flex items-center justify-center ' + className,
-                style: { width: size, height: size, display: 'inline-flex' },
-                title: name
-              }, children || React.createElement('i', {
-                'data-lucide': name.toLowerCase().replace(/([A-Z])/g, '-$1').toLowerCase().replace(/^-/, ''),
-                style: { width: '100%', height: '100%' }
-              }));
-            };
+            window[name] = makeIconComponent(name);
           }
         });
 
-        // Register AST plugin in Babel to cleanly strip all import and export statements
-        if (typeof Babel !== 'undefined' && Babel.registerPlugin) {
-          Babel.registerPlugin('strip-imports-exports', function(api) {
-            var t = api.types;
-            return {
-              visitor: {
-                ImportDeclaration: function(path) {
-                  path.remove();
-                },
-                ExportDefaultDeclaration: function(path) {
-                  var decl = path.node.declaration;
-                  if (t.isFunctionDeclaration(decl)) {
-                    if (!decl.id) decl.id = t.identifier('App');
-                    path.replaceWith(decl);
-                  } else if (t.isFunctionExpression(decl) || t.isArrowFunctionExpression(decl)) {
-                    path.replaceWith(
-                      t.variableDeclaration('const', [
-                        t.variableDeclarator(t.identifier('App'), decl)
-                      ])
-                    );
-                  } else if (t.isIdentifier(decl)) {
-                    path.remove();
-                  } else {
-                    path.remove();
-                  }
-                },
-                ExportNamedDeclaration: function(path) {
-                  if (path.node.declaration) {
-                    path.replaceWith(path.node.declaration);
-                  } else {
-                    path.remove();
-                  }
-                }
-              }
-            };
-          });
-        }
-
-        // Transpile React / TS code with classic runtime and AST plugin
+        // Transpile React / TS code safely using standard Babel presets
         var transpiled = Babel.transform(rawCode, {
           presets: [
             ['react', { runtime: 'classic' }],
             ['typescript', { ignoreExtensions: true }]
           ],
-          plugins: [
-            'strip-imports-exports'
-          ],
           filename: 'App.tsx'
         }).code;
 
-        // Post-strip any lingering import statements
-        transpiled = transpiled.replace(/^\s*import\s+[\s\S]*?from\s*['"][^'"]+['"];?/gm, '');
-        transpiled = transpiled.replace(/^\s*import\s+['"][^'"]+['"];?/gm, '');
+        // Post-strip any lingering import or export statements
+        transpiled = transpiled.replace(/^\\s*import\\s+[\\s\\S]*?from\\s*['\"][^'\"]+['\"];?/gm, '');
+        transpiled = transpiled.replace(/^\\s*import\\s+['\"][^'\"]+['\"];?/gm, '');
 
-        // Execute code
+        // Execute code in global scope
         eval(transpiled);
 
-        // Auto-expose all top-level declared components to window so sandbox can render them
-        var foundDecls = transpiled.match(/(?:var|let|const|function)\s+([A-Z][A-Za-z0-9_]*)/g) || [];
-        foundDecls.forEach(function(declStr) {
-          var name = declStr.replace(/^(var|let|const|function)\s+/, '').trim();
+        // Bind declared top-level functions/classes to window
+        var declMatches = transpiled.match(/(?:var|let|const|function)\\s+([A-Z][A-Za-z0-9_]*)/g) || [];
+        declMatches.forEach(function(declStr) {
+          var name = declStr.replace(/^(?:var|let|const|function)\\s+/, '').trim();
           if (name && name !== 'React' && name !== 'ReactDOM' && name !== 'Babel') {
             try {
-              var boundVal = eval(name);
-              if (boundVal && (typeof boundVal === 'function' || typeof boundVal === 'object')) {
-                window[name] = boundVal;
-              }
+              var val = eval(name);
+              if (val) window[name] = val;
             } catch(e) {}
           }
         });
 
-        // Render main component
+        // Determine main component
         var targetName = ${JSON.stringify(componentName)};
-        var targetComp = window[targetName] || window.App;
+        var targetComp = window[targetName] || window.App || window.exports.default || (window.module && window.module.exports);
+
         if (!targetComp) {
-          var possibleCompNames = Object.keys(window).filter(function(k) {
-            return k.match(/^[A-Z]/) && typeof window[k] === 'function' && k !== 'React' && k !== 'ReactDOM' && k !== 'Babel';
+          var candidates = Object.keys(window).filter(function(k) {
+            return k.match(/^[A-Z]/) && typeof window[k] === 'function' && !['React', 'ReactDOM', 'Babel'].includes(k);
           });
-          if (possibleCompNames.length > 0) {
-            targetComp = window[possibleCompNames[possibleCompNames.length - 1]];
+          if (candidates.length > 0) {
+            targetComp = window[candidates[candidates.length - 1]];
           }
         }
 
         if (targetComp) {
-          var root = ReactDOM.createRoot(document.getElementById('root'));
+          var rootElement = document.getElementById('root');
+          rootElement.innerHTML = '';
+          var root = ReactDOM.createRoot(rootElement);
           root.render(React.createElement(targetComp));
+
           setTimeout(function() {
             if (window.lucide && window.lucide.createIcons) {
               window.lucide.createIcons();
             }
-          }, 150);
+          }, 120);
         } else {
-          showError('No valid React component found in App.tsx');
+          showError('No valid React component found in App.tsx to render.');
         }
       } catch(err) {
         showError(err.stack || err.message || String(err));
       }
-    });
+    }
+
+    // Execute immediately or on load
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', bootSandboxApp);
+    } else {
+      bootSandboxApp();
+    }
   </script>
 </body>
 </html>`;
-  }, [files]);
+  }, [files, framework]);
 
   // Listen for sandbox console messages
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
       if (event.data && event.data.type === 'SANDBOX_CONSOLE') {
         const newLog: ConsoleLogEntry = {
-          id: `log-${Date.now()}-${Math.random()}`,
+          id: `log-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
           type: event.data.logType || 'log',
           message: event.data.message || '',
           timestamp: Date.now(),
@@ -373,17 +449,17 @@ export const LivePreviewSandbox: React.FC<LivePreviewSandboxProps> = ({
   }, []);
 
   const viewportWidths = {
-    desktop: 'w-full',
-    tablet: 'max-w-[768px] mx-auto border-x border-white/20 shadow-2xl',
-    mobile: 'max-w-[375px] mx-auto border-x-4 border-t-8 border-b-8 border-neutral-800 rounded-3xl shadow-2xl',
+    desktop: 'w-full h-full',
+    tablet: 'w-full max-w-[768px] h-full mx-auto border-x border-white/20 shadow-2xl',
+    mobile: 'w-full max-w-[375px] h-full mx-auto border-x-4 border-t-8 border-b-8 border-neutral-800 rounded-3xl shadow-2xl',
   };
 
   const hasErrors = logs.some((l) => l.type === 'error');
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-[#08090f] border border-white/10 rounded-2xl overflow-hidden shadow-2xl relative">
+    <div className="flex-1 flex flex-col h-full bg-[#08090f] border border-white/10 rounded-2xl overflow-hidden shadow-2xl relative min-h-0">
       {/* Top Preview Controls Bar */}
-      <div className="flex items-center justify-between p-2.5 bg-[#0e1017] border-b border-white/10 shrink-0 gap-2 flex-wrap">
+      <div className="flex items-center justify-between p-2.5 bg-[#0e1017] border-b border-white/10 shrink-0 gap-2 flex-wrap z-10">
         <div className="flex items-center gap-2">
           <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-xs font-bold border border-emerald-500/30">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
@@ -397,21 +473,27 @@ export const LivePreviewSandbox: React.FC<LivePreviewSandboxProps> = ({
           <div className="flex items-center bg-black/60 p-0.5 rounded-lg border border-white/10 text-neutral-400">
             <button
               onClick={() => setViewport('desktop')}
-              className={`p-1 rounded transition-colors ${viewport === 'desktop' ? 'bg-white/20 text-white' : 'hover:text-white'}`}
-              title="Desktop View"
+              className={`p-1 rounded transition-colors cursor-pointer ${
+                viewport === 'desktop' ? 'bg-white/20 text-white' : 'hover:text-white'
+              }`}
+              title="Desktop View (100%)"
             >
               <Monitor className="w-3.5 h-3.5" />
             </button>
             <button
               onClick={() => setViewport('tablet')}
-              className={`p-1 rounded transition-colors ${viewport === 'tablet' ? 'bg-white/20 text-white' : 'hover:text-white'}`}
+              className={`p-1 rounded transition-colors cursor-pointer ${
+                viewport === 'tablet' ? 'bg-white/20 text-white' : 'hover:text-white'
+              }`}
               title="Tablet View (768px)"
             >
               <Tablet className="w-3.5 h-3.5" />
             </button>
             <button
               onClick={() => setViewport('mobile')}
-              className={`p-1 rounded transition-colors ${viewport === 'mobile' ? 'bg-white/20 text-white' : 'hover:text-white'}`}
+              className={`p-1 rounded transition-colors cursor-pointer ${
+                viewport === 'mobile' ? 'bg-white/20 text-white' : 'hover:text-white'
+              }`}
               title="Mobile View (375px)"
             >
               <Smartphone className="w-3.5 h-3.5" />
@@ -445,23 +527,23 @@ export const LivePreviewSandbox: React.FC<LivePreviewSandboxProps> = ({
       </div>
 
       {/* Main Sandbox IFrame View */}
-      <div className="flex-1 relative overflow-auto bg-[#07080d] p-2 flex items-center justify-center">
-        <div className={`h-full transition-all duration-300 ${viewportWidths[viewport]}`}>
+      <div className="flex-1 relative overflow-hidden bg-[#07080d] p-2 flex flex-col items-center justify-center min-h-0">
+        <div className={`transition-all duration-300 flex flex-col min-h-0 ${viewportWidths[viewport]}`}>
           <iframe
             key={refreshKey}
             ref={iframeRef}
             srcDoc={bundledHtml}
             title="Intelicat Code Sandbox"
             sandbox="allow-scripts allow-forms allow-same-origin allow-modals"
-            className="w-full h-full rounded-xl bg-white border border-white/15 shadow-2xl block"
+            className="w-full h-full flex-1 rounded-xl bg-[#07090f] border border-white/15 shadow-2xl block min-h-0"
           />
         </div>
       </div>
 
       {/* Slide-Up Console Drawer */}
       {consoleOpen && (
-        <div className="h-48 bg-[#0b0c13] border-t border-white/15 flex flex-col shrink-0 text-xs font-mono">
-          <div className="p-2 px-3 bg-[#11121c] border-b border-white/10 flex items-center justify-between">
+        <div className="h-48 bg-[#0b0c13] border-t border-white/15 flex flex-col shrink-0 text-xs font-mono z-20">
+          <div className="p-2 px-3 bg-[#11121d] border-b border-white/10 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Terminal className="w-3.5 h-3.5 text-neutral-400" />
               <span className="font-bold text-white uppercase tracking-wider text-[11px]">Runtime Console</span>
@@ -483,7 +565,7 @@ export const LivePreviewSandbox: React.FC<LivePreviewSandboxProps> = ({
               <button
                 type="button"
                 onClick={() => setLogs([])}
-                className="p-1 rounded hover:bg-white/10 text-neutral-400 hover:text-white"
+                className="p-1 rounded hover:bg-white/10 text-neutral-400 hover:text-white cursor-pointer"
                 title="Clear console"
               >
                 <Trash2 className="w-3 h-3" />
@@ -506,9 +588,15 @@ export const LivePreviewSandbox: React.FC<LivePreviewSandboxProps> = ({
                       : 'text-neutral-300 hover:bg-white/[0.02]'
                   }`}
                 >
-                  <span className={`text-[10px] uppercase font-bold shrink-0 ${
-                    log.type === 'error' ? 'text-red-400' : log.type === 'warn' ? 'text-amber-400' : 'text-neutral-500'
-                  }`}>
+                  <span
+                    className={`text-[10px] uppercase font-bold shrink-0 ${
+                      log.type === 'error'
+                        ? 'text-red-400'
+                        : log.type === 'warn'
+                        ? 'text-amber-400'
+                        : 'text-neutral-500'
+                    }`}
+                  >
                     [{log.type}]
                   </span>
                   <span className="flex-1 whitespace-pre-wrap break-words">{log.message}</span>

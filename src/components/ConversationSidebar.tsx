@@ -259,32 +259,62 @@ export const ConversationSidebar: React.FC<ConversationSidebarProps> = ({
         }`}
       >
         {/* Sidebar Header */}
-        <div className="p-3.5 border-b border-white/10 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-[#EF233C]/20 border border-[#EF233C]/40 flex items-center justify-center text-[#EF233C]">
-              <Cat className="w-4 h-4" />
+        <div className="p-3 border-b border-white/10 space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-lg bg-[#EF233C]/20 border border-[#EF233C]/40 flex items-center justify-center text-[#EF233C]">
+                <Cat className="w-4 h-4" />
+              </div>
+              <span className="font-bold text-xs uppercase tracking-wider text-white">
+                Chat History
+              </span>
             </div>
-            <span className="font-bold text-xs uppercase tracking-wider text-white">
-              Chat History
-            </span>
+
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => onNewChat()}
+                type="button"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#EF233C] hover:bg-red-600 text-white font-medium text-xs shadow-md shadow-[#EF233C]/20 transition-all cursor-pointer"
+                title="Start a new chat"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>New</span>
+              </button>
+              <button
+                onClick={onCloseMobile}
+                type="button"
+                className="p-1.5 text-neutral-400 hover:text-white rounded-lg hover:bg-white/10 lg:hidden cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
           </div>
 
-          <div className="flex items-center gap-1">
+          {/* Quick Mode Launchers */}
+          <div className="grid grid-cols-2 gap-1.5 pt-1 text-[11px]">
             <button
-              onClick={() => onNewChat()}
+              onClick={() => {
+                onNewChat('cat-code');
+                onCloseMobile();
+              }}
               type="button"
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#EF233C] hover:bg-red-600 text-white font-medium text-xs shadow-md shadow-[#EF233C]/20 transition-all cursor-pointer"
-              title="Start a new chat"
+              className="py-1.5 px-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-neutral-200 flex items-center justify-center gap-1.5 font-semibold cursor-pointer"
+              title="Code Mode 1.0 (Cat Code Chat)"
             >
-              <Plus className="w-3.5 h-3.5" />
-              <span>New</span>
+              <Cat className="w-3 h-3 text-[#EF233C]" />
+              <span>Code Mode 1.0</span>
             </button>
             <button
-              onClick={onCloseMobile}
+              onClick={() => {
+                window.location.hash = 'code2';
+                onCloseMobile();
+              }}
               type="button"
-              className="p-1.5 text-neutral-400 hover:text-white rounded-lg hover:bg-white/10 lg:hidden cursor-pointer"
+              className="py-1.5 px-2 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 flex items-center justify-center gap-1.5 font-extrabold cursor-pointer"
+              title="Code Mode 2.0 (Full AI Software Workspace & IDE)"
             >
-              <X className="w-4 h-4" />
+              <Zap className="w-3 h-3 text-amber-400" />
+              <span>Code Mode 2.0</span>
             </button>
           </div>
         </div>

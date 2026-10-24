@@ -1848,10 +1848,24 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                       ? 'bg-[#EF233C] text-white shadow-md shadow-[#EF233C]/30'
                       : 'text-neutral-400 hover:text-white bg-white/5 hover:bg-white/10'
                   }`}
-                  title="Cyber Cat Code - Software Engineering"
+                  title="Cyber Cat Code 1.0 - Snippet Generator"
                 >
                   <Cat className="w-3 h-3 text-[#EF233C]" />
-                  <span>Code 🐾</span>
+                  <span>Code 1.0 🐾</span>
+                </button>
+                <button
+                  onClick={() => {
+                    onClose();
+                    if (onOpenCodeWorkspace) {
+                      onOpenCodeWorkspace();
+                    }
+                  }}
+                  type="button"
+                  className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-black transition-all cursor-pointer whitespace-nowrap min-h-[32px] bg-gradient-to-r from-red-600 via-amber-600 to-amber-500 text-white shadow-md shadow-amber-500/25 border border-amber-300 hover:scale-105 active:scale-95"
+                  title="Switch to IntellicatAI Code Mode 2.0 (Autonomous Agent & IDE)"
+                >
+                  <Zap className="w-3.5 h-3.5 text-yellow-200 animate-pulse" />
+                  <span>Code 2.0 ⚡</span>
                 </button>
                 <button
                   onClick={() => handleSwitchMode('study')}

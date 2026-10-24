@@ -985,7 +985,14 @@ export default async function handler(req: any, res: any) {
             break;
           }
         } catch (candidateErr: any) {
-          console.warn(`Gemini candidate [${candidateModel}] error:`, candidateErr?.message || candidateErr);
+          const isQuotaLimit = candidateErr?.status === 429 ||
+            (typeof candidateErr?.message === 'string' && (candidateErr.message.includes('429') || candidateErr.message.includes('quota') || candidateErr.message.includes('RESOURCE_EXHAUSTED')));
+          
+          if (isQuotaLimit) {
+            console.log(`[Info] Gemini model [${candidateModel}] reached free-tier rate limit (429), attempting next candidate...`);
+          } else {
+            console.log(`[Info] Gemini candidate [${candidateModel}] status: ${candidateErr?.message || 'candidate unavailable'}`);
+          }
           lastGeminiError = candidateErr;
 
           // If stream already started, don't attempt another model mid-stream

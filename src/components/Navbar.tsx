@@ -29,8 +29,8 @@ import { INTELLICAT_LOGO_URL } from '../constants';
 import { useAuth } from '../context/AuthContext';
 
 interface NavbarProps {
-  currentView?: 'hero' | 'priority' | 'study' | 'spaces' | 'translator' | 'news' | 'image' | 'code';
-  onSelectView?: (view: 'hero' | 'priority' | 'study' | 'spaces' | 'translator' | 'news' | 'image' | 'code') => void;
+  currentView?: 'hero' | 'priority' | 'study' | 'spaces' | 'translator' | 'news' | 'image' | 'code' | 'code2';
+  onSelectView?: (view: 'hero' | 'priority' | 'study' | 'spaces' | 'translator' | 'news' | 'image' | 'code' | 'code2') => void;
   onGetStarted?: () => void;
   onOpenChat?: (mode: ChatMode) => void;
   onOpenInfo?: (tabId?: string) => void;
@@ -249,10 +249,24 @@ export const Navbar: React.FC<NavbarProps> = ({
         <button
           onClick={() => (onOpenChat ? onOpenChat('cat-code') : onGetStarted?.())}
           className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs sm:text-sm font-medium rounded-lg transition-all duration-200 text-neutral-300 hover:text-white hover:bg-white/5 cursor-pointer"
-          title="IntellicatAI Classic Cat Code Mode"
+          title="Code Mode 1.0 (Cat Code Chat)"
         >
           <Cat className="w-3.5 h-3.5 text-[#EF233C]" />
-          <span>Cat Code 🐾</span>
+          <span>Code 1.0 🐾</span>
+        </button>
+
+        <button
+          id="nav-code2-btn"
+          onClick={() => onSelectView?.('code2')}
+          className={`flex items-center gap-1.5 px-3 py-1.5 text-xs sm:text-sm font-black rounded-lg transition-all duration-200 cursor-pointer shadow-md ${
+            currentView === 'code2'
+              ? 'text-white bg-gradient-to-r from-red-600 via-amber-600 to-amber-500 border border-amber-300 shadow-[0_0_15px_rgba(245,158,11,0.5)] font-bold'
+              : 'text-amber-300 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 hover:text-white'
+          }`}
+          title="IntellicatAI Code Mode 2.0 (Autonomous Agent IDE)"
+        >
+          <Zap className="w-3.5 h-3.5 text-yellow-300 animate-pulse" />
+          <span>Code 2.0 ⚡</span>
         </button>
 
         {navItems.map((item) => (
@@ -636,6 +650,17 @@ export const Navbar: React.FC<NavbarProps> = ({
           <span className="xs:hidden">Chat</span>
         </button>
 
+        {/* Mobile Quick Code Mode 2.0 Launcher */}
+        <button
+          id="mobile-quick-code2-btn"
+          onClick={() => onSelectView?.('code2')}
+          className="md:hidden flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-gradient-to-r from-red-600 via-amber-600 to-amber-500 text-white font-extrabold text-xs border border-amber-300 shadow-[0_0_12px_rgba(245,158,11,0.4)] active:scale-95 cursor-pointer shrink-0"
+          title="Open Code Mode 2.0 Agent IDE"
+        >
+          <Zap className="w-3.5 h-3.5 text-yellow-200 animate-pulse" />
+          <span>Code 2.0 ⚡</span>
+        </button>
+
         {/* Mobile Hamburger Menu Button */}
         <button
           onClick={() => setMobileMenuOpen(true)}
@@ -684,8 +709,31 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </div>
 
                 {/* Primary Views */}
-                <div className="py-4 space-y-1">
+                <div className="py-4 space-y-2">
                   <div className="px-2 text-[10px] uppercase font-bold text-neutral-400 tracking-wider mb-2">Navigation</div>
+
+                  {/* Flagship: Code Mode 2.0 Agent IDE */}
+                  <button
+                    id="mobile-drawer-code2-btn"
+                    onClick={() => {
+                      setMobileMenuOpen(false);
+                      onSelectView?.('code2');
+                    }}
+                    className={`w-full flex items-center justify-between p-3 rounded-xl text-xs font-black transition-all cursor-pointer border ${
+                      currentView === 'code2'
+                        ? 'bg-gradient-to-r from-red-600 via-amber-600 to-amber-500 text-white border-white shadow-lg shadow-amber-500/30'
+                        : 'bg-gradient-to-r from-red-950/60 via-amber-950/40 to-black text-amber-200 border-amber-500/40 hover:border-amber-400 shadow-md'
+                    }`}
+                  >
+                    <span className="flex items-center gap-2.5">
+                      <Zap className="w-4 h-4 text-yellow-300 animate-pulse" />
+                      <span className="text-sm font-bold">Code Mode 2.0 ⚡</span>
+                    </span>
+                    <span className="text-[10px] bg-amber-400 text-black px-2 py-0.5 rounded-full font-black uppercase">
+                      Agent IDE
+                    </span>
+                  </button>
+
                   <button
                     onClick={() => {
                       setMobileMenuOpen(false);
@@ -772,8 +820,30 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </div>
 
                 {/* AI Assistant Launchers */}
-                <div className="py-2 border-t border-white/10 space-y-1.5">
-                  <div className="px-2 text-[10px] uppercase font-bold text-neutral-400 tracking-wider mb-1">Launch AI Chat</div>
+                <div className="py-2 border-t border-white/10 space-y-2">
+                  <div className="px-2 text-[10px] uppercase font-bold text-neutral-400 tracking-wider mb-1">Launch AI Modes</div>
+                  
+                  {/* Code Mode 2.0 Agent Button */}
+                  <button
+                    onClick={() => {
+                      setMobileMenuOpen(false);
+                      onSelectView?.('code2');
+                    }}
+                    className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                      currentView === 'code2'
+                        ? 'bg-gradient-to-r from-red-600 to-amber-600 text-white border-white shadow-md'
+                        : 'bg-gradient-to-r from-red-600/25 to-amber-600/25 hover:from-red-600/35 hover:to-amber-600/35 text-amber-200 border-amber-400/50'
+                    }`}
+                  >
+                    <span className="flex items-center gap-2">
+                      <Zap className="w-4 h-4 text-yellow-300 animate-pulse" />
+                      <span className="text-white font-black">Code Mode 2.0 ⚡</span>
+                    </span>
+                    <span className="text-[10px] bg-amber-400 text-black px-1.5 py-0.5 rounded font-black uppercase">
+                      Agent IDE
+                    </span>
+                  </button>
+
                   <button
                     onClick={() => {
                       setMobileMenuOpen(false);
@@ -783,27 +853,24 @@ export const Navbar: React.FC<NavbarProps> = ({
                   >
                     <span className="flex items-center gap-2">
                       <MessageSquare className="w-4 h-4 text-sky-400" />
-                      <span>Normal Talk</span>
+                      <span>Mode 1: Normal Talk</span>
                     </span>
-                    <Zap className="w-3 h-3 text-amber-400" />
+                    <span className="text-[10px] text-neutral-400">Chat</span>
                   </button>
                   <button
                     onClick={() => {
                       setMobileMenuOpen(false);
-                      if (onSelectView) onSelectView('code');
-                      else onOpenChat?.('cat-code');
+                      onOpenChat?.('cat-code');
                     }}
-                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold border cursor-pointer ${
-                      currentView === 'code'
-                        ? 'bg-[#EF233C] text-white border-white/20'
-                        : 'bg-[#EF233C]/20 hover:bg-[#EF233C]/30 text-red-200 border-[#EF233C]/30'
-                    }`}
+                    className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl bg-[#EF233C]/15 hover:bg-[#EF233C]/25 text-xs font-medium text-red-200 border border-[#EF233C]/30 cursor-pointer"
                   >
                     <span className="flex items-center gap-2">
                       <Cat className="w-4 h-4 text-[#EF233C]" />
-                      <span>Cyber Cat Code Workspace 🐾</span>
+                      <span>Mode 2: Cat Code 1.0 🐾</span>
                     </span>
-                    <Code className="w-3 h-3 text-red-400" />
+                    <span className="text-[10px] text-[#EF233C] bg-[#EF233C]/20 px-1.5 py-0.5 rounded font-mono font-bold">
+                      Classic
+                    </span>
                   </button>
                 </div>
               </div>

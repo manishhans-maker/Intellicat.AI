@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ArrowRight, Crown, Sparkles, Cat, Code, MessageSquare, Send, Languages, Newspaper } from 'lucide-react';
+import { ArrowRight, Crown, Sparkles, Cat, Code, MessageSquare, Send, Languages, Newspaper, Zap } from 'lucide-react';
 import { motion } from 'motion/react';
 import { ChatMode } from './AiAssistantModal';
 import { INTELLICAT_LOGO_URL } from '../constants';
@@ -7,7 +7,7 @@ import { INTELLICAT_LOGO_URL } from '../constants';
 interface HeroContentProps {
   onOpenChat?: (mode: ChatMode, prompt?: string) => void;
   onOpenBuyVip?: () => void;
-  onSelectView?: (view: 'hero' | 'priority' | 'study' | 'spaces' | 'translator' | 'news' | 'image' | 'code') => void;
+  onSelectView?: (view: 'hero' | 'priority' | 'study' | 'spaces' | 'translator' | 'news' | 'image' | 'code' | 'code2') => void;
 }
 
 export const HeroContent: React.FC<HeroContentProps> = ({
@@ -88,13 +88,27 @@ export const HeroContent: React.FC<HeroContentProps> = ({
         Choose between two dedicated modes: **Normal Talk Mode** for friendly open conversations and brainstorms, or **Cat Code Mode** for elite cybernetic programming, debugging, and architecture.
       </motion.p>
 
-      {/* 2-Mode Quick Launch Buttons */}
+      {/* Quick Launch Buttons: Code Mode 2.0, Normal Talk, Cat Code */}
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.6, delay: 0.25 }}
         className="flex flex-wrap items-center gap-2.5 mb-8"
       >
+        {/* Flagship: Code Mode 2.0 Autonomous Agent IDE */}
+        <button
+          id="hero-code2-btn"
+          onClick={() => onSelectView?.('code2')}
+          className="flex items-center gap-2 px-4 py-2.5 rounded-full bg-gradient-to-r from-red-600 via-amber-600 to-amber-500 hover:from-red-500 hover:to-amber-400 border border-amber-300 text-xs sm:text-sm font-extrabold text-white transition-all cursor-pointer shadow-[0_0_25px_rgba(245,158,11,0.5)] group hover:scale-105 active:scale-95"
+          title="Launch IntellicatAI Code Mode 2.0 Software Engineering Agent"
+        >
+          <Zap className="w-4 h-4 text-yellow-200 animate-pulse group-hover:scale-125 transition-transform" />
+          <span>Code Mode 2.0 ⚡</span>
+          <span className="text-[10px] bg-black/50 text-amber-300 px-2 py-0.5 rounded-full font-mono font-black uppercase tracking-wider border border-amber-400/40">
+            Agent IDE
+          </span>
+        </button>
+
         {/* Mode 1: Normal Talk Button */}
         <button
           id="hero-normal-talk-btn"
@@ -102,7 +116,7 @@ export const HeroContent: React.FC<HeroContentProps> = ({
           className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/10 hover:bg-white/20 border border-white/20 text-xs sm:text-sm font-semibold text-white transition-all cursor-pointer shadow-sm group hover:scale-105"
         >
           <MessageSquare className="w-4 h-4 text-sky-400 group-hover:scale-110 transition-transform" />
-          <span>Mode 1: Normal Talk</span>
+          <span>Normal Talk</span>
         </button>
 
         {/* Mode 2: Cat Code Button */}
@@ -112,7 +126,7 @@ export const HeroContent: React.FC<HeroContentProps> = ({
           className="flex items-center gap-2 px-4 py-2 rounded-full bg-[#EF233C]/20 hover:bg-[#EF233C]/35 border border-[#EF233C]/40 text-xs sm:text-sm font-semibold text-white transition-all cursor-pointer shadow-sm group hover:scale-105"
         >
           <Cat className="w-4 h-4 text-[#EF233C] group-hover:scale-110 transition-transform" />
-          <span>Mode 2: Cat Code 🐾</span>
+          <span>Code Mode 1.0 🐾</span>
           <span className="text-[10px] text-[#EF233C] font-mono bg-[#EF233C]/20 px-1.5 py-0.5 rounded font-bold">
             Classic
           </span>

@@ -18,6 +18,7 @@ import { NewsPanel } from './components/NewsPanel';
 import { ImageGenStudio } from './components/ImageGenStudio';
 import { SettingsModal } from './components/SettingsModal';
 import { OwnerApprovalModal } from './components/OwnerApprovalModal';
+import { CodeModeWorkspace2 } from './components/CodeWorkspace/CodeModeWorkspace2';
 import { ProjectSpace, StudyGrade, AiMode, AiProvider, UserPlanTier } from './types';
 import { useAuth } from './context/AuthContext';
 import { AnimatePresence, motion } from 'motion/react';
@@ -35,14 +36,15 @@ import {
   Languages,
   Newspaper,
   Palette,
+  Zap,
 } from 'lucide-react';
 import { INTELLICAT_LOGO_URL } from './constants';
 
 export default function App() {
-  const [currentView, setCurrentView] = useState<'hero' | 'priority' | 'study' | 'spaces' | 'translator' | 'news' | 'image' | 'code'>(() => {
+  const [currentView, setCurrentView] = useState<'hero' | 'priority' | 'study' | 'spaces' | 'translator' | 'news' | 'image' | 'code' | 'code2'>(() => {
     try {
       const hash = window.location.hash.replace('#', '');
-      if (hash === 'study' || hash === 'spaces' || hash === 'priority' || hash === 'translator' || hash === 'news' || hash === 'image' || hash === 'code') {
+      if (hash === 'study' || hash === 'spaces' || hash === 'priority' || hash === 'translator' || hash === 'news' || hash === 'image' || hash === 'code' || hash === 'code2') {
         return hash as any;
       }
     } catch {
@@ -162,7 +164,7 @@ export default function App() {
   useEffect(() => {
     const handleHashChange = () => {
       const hash = window.location.hash.replace('#', '');
-      if (hash === 'study' || hash === 'spaces' || hash === 'priority' || hash === 'translator' || hash === 'news' || hash === 'image') {
+      if (hash === 'study' || hash === 'spaces' || hash === 'priority' || hash === 'translator' || hash === 'news' || hash === 'image' || hash === 'code' || hash === 'code2') {
         setCurrentView(hash as any);
       } else if (!hash) {
         setCurrentView('hero');
@@ -523,6 +525,17 @@ export default function App() {
                 }}
               />
             </motion.div>
+          ) : currentView === 'code2' ? (
+            <motion.div
+              key="code2-workspace-view"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.25 }}
+              className="flex-1 flex flex-col relative z-10 w-full"
+            >
+              <CodeModeWorkspace2 onBack={() => setCurrentView('hero')} userId={user?.uid} />
+            </motion.div>
           ) : null}
         </AnimatePresence>
       </div>
@@ -538,6 +551,10 @@ export default function App() {
         isFounder={isFounder}
         activeSpace={activeSpace}
         onSelectSpace={setActiveSpace}
+        onOpenCodeWorkspace={() => {
+          setAiChatOpen(false);
+          setCurrentView('code2');
+        }}
       />
 
       {/* VIP Checkout / Purchase Modal */}
@@ -552,8 +569,21 @@ export default function App() {
         }}
       />
 
-      {/* Desktop Floating Action Trigger Bar: 2 Chat Modes & Buy VIP */}
-      <div className="hidden md:flex fixed bottom-5 right-5 sm:bottom-8 sm:right-8 z-40 items-center gap-2">
+      {/* Desktop Floating Action Trigger Bar: Code Mode 2.0, Cat Code, Talk, & Buy VIP */}
+      <div className="hidden md:flex fixed bottom-5 right-5 sm:bottom-8 sm:right-8 z-40 items-center gap-2.5">
+        {/* Flagship: Code Mode 2.0 Autonomous Agent IDE */}
+        <button
+          id="floating-code2-btn"
+          onClick={() => setCurrentView('code2')}
+          title="Open IntellicatAI Code Mode 2.0 (Autonomous Agent IDE)"
+          className="flex items-center gap-2 px-4 py-2.5 rounded-full border-2 text-white shadow-2xl backdrop-blur-xl hover:scale-105 active:scale-95 transition-all group cursor-pointer bg-gradient-to-r from-red-600 via-amber-600 to-amber-500 border-amber-300 shadow-[0_0_30px_rgba(245,158,11,0.6)]"
+        >
+          <Zap className="w-4 h-4 text-yellow-200 animate-pulse group-hover:scale-125 transition-transform" />
+          <span className="text-xs sm:text-sm font-black tracking-tight">
+            Code Mode 2.0 ⚡
+          </span>
+        </button>
+
         {/* Quick VIP Buy Launcher */}
         <button
           onClick={handleOpenBuyVip}
@@ -573,18 +603,15 @@ export default function App() {
           <span className="text-xs sm:text-sm font-semibold">Talk</span>
         </button>
 
-        {/* Floating Trigger 2: Cat Code Mode */}
+        {/* Floating Trigger 2: Cat Code Mode 1.0 */}
         <button
           onClick={() => handleOpenChat('cat-code')}
-          className="flex items-center gap-2 px-4 py-2.5 rounded-full border-2 text-white shadow-xl backdrop-blur-xl hover:scale-105 active:scale-95 transition-all group cursor-pointer bg-black/90 hover:bg-black border-[#EF233C] shadow-[0_0_25px_rgba(239,35,60,0.4)]"
-          title="Open AI Cat Code Mode"
+          className="flex items-center gap-2 px-4 py-2.5 rounded-full border-2 text-white shadow-xl backdrop-blur-xl hover:scale-105 active:scale-95 transition-all group cursor-pointer bg-black/90 hover:bg-black border-[#EF233C] shadow-[0_0_20px_rgba(239,35,60,0.35)]"
+          title="Open Classic Cat Code Mode 1.0"
         >
-          <span className="relative flex h-2.5 w-2.5">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-[#EF233C]"></span>
-          </span>
+          <Cat className="w-4 h-4 text-[#EF233C]" />
           <span className="text-xs sm:text-sm font-bold tracking-tight">
-            Cat <span className="text-[#FF2A3A]">Code 🐾</span>
+            Code 1.0 🐾
           </span>
         </button>
       </div>
@@ -596,7 +623,7 @@ export default function App() {
       >
         <button
           onClick={() => setCurrentView('hero')}
-          className={`flex flex-col items-center justify-center py-1 px-2.5 rounded-xl transition-all cursor-pointer min-w-[50px] ${
+          className={`flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all cursor-pointer min-w-[44px] ${
             currentView === 'hero' ? 'text-[#EF233C]' : 'text-neutral-400 hover:text-white'
           }`}
         >
@@ -604,10 +631,24 @@ export default function App() {
           <span className="text-[10px] font-bold mt-0.5">Home</span>
         </button>
 
-        {/* Prominent Center Action: AI Talk */}
+        {/* Prominent Code 2.0 Tab */}
+        <button
+          id="mobile-bottom-code2-btn"
+          onClick={() => setCurrentView('code2')}
+          className={`flex flex-col items-center justify-center py-1 px-2.5 rounded-xl transition-all cursor-pointer min-w-[52px] ${
+            currentView === 'code2'
+              ? 'text-amber-300 bg-amber-500/20 border border-amber-400/50 shadow-md shadow-amber-500/20'
+              : 'text-amber-400 hover:text-amber-300'
+          }`}
+        >
+          <Zap className="w-4 h-4 text-amber-400 animate-pulse" />
+          <span className="text-[10px] font-black mt-0.5">Code 2.0 ⚡</span>
+        </button>
+
+        {/* Center Action: AI Chat */}
         <button
           onClick={() => handleOpenChat('normal')}
-          className="flex flex-col items-center justify-center -mt-3.5 py-1.5 px-3.5 rounded-2xl bg-gradient-to-tr from-[#EF233C] to-red-500 text-white shadow-lg shadow-red-600/40 border border-white/25 active:scale-95 transition-all cursor-pointer min-w-[58px]"
+          className="flex flex-col items-center justify-center -mt-3.5 py-1.5 px-3.5 rounded-2xl bg-gradient-to-tr from-[#EF233C] to-red-500 text-white shadow-lg shadow-red-600/40 border border-white/25 active:scale-95 transition-all cursor-pointer min-w-[54px]"
         >
           <MessageSquare className="w-4 h-4 text-white" />
           <span className="text-[10px] font-black uppercase mt-0.5 tracking-wider">Chat</span>
@@ -615,7 +656,7 @@ export default function App() {
 
         <button
           onClick={() => setCurrentView('study')}
-          className={`flex flex-col items-center justify-center py-1 px-2.5 rounded-xl transition-all cursor-pointer min-w-[50px] ${
+          className={`flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all cursor-pointer min-w-[44px] ${
             currentView === 'study' ? 'text-[#EF233C]' : 'text-neutral-400 hover:text-white'
           }`}
         >
@@ -625,10 +666,10 @@ export default function App() {
 
         <button
           onClick={() => handleOpenChat('cat-code')}
-          className="flex flex-col items-center justify-center py-1 px-2.5 rounded-xl transition-all cursor-pointer min-w-[50px] text-neutral-400 hover:text-[#EF233C]"
+          className="flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all cursor-pointer min-w-[44px] text-neutral-400 hover:text-[#EF233C]"
         >
           <Cat className="w-4 h-4 text-[#EF233C]" />
-          <span className="text-[10px] font-bold mt-0.5">Code 🐾</span>
+          <span className="text-[10px] font-bold mt-0.5">Code 1.0</span>
         </button>
       </nav>
 

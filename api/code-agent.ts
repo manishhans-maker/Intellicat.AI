@@ -200,7 +200,13 @@ ${formattedFiles}`;
           }
         }
       } catch (err: any) {
-        console.warn(`Coding agent candidate [${model}] error:`, err?.message || err);
+        const isQuotaLimit = err?.status === 429 ||
+          (typeof err?.message === 'string' && (err.message.includes('429') || err.message.includes('quota') || err.message.includes('RESOURCE_EXHAUSTED')));
+        if (isQuotaLimit) {
+          console.log(`[Info] Coding agent candidate [${model}] reached rate limit (429), switching to next model...`);
+        } else {
+          console.log(`[Info] Coding agent candidate [${model}] notice: ${err?.message || 'candidate unavailable'}`);
+        }
         lastError = err;
         continue;
       }
