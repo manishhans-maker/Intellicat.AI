@@ -3,51 +3,37 @@
   <!-- Official Vercel Domain (v11) -->
   <url>
     <loc>https://intellicat-ai-v11.vercel.app/</loc>
-    <lastmod>2026-10-01</lastmod>
+    <lastmod>2026-10-25</lastmod>
     <changefreq>daily</changefreq>
     <priority>1.0</priority>
   </url>
   <url>
+    <loc>https://intellicat-ai-v11.vercel.app/#code2</loc>
+    <lastmod>2026-10-25</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.98</priority>
+  </url>
+  <url>
+    <loc>https://intellicat-ai-v11.vercel.app/#imagegen</loc>
+    <lastmod>2026-10-25</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.95</priority>
+  </url>
+  <url>
     <loc>https://intellicat-ai-v11.vercel.app/#study</loc>
-    <lastmod>2026-10-01</lastmod>
+    <lastmod>2026-10-25</lastmod>
     <changefreq>weekly</changefreq>
-    <priority>0.9</priority>
+    <priority>0.95</priority>
   </url>
   <url>
     <loc>https://intellicat-ai-v11.vercel.app/#spaces</loc>
-    <lastmod>2026-10-01</lastmod>
+    <lastmod>2026-10-25</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.9</priority>
   </url>
   <url>
     <loc>https://intellicat-ai-v11.vercel.app/#priority</loc>
-    <lastmod>2026-10-01</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.8</priority>
-  </url>
-
-  <!-- Vercel Domain (v10) -->
-  <url>
-    <loc>https://intellicat-ai-v10.vercel.app/</loc>
-    <lastmod>2026-10-01</lastmod>
-    <changefreq>daily</changefreq>
-    <priority>1.0</priority>
-  </url>
-  <url>
-    <loc>https://intellicat-ai-v10.vercel.app/#study</loc>
-    <lastmod>2026-10-01</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.9</priority>
-  </url>
-  <url>
-    <loc>https://intellicat-ai-v10.vercel.app/#spaces</loc>
-    <lastmod>2026-10-01</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.9</priority>
-  </url>
-  <url>
-    <loc>https://intellicat-ai-v10.vercel.app/#priority</loc>
-    <lastmod>2026-10-01</lastmod>
+    <lastmod>2026-10-25</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
@@ -55,25 +41,37 @@
   <!-- Cloud Run Instance -->
   <url>
     <loc>https://ais-pre-x56frnyxonqmcdpmk4rcdc-523676963863.asia-east1.run.app/</loc>
-    <lastmod>2026-10-01</lastmod>
+    <lastmod>2026-10-25</lastmod>
     <changefreq>daily</changefreq>
-    <priority>0.9</priority>
+    <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>https://ais-pre-x56frnyxonqmcdpmk4rcdc-523676963863.asia-east1.run.app/#code2</loc>
+    <lastmod>2026-10-25</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.98</priority>
+  </url>
+  <url>
+    <loc>https://ais-pre-x56frnyxonqmcdpmk4rcdc-523676963863.asia-east1.run.app/#imagegen</loc>
+    <lastmod>2026-10-25</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.95</priority>
   </url>
   <url>
     <loc>https://ais-pre-x56frnyxonqmcdpmk4rcdc-523676963863.asia-east1.run.app/#study</loc>
-    <lastmod>2026-09-28</lastmod>
+    <lastmod>2026-10-25</lastmod>
     <changefreq>weekly</changefreq>
-    <priority>0.9</priority>
+    <priority>0.95</priority>
   </url>
   <url>
     <loc>https://ais-pre-x56frnyxonqmcdpmk4rcdc-523676963863.asia-east1.run.app/#spaces</loc>
-    <lastmod>2026-09-28</lastmod>
+    <lastmod>2026-10-25</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.9</priority>
   </url>
   <url>
     <loc>https://ais-pre-x56frnyxonqmcdpmk4rcdc-523676963863.asia-east1.run.app/#priority</loc>
-    <lastmod>2026-09-28</lastmod>
+    <lastmod>2026-10-25</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>

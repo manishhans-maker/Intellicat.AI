@@ -129,8 +129,8 @@ export const LivePreviewSandbox: React.FC<LivePreviewSandboxProps> = ({
 
       // Extract all imported names from lucide-react before stripping imports
       const lucideIconNames: string[] = [];
-      const lucideImportMatches = cleaned.match(/import\s*\{([^}]+)\}\s*from\s*['"]lucide-react['"]/g) || [];
-      lucideImportMatches.forEach((m) => {
+      const lucideImportMatches: string[] = cleaned.match(/import\s*\{([^}]+)\}\s*from\s*['"]lucide-react['"]/g) || [];
+      lucideImportMatches.forEach((m: string) => {
         const inside = m.replace(/import\s*\{/, '').replace(/\}\s*from.*/, '');
         inside.split(',').forEach((n) => {
           const name = n.trim().split(/\s+as\s+/).pop()?.trim();

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ArrowRight, Crown, Sparkles, Cat, Code, MessageSquare, Send, Languages, Newspaper, Zap } from 'lucide-react';
+import { ArrowRight, Crown, Sparkles, Cat, Code, MessageSquare, Send, Languages, Newspaper, Zap, GraduationCap } from 'lucide-react';
 import { motion } from 'motion/react';
 import { ChatMode } from './AiAssistantModal';
 import { INTELLICAT_LOGO_URL } from '../constants';
@@ -85,7 +85,7 @@ export const HeroContent: React.FC<HeroContentProps> = ({
         transition={{ duration: 0.6, delay: 0.2 }}
         className="text-neutral-300 text-base sm:text-lg font-normal leading-relaxed max-w-lg mb-6 sm:mb-8"
       >
-        Choose between two dedicated modes: **Normal Talk Mode** for friendly open conversations and brainstorms, or **Cat Code Mode** for elite cybernetic programming, debugging, and architecture.
+        Your all-in-one platform: **Free Coding AI Assistant** & **Free AI Coder** with Code Mode 2.0 live sandbox, **Free Study AI** & **Homework Helper** for STEM, and **Free AI Image Generation**.
       </motion.p>
 
       {/* Quick Launch Buttons: Code Mode 2.0, Normal Talk, Cat Code */}
@@ -100,14 +100,26 @@ export const HeroContent: React.FC<HeroContentProps> = ({
           id="hero-code2-btn"
           onClick={() => onSelectView?.('code2')}
           className="flex items-center gap-2 px-4 py-2.5 rounded-full bg-gradient-to-r from-red-600 via-amber-600 to-amber-500 hover:from-red-500 hover:to-amber-400 border border-amber-300 text-xs sm:text-sm font-extrabold text-white transition-all cursor-pointer shadow-[0_0_25px_rgba(245,158,11,0.5)] group hover:scale-105 active:scale-95"
-          title="Launch IntellicatAI Code Mode 2.0 Software Engineering Agent"
+          title="Launch IntellicatAI Free Code Mode 2.0 Software Engineering Agent"
         >
           <img src="/assets/intellicat-logo.png" alt="Code 2.0 Logo" className="w-5 h-5 rounded-lg object-cover shadow-sm group-hover:scale-110 transition-transform" />
           <span>Code Mode 2.0 ⚡</span>
           <span className="text-[10px] bg-black/50 text-amber-300 px-2 py-0.5 rounded-full font-mono font-black uppercase tracking-wider border border-amber-400/40">
-            Agent IDE
+            Free IDE
           </span>
         </button>
+
+        {/* Free Study Mode & Materials Quick Launch */}
+        {onSelectView && (
+          <button
+            onClick={() => onSelectView('study')}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40 text-xs font-semibold text-emerald-300 transition-all cursor-pointer shadow-sm group hover:scale-105"
+            title="Free STEM Study Material AI, Homework Solver & Formula Derivations"
+          >
+            <GraduationCap className="w-3.5 h-3.5 text-emerald-400 group-hover:scale-110 transition-transform" />
+            <span>Study Material AI 🎓</span>
+          </button>
+        )}
 
         {/* Mode 1: Normal Talk Button */}
         <button
@@ -173,7 +185,7 @@ export const HeroContent: React.FC<HeroContentProps> = ({
             title="100% Free FLUX AI Image Generator Studio ($0 Cost)"
           >
             <Sparkles className="w-3.5 h-3.5 text-rose-400 group-hover:rotate-12 transition-transform" />
-            <span>Image Studio 🎨</span>
+            <span>Free Image Gen 🎨</span>
           </button>
         )}
       </motion.div>
