@@ -14,6 +14,8 @@ import {
   CheckCircle2,
   Play,
   Sparkles,
+  Copy,
+  Check,
 } from 'lucide-react';
 import { ProjectFile, ConsoleLogEntry } from '../../types/codeAgent';
 
@@ -32,6 +34,8 @@ export const LivePreviewSandbox: React.FC<LivePreviewSandboxProps> = ({
   const [consoleOpen, setConsoleOpen] = useState(false);
   const [logs, setLogs] = useState<ConsoleLogEntry[]>([]);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [copiedHtml, setCopiedHtml] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   // Clear logs on explicit reload
@@ -123,7 +127,7 @@ export const LivePreviewSandbox: React.FC<LivePreviewSandboxProps> = ({
     }
 
     // 2. React SPA Compilation
-    const cleanReactSource = (code: string): { cleaned: string; lucideIconNames: string[] } => {
+    const cleanReactSource = (code: string, filePath: string): { cleaned: string; lucideIconNames: string[] } => {
       if (!code) return { cleaned: '', lucideIconNames: [] };
       let cleaned = code;
 
@@ -143,33 +147,46 @@ export const LivePreviewSandbox: React.FC<LivePreviewSandboxProps> = ({
       cleaned = cleaned.replace(/^\s*import\s+['"][^'"]+['"];?/gm, '');
       cleaned = cleaned.replace(/^\s*import\s+type\s+[\s\S]*?;/gm, '');
 
+      // Derive fallback component name from file path (e.g. src/components/ScoreBoard.tsx -> ScoreBoard)
+      const fileNameMatch = filePath.split('/').pop()?.replace(/\.[^/.]+$/, '');
+      const defaultName = (fileNameMatch && /^[A-Z]/.test(fileNameMatch)) ? fileNameMatch : (filePath === mainAppPath ? 'App' : 'SubComponent');
+
       // Clean function default exports
       cleaned = cleaned.replace(/^\s*export\s+default\s+function(?:\s+([A-Za-z0-9_$]+))?\s*\(/gm, function (_, name) {
-        const fnName = name || 'App';
-        return `function ${fnName}(`;
+        const fnName = name || defaultName;
+        return `window.${fnName} = function ${fnName}(`;
       });
 
       // Clean class default exports
       cleaned = cleaned.replace(/^\s*export\s+default\s+class(?:\s+([A-Za-z0-9_$]+))?/gm, function (_, name) {
-        const clsName = name || 'App';
-        return `class ${clsName} `;
+        const clsName = name || defaultName;
+        return `window.${clsName} = class ${clsName} `;
       });
 
       // Clean arrow function default exports
       cleaned = cleaned.replace(/^\s*export\s+default\s*(?:\([^)]*\)|[A-Za-z0-9_$]+)\s*=>/gm, function (match) {
         const after = match.replace(/^\s*export\s+default\s*/, '');
-        return `const App = ${after}`;
+        return `window.${defaultName} = ${after}`;
       });
 
       // Clean identifier default exports (e.g. export default App; or export default Calculator;)
       cleaned = cleaned.replace(/^\s*export\s+default\s+([A-Za-z0-9_$]+);?/gm, function (_, name) {
-        return `window.App = ${name}; try { window.${name} = ${name}; } catch(e){}; exports.default = ${name};`;
+        if (filePath === mainAppPath) {
+          return `window.App = ${name}; try { window.${name} = ${name}; } catch(e){}; exports.default = ${name};`;
+        }
+        return `try { window.${name} = ${name}; } catch(e){};`;
       });
 
       // Clean named exports
-      cleaned = cleaned.replace(/^\s*export\s+(?:const|let|var)\s+/gm, 'var ');
-      cleaned = cleaned.replace(/^\s*export\s+function\s+/gm, 'function ');
-      cleaned = cleaned.replace(/^\s*export\s+class\s+/gm, 'class ');
+      cleaned = cleaned.replace(/^\s*export\s+(?:const|let|var)\s+([A-Za-z0-9_$]+)\s*=/gm, function(_, name) {
+        return `var ${name} = window.${name} =`;
+      });
+      cleaned = cleaned.replace(/^\s*export\s+function\s+([A-Za-z0-9_$]+)\s*\(/gm, function(_, name) {
+        return `window.${name} = function ${name}(`;
+      });
+      cleaned = cleaned.replace(/^\s*export\s+class\s+([A-Za-z0-9_$]+)/gm, function(_, name) {
+        return `window.${name} = class ${name}`;
+      });
       cleaned = cleaned.replace(/^\s*export\s+(type|interface|enum)\s+/gm, '$1 ');
       cleaned = cleaned.replace(/^\s*export\s+(?:type\s+)?\{[\s\S]*?\};?/gm, '');
 
@@ -186,14 +203,14 @@ export const LivePreviewSandbox: React.FC<LivePreviewSandboxProps> = ({
         (path.endsWith('.tsx') || path.endsWith('.ts') || path.endsWith('.jsx') || path.endsWith('.js'))
       ) {
         if (!path.includes('node_modules') && !path.includes('vite') && !path.includes('config')) {
-          const { cleaned, lucideIconNames } = cleanReactSource(file.content);
+          const { cleaned, lucideIconNames } = cleanReactSource(file.content, path);
           subcomponentCodeParts.push(cleaned);
           lucideIconNames.forEach((n) => collectedLucideIcons.add(n));
         }
       }
     });
 
-    const { cleaned: sanitizedMainApp, lucideIconNames: mainLucideIcons } = cleanReactSource(mainAppContent);
+    const { cleaned: sanitizedMainApp, lucideIconNames: mainLucideIcons } = cleanReactSource(mainAppContent, mainAppPath);
     mainLucideIcons.forEach((n) => collectedLucideIcons.add(n));
 
     const combinedReactCode = [...subcomponentCodeParts, sanitizedMainApp].join('\n\n');
@@ -331,8 +348,16 @@ export const LivePreviewSandbox: React.FC<LivePreviewSandboxProps> = ({
             var strokeWidth = p.strokeWidth || 2;
             var color = p.color || 'currentColor';
 
-            if (window.lucide && window.lucide.icons && window.lucide.icons[iconName]) {
-              var iconTuple = window.lucide.icons[iconName];
+            var iconTuple = null;
+            if (window.lucide) {
+              if (window.lucide.icons && window.lucide.icons[iconName]) {
+                iconTuple = window.lucide.icons[iconName];
+              } else if (window.lucide[iconName]) {
+                iconTuple = window.lucide[iconName];
+              }
+            }
+
+            if (iconTuple && Array.isArray(iconTuple)) {
               var defaultAttrs = iconTuple[1] || {};
               var children = iconTuple[2] || [];
 
@@ -363,26 +388,35 @@ export const LivePreviewSandbox: React.FC<LivePreviewSandboxProps> = ({
               className: 'inline-flex items-center justify-center ' + className,
               style: { width: size, height: size, display: 'inline-flex', verticalAlign: 'middle', fontSize: Math.max(10, size - 4) },
               title: iconName
-            }, '⚡');
+            }, '✦');
           };
         }
 
-        // Pre-register all common lucide icon components on window
+        // Register ONLY known Lucide icons on window
         var iconList = ${JSON.stringify(commonLucideIcons)};
         iconList.forEach(function(icon) {
           window[icon] = makeIconComponent(icon);
         });
 
-        var rawCode = ${serializedReactCode};
-
-        // Dynamically find any uppercase tags in the code and auto-create a fallback icon component if missing
-        var tagMatches = rawCode.match(/<([A-Z][A-Za-z0-9_]*)/g) || [];
-        tagMatches.forEach(function(m) {
-          var name = m.slice(1);
-          if (typeof window[name] === 'undefined' && !['App', 'React', 'ReactDOM'].includes(name)) {
-            window[name] = makeIconComponent(name);
+        // Framer Motion compatibility shim (prevents crashes when code uses motion.div)
+        window.motion = new Proxy({}, {
+          get: function(target, prop) {
+            return function(props) {
+              var p = Object.assign({}, props || {});
+              delete p.initial; delete p.animate; delete p.exit; delete p.transition;
+              delete p.whileHover; delete p.whileTap; delete p.whileFocus; delete p.whileDrag;
+              return React.createElement(prop, p);
+            };
           }
         });
+        window.AnimatePresence = function(props) { return props.children; };
+
+        // Canvas Confetti shim fallback
+        if (typeof window.confetti === 'undefined') {
+          window.confetti = function() { console.log('🎉 Confetti triggered!'); };
+        }
+
+        var rawCode = ${serializedReactCode};
 
         // Transpile React / TypeScript code safely using standard Babel presets
         var transpiled = Babel.transform(rawCode, {
@@ -507,8 +541,35 @@ export const LivePreviewSandbox: React.FC<LivePreviewSandboxProps> = ({
 
   const hasErrors = logs.some((l) => l.type === 'error');
 
+  const handleOpenInNewTab = () => {
+    try {
+      const blob = new Blob([bundledHtml], { type: 'text/html;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const win = window.open(url, '_blank');
+      if (!win) {
+        setIsFullscreen(true);
+      }
+    } catch (err) {
+      console.error('Open in new tab failed:', err);
+      setIsFullscreen(true);
+    }
+  };
+
+  const handleCopyHtml = () => {
+    navigator.clipboard.writeText(bundledHtml);
+    setCopiedHtml(true);
+    setTimeout(() => setCopiedHtml(false), 2000);
+  };
+
   return (
-    <div className="flex-1 flex flex-col h-full bg-[#08090f] border border-white/10 rounded-2xl overflow-hidden shadow-2xl relative min-h-0">
+    <>
+      <div
+        className={`flex flex-col bg-[#08090f] border border-white/10 rounded-2xl overflow-hidden shadow-2xl transition-all min-h-0 ${
+          isFullscreen
+            ? 'fixed inset-2 sm:inset-5 z-[100] h-[calc(100vh-1rem)] sm:h-[calc(100vh-2.5rem)] ring-2 ring-[#EF233C]/60'
+            : 'flex-1 h-full relative'
+        }`}
+      >
       {/* Top Preview Controls Bar */}
       <div className="flex items-center justify-between p-2.5 bg-[#0e1017] border-b border-white/10 shrink-0 gap-2 flex-wrap z-10">
         <div className="flex items-center gap-2">
@@ -551,7 +612,9 @@ export const LivePreviewSandbox: React.FC<LivePreviewSandboxProps> = ({
             </button>
           </div>
 
+          {/* Reload Preview */}
           <button
+            type="button"
             onClick={handleReload}
             className="p-1.5 rounded-lg bg-white/5 hover:bg-white/15 border border-white/10 text-neutral-300 hover:text-white transition-colors cursor-pointer"
             title="Reload Preview"
@@ -559,7 +622,49 @@ export const LivePreviewSandbox: React.FC<LivePreviewSandboxProps> = ({
             <RotateCw className="w-3.5 h-3.5" />
           </button>
 
+          {/* Open in New Window / Tab */}
           <button
+            type="button"
+            onClick={handleOpenInNewTab}
+            className="p-1.5 rounded-lg bg-white/5 hover:bg-white/15 border border-white/10 text-neutral-300 hover:text-sky-400 transition-colors cursor-pointer"
+            title="Open Website in Standalone New Tab"
+          >
+            <ExternalLink className="w-3.5 h-3.5 text-sky-400" />
+          </button>
+
+          {/* Fullscreen Toggle */}
+          <button
+            type="button"
+            onClick={() => setIsFullscreen(!isFullscreen)}
+            className="p-1.5 rounded-lg bg-white/5 hover:bg-white/15 border border-white/10 text-neutral-300 hover:text-amber-400 transition-colors cursor-pointer"
+            title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen Preview'}
+          >
+            {isFullscreen ? <Minimize2 className="w-3.5 h-3.5 text-amber-400" /> : <Maximize2 className="w-3.5 h-3.5" />}
+          </button>
+
+          {/* Copy Compiled Code */}
+          <button
+            type="button"
+            onClick={handleCopyHtml}
+            className="hidden sm:flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/15 text-neutral-300 hover:text-white border border-white/10 transition-colors cursor-pointer text-xs"
+            title="Copy compiled HTML"
+          >
+            {copiedHtml ? (
+              <>
+                <Check className="w-3 h-3 text-emerald-400" />
+                <span className="text-emerald-400 font-semibold text-[11px]">Copied</span>
+              </>
+            ) : (
+              <>
+                <Copy className="w-3 h-3" />
+                <span className="text-[11px]">Copy</span>
+              </>
+            )}
+          </button>
+
+          {/* Console Toggle */}
+          <button
+            type="button"
             onClick={() => setConsoleOpen(!consoleOpen)}
             className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-semibold transition-all cursor-pointer ${
               hasErrors
@@ -657,6 +762,39 @@ export const LivePreviewSandbox: React.FC<LivePreviewSandboxProps> = ({
           </div>
         </div>
       )}
+
+      {/* Bottom Status Footer (matches Code 1.0) */}
+      <div className="px-3 sm:px-4 py-1.5 bg-[#0a0b12] border-t border-white/10 text-[10px] text-neutral-400 flex items-center justify-between shrink-0">
+        <div className="flex items-center gap-2">
+          <span className="flex items-center gap-1.5 text-emerald-400 font-semibold">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            Live Built Website
+          </span>
+          <span>•</span>
+          <span className="font-mono text-neutral-300 uppercase">{framework}</span>
+          <span>•</span>
+          <span>{Object.keys(files).length} files</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleOpenInNewTab}
+            className="flex items-center gap-1 text-neutral-400 hover:text-sky-400 transition-colors cursor-pointer"
+            title="Open website in standalone new browser tab"
+          >
+            <span>Open in new tab</span>
+            <ExternalLink className="w-2.5 h-2.5" />
+          </button>
+        </div>
+      </div>
     </div>
+
+    {isFullscreen && (
+      <div
+        onClick={() => setIsFullscreen(false)}
+        className="fixed inset-0 z-[95] bg-black/85 backdrop-blur-md transition-opacity"
+      />
+    )}
+  </>
   );
 };

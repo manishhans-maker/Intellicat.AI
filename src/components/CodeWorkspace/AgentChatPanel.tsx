@@ -17,13 +17,20 @@ import {
   Volume2,
   Smartphone,
   ShieldCheck,
+  Trash2,
+  AlertCircle,
+  Paperclip,
+  Image as ImageIcon,
+  Film,
+  X,
+  FileUp,
 } from 'lucide-react';
-import { ProjectFile, AgentActionPlan, AgentHistoryMessage } from '../../types/codeAgent';
+import { ProjectFile, AgentActionPlan, AgentHistoryMessage, CodeAgentAttachment } from '../../types/codeAgent';
 
 interface AgentChatPanelProps {
   files: Record<string, ProjectFile>;
   activeFilePath: string;
-  onRunAgentTask: (task: string, intent: string) => Promise<void>;
+  onRunAgentTask: (task: string, intent: string, attachments?: CodeAgentAttachment[]) => Promise<void>;
   isLoading: boolean;
   currentPlan?: AgentActionPlan;
   lastExplanation?: string;
@@ -32,6 +39,7 @@ interface AgentChatPanelProps {
   canUndo?: boolean;
   selectedModel?: string;
   onSelectModel?: (model: string) => void;
+  onClearChat?: () => void;
 }
 
 const QUICK_ACTIONS = [
@@ -42,11 +50,12 @@ const QUICK_ACTIONS = [
 ];
 
 const SUGGESTION_CHIPS = [
-  'Add dark / light mode toggle with smooth transition',
-  'Add sound effects & visual click feedback',
-  'Save user score & data automatically in memory',
-  'Make the UI fully responsive with touch controls',
-  'Add animations & polished hover effects',
+  '🎮 Upgrade into a Retro Arcade Space Shooter game with laser sound FX',
+  '🕹️ Turn this into a Cyber Brick Breaker game with particle explosions',
+  '🐍 Build a Neon Cyber Snake game with speed boost & high scores',
+  '🃏 Create a Memory Match card game with combos & audio chimes',
+  '🔊 Add synthesized Web Audio sound FX & mute/unmute toggle',
+  '📱 Add mobile-touch D-pad controls & responsive layout',
 ];
 
 export const AgentChatPanel: React.FC<AgentChatPanelProps> = ({
@@ -61,22 +70,83 @@ export const AgentChatPanel: React.FC<AgentChatPanelProps> = ({
   canUndo = false,
   selectedModel = 'gemini-3.8-flash',
   onSelectModel,
+  onClearChat,
 }) => {
   const [input, setInput] = useState('');
+  const [attachments, setAttachments] = useState<CodeAgentAttachment[]>([]);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [expandedExplanations, setExpandedExplanations] = useState<Record<string, boolean>>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Auto-scroll on new messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [history.length, isLoading]);
 
+  const processFiles = (fileList: FileList | File[]) => {
+    setAttachmentError(null);
+    const newItems: Promise<CodeAgentAttachment | null>[] = Array.from(fileList).map(
+      (file) =>
+        new Promise((resolve) => {
+          // Max size: 25MB
+          if (file.size > 25 * 1024 * 1024) {
+            setAttachmentError(`"${file.name}" exceeds 25MB limit.`);
+            resolve(null);
+            return;
+          }
+          const reader = new FileReader();
+          reader.onload = () => {
+            const result = reader.result as string;
+            const base64 = result.includes(',') ? result.split(',')[1] : result;
+            resolve({
+              id: `att-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+              name: file.name,
+              type: file.type || 'application/octet-stream',
+              dataUrl: result,
+              size: file.size,
+              base64,
+            });
+          };
+          reader.onerror = () => resolve(null);
+          reader.readAsDataURL(file);
+        })
+    );
+
+    Promise.all(newItems).then((results) => {
+      const valid = results.filter((item): item is CodeAgentAttachment => item !== null);
+      if (valid.length > 0) {
+        setAttachments((prev) => [...prev, ...valid]);
+      }
+    });
+  };
+
+  const handleFilesSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      processFiles(e.target.files);
+      e.target.value = '';
+    }
+  };
+
+  const handleRemoveAttachment = (id: string) => {
+    setAttachments((prev) => prev.filter((a) => a.id !== id));
+  };
+
+  const handlePaste = (e: React.ClipboardEvent) => {
+    if (e.clipboardData && e.clipboardData.files && e.clipboardData.files.length > 0) {
+      processFiles(e.clipboardData.files);
+    }
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const prompt = input.trim();
-    if (!prompt || isLoading) return;
-    onRunAgentTask(prompt, 'edit');
+    if ((!prompt && attachments.length === 0) || isLoading) return;
+    const finalPrompt = prompt || (attachments.length > 0 ? 'Analyze the attached media reference and implement the design / changes into the app.' : '');
+    onRunAgentTask(finalPrompt, 'edit', attachments);
     setInput('');
+    setAttachments([]);
+    setAttachmentError(null);
   };
 
   const handleQuickAction = (actionId: string, label: string) => {
@@ -140,10 +210,9 @@ export const AgentChatPanel: React.FC<AgentChatPanelProps> = ({
                 className="bg-transparent text-[11px] font-bold text-white outline-none cursor-pointer"
                 title="Choose AI Model for coding"
               >
-                <option value="gemini-3.8-flash" className="bg-[#11121d] text-white">Gemini 3.8 Flash (⚡ Recommended)</option>
-                <option value="gemini-3.5-flash" className="bg-[#11121d] text-white">Gemini 3.5 Flash (Stable)</option>
+                <option value="gemini-3.5-flash" className="bg-[#11121d] text-white">Gemini 3.5 Flash (⚡ Stable & Recommended)</option>
                 <option value="gemini-3.5-flash-lite" className="bg-[#11121d] text-white">Gemini 3.5 Flash Lite (Fast)</option>
-                <option value="gemini-3.6-flash" className="bg-[#11121d] text-white">Gemini 3.6 Flash</option>
+                <option value="gemini-3.8-flash" className="bg-[#11121d] text-white">Gemini 3.8 Flash</option>
                 <option value="gemini-flash-latest" className="bg-[#11121d] text-white">Gemini Flash Latest</option>
               </select>
             </div>
@@ -159,6 +228,19 @@ export const AgentChatPanel: React.FC<AgentChatPanelProps> = ({
             >
               <Undo2 className="w-3.5 h-3.5 text-amber-400" />
               <span>Undo Edit</span>
+            </button>
+          )}
+
+          {/* Clear Chat Button */}
+          {history.length > 0 && onClearChat && (
+            <button
+              type="button"
+              onClick={onClearChat}
+              className="flex items-center gap-1 px-2 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-neutral-400 hover:text-red-400 border border-white/10 text-[11px] font-semibold transition-all cursor-pointer"
+              title="Clear conversation history for this app"
+            >
+              <Trash2 className="w-3 h-3" />
+              <span className="hidden sm:inline">Clear</span>
             </button>
           )}
         </div>
@@ -234,8 +316,24 @@ export const AgentChatPanel: React.FC<AgentChatPanelProps> = ({
           if (isUser) {
             return (
               <div key={msg.id} className="flex justify-end">
-                <div className="max-w-[85%] p-3 rounded-2xl rounded-br-sm bg-gradient-to-r from-red-600 to-[#EF233C] text-white text-xs font-medium shadow-lg">
-                  <p className="whitespace-pre-wrap">{msg.text}</p>
+                <div className="max-w-[85%] p-3 rounded-2xl rounded-br-sm bg-gradient-to-r from-red-600 to-[#EF233C] text-white text-xs font-medium shadow-lg space-y-2">
+                  {msg.attachments && msg.attachments.length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {msg.attachments.map((att) => (
+                        <div key={att.id} className="rounded-xl overflow-hidden border border-white/20 bg-black/40 p-1">
+                          {att.type.startsWith('video/') ? (
+                            <div className="p-2 flex items-center gap-2">
+                              <Film className="w-4 h-4 text-amber-300 shrink-0" />
+                              <div className="text-[10px] truncate max-w-[140px] font-mono">{att.name}</div>
+                            </div>
+                          ) : (
+                            <img src={att.dataUrl} alt={att.name} className="max-h-36 max-w-full rounded-lg object-contain bg-black/50" />
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {msg.text && <p className="whitespace-pre-wrap">{msg.text}</p>}
                   <div className="text-[9px] text-white/70 text-right mt-1 font-mono">{msg.timestamp}</div>
                 </div>
               </div>
@@ -245,39 +343,86 @@ export const AgentChatPanel: React.FC<AgentChatPanelProps> = ({
           // Agent Message Card
           return (
             <div key={msg.id} className="space-y-2.5">
-              <div className="p-3.5 rounded-2xl bg-[#131422] border border-white/15 space-y-3 shadow-xl">
+              <div
+                className={`p-3.5 rounded-2xl border space-y-3 shadow-xl transition-all ${
+                  msg.isError
+                    ? 'bg-red-950/20 border-red-500/30'
+                    : 'bg-[#131422] border-white/15'
+                }`}
+              >
                 {/* Header Badge */}
                 <div className="flex items-center justify-between border-b border-white/10 pb-2">
-                  <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-400">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                    <span>{msg.isError ? 'Notice' : 'App Updated Live'}</span>
+                  <div
+                    className={`flex items-center gap-1.5 text-xs font-bold ${
+                      msg.isError ? 'text-red-400' : 'text-emerald-400'
+                    }`}
+                  >
+                    {msg.isError ? (
+                      <>
+                        <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+                        <span>Update Error</span>
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                        <span>App Updated Live</span>
+                      </>
+                    )}
                   </div>
                   <span className="text-[10px] text-neutral-400 font-mono">{msg.timestamp}</span>
                 </div>
 
-                {/* Plan Summary Card */}
-                {msg.plan && (
+                {/* Message Text (Always visible with fallback) */}
+                <div
+                  className={`text-xs leading-relaxed ${
+                    msg.isError
+                      ? 'text-red-200 bg-red-950/40 p-2.5 rounded-xl border border-red-500/20'
+                      : 'text-neutral-200'
+                  }`}
+                >
+                  {msg.text ||
+                    (msg.isError
+                      ? 'An error occurred while attempting to update the application.'
+                      : 'Your application has been updated with the requested changes.')}
+                </div>
+
+                {/* Plan Summary Card (if successful plan exists) */}
+                {!msg.isError && msg.plan && (
                   <div className="space-y-1.5 bg-black/40 p-2.5 rounded-xl border border-white/5">
                     <div className="text-[11px] font-bold text-neutral-200">
                       🎯 {msg.plan.taskSummary}
                     </div>
-                    <div className="space-y-1 pt-1">
-                      {msg.plan.steps.map((st, i) => (
-                        <div key={i} className="flex items-start gap-1.5 text-[11px] text-neutral-300">
-                          <span className="w-3.5 h-3.5 rounded-full bg-white/10 text-neutral-400 text-[9px] flex items-center justify-center shrink-0 mt-0.5 font-bold">
-                            {i + 1}
-                          </span>
-                          <span>{st}</span>
-                        </div>
-                      ))}
-                    </div>
+                    {msg.plan.steps && msg.plan.steps.length > 0 && (
+                      <div className="space-y-1 pt-1">
+                        {msg.plan.steps.map((st, i) => (
+                          <div key={i} className="flex items-start gap-1.5 text-[11px] text-neutral-300">
+                            <span className="w-3.5 h-3.5 rounded-full bg-white/10 text-neutral-400 text-[9px] flex items-center justify-center shrink-0 mt-0.5 font-bold">
+                              {i + 1}
+                            </span>
+                            <span>{st}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Changed Files Chips */}
+                {!msg.isError && msg.changedFiles && msg.changedFiles.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                    <span className="text-[10px] text-neutral-400">Files:</span>
+                    {msg.changedFiles.map((f, i) => (
+                      <span key={i} className="px-2 py-0.5 rounded-md bg-white/5 border border-white/10 text-[10px] font-mono text-emerald-400">
+                        {f}
+                      </span>
+                    ))}
                   </div>
                 )}
 
                 {/* Status Action Buttons */}
                 <div className="flex items-center justify-between pt-1">
                   <div className="flex items-center gap-2">
-                    {onUndoLastChange && (
+                    {!msg.isError && onUndoLastChange && (
                       <button
                         type="button"
                         onClick={onUndoLastChange}
@@ -290,7 +435,7 @@ export const AgentChatPanel: React.FC<AgentChatPanelProps> = ({
                     )}
                   </div>
 
-                  {msg.explanation && (
+                  {!msg.isError && msg.explanation && (
                     <button
                       type="button"
                       onClick={() => toggleExplanation(msg.id)}
@@ -303,7 +448,7 @@ export const AgentChatPanel: React.FC<AgentChatPanelProps> = ({
                 </div>
 
                 {/* Collapsible Explanation */}
-                {isExpanded && msg.explanation && (
+                {!msg.isError && isExpanded && msg.explanation && (
                   <div className="pt-2 border-t border-white/10 text-[11px] text-neutral-300 font-sans whitespace-pre-wrap leading-relaxed bg-black/30 p-2.5 rounded-xl">
                     {msg.explanation}
                   </div>
@@ -330,20 +475,104 @@ export const AgentChatPanel: React.FC<AgentChatPanelProps> = ({
       </div>
 
       {/* Input Form at Bottom */}
-      <form onSubmit={handleSubmit} className="p-2.5 sm:p-3 bg-[#11121d] border-t border-white/10 shrink-0">
-        <div className="relative flex items-center bg-black/60 rounded-xl border border-white/15 focus-within:border-[#EF233C] p-1.5 transition-all">
+      <form
+        onSubmit={handleSubmit}
+        onPaste={handlePaste}
+        className="p-2.5 sm:p-3 bg-[#11121d] border-t border-white/10 shrink-0 space-y-2"
+      >
+        {/* Attachment Error Alert */}
+        {attachmentError && (
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-red-950/60 border border-red-500/30 text-[11px] text-red-300">
+            <AlertCircle className="w-3.5 h-3.5 text-red-400 shrink-0" />
+            <span className="truncate flex-1">{attachmentError}</span>
+            <button
+              type="button"
+              onClick={() => setAttachmentError(null)}
+              className="text-neutral-400 hover:text-white cursor-pointer"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          </div>
+        )}
+
+        {/* Attached Media Tray Previews */}
+        {attachments.length > 0 && (
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 px-0.5 scrollbar-none">
+            {attachments.map((att) => (
+              <div
+                key={att.id}
+                className="relative group shrink-0 flex items-center gap-1.5 bg-black/70 border border-white/20 rounded-xl p-1 pr-2 text-[10px] shadow-md"
+              >
+                {att.type.startsWith('video/') ? (
+                  <div className="w-7 h-7 rounded-lg bg-amber-500/20 border border-amber-500/30 flex items-center justify-center shrink-0">
+                    <Film className="w-3.5 h-3.5 text-amber-300" />
+                  </div>
+                ) : (
+                  <img
+                    src={att.dataUrl}
+                    alt={att.name}
+                    className="w-7 h-7 rounded-lg object-cover border border-white/15 shrink-0"
+                  />
+                )}
+                <div className="flex flex-col min-w-0 pr-1">
+                  <span className="truncate max-w-[100px] text-white font-medium">{att.name}</span>
+                  <span className="text-[8px] text-neutral-400 font-mono">
+                    {Math.round(att.size / 1024)} KB
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleRemoveAttachment(att.id)}
+                  className="p-1 rounded-md text-neutral-400 hover:text-white hover:bg-white/10 cursor-pointer transition-colors"
+                  title="Remove attachment"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Input Bar */}
+        <div className="relative flex items-center bg-black/60 rounded-xl border border-white/15 focus-within:border-[#EF233C] p-1.5 transition-all gap-1.5">
+          {/* Hidden File Input */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept="image/*,video/mp4,video/webm,video/quicktime"
+            className="hidden"
+            onChange={handleFilesSelected}
+          />
+
+          {/* Media Attach Button */}
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isLoading}
+            className="p-1.5 sm:p-2 rounded-lg text-neutral-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer shrink-0 disabled:opacity-40"
+            title="Attach photo, screenshot, UI mockup, or video"
+          >
+            <Paperclip className="w-4 h-4" />
+          </button>
+
           <input
             type="text"
-            placeholder="Describe features to add or changes to make..."
+            placeholder={
+              attachments.length > 0
+                ? "Describe what to build or change with this media..."
+                : "Describe features, or attach screenshot/mockup..."
+            }
             value={input}
             onChange={(e) => setInput(e.target.value)}
             disabled={isLoading}
-            className="flex-1 bg-transparent px-3 py-1.5 text-xs text-white placeholder-neutral-500 outline-none"
+            className="flex-1 bg-transparent px-2 py-1.5 text-xs text-white placeholder-neutral-500 outline-none min-w-0"
           />
+
           <button
             type="submit"
-            disabled={isLoading || !input.trim()}
-            className="p-2 rounded-lg bg-[#EF233C] hover:bg-red-600 disabled:opacity-40 text-white transition-colors cursor-pointer shrink-0"
+            disabled={isLoading || (!input.trim() && attachments.length === 0)}
+            className="p-2 rounded-lg bg-[#EF233C] hover:bg-red-600 disabled:opacity-40 text-white transition-colors cursor-pointer shrink-0 shadow-md shadow-[#EF233C]/20"
             title="Send Instruction"
           >
             <Send className="w-3.5 h-3.5" />

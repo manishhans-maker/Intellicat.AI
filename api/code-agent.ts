@@ -14,16 +14,194 @@ function getGeminiClient(): GoogleGenAI | null {
 }
 
 const CANDIDATE_MODELS = [
-  "gemini-3.6-flash",
   "gemini-3.5-flash",
   "gemini-3.5-flash-lite",
-  "gemini-flash-latest",
   "gemini-3.8-flash",
+  "gemini-flash-latest",
 ];
 
 interface FileContextInput {
   path: string;
   content: string;
+}
+
+/**
+ * Resilient JSON and Code Extractor for Coding Agent responses
+ * Handles raw JSON, markdown-wrapped JSON, unescaped string characters,
+ * truncated JSON, and pure code blocks.
+ */
+function robustParseAgentJson(
+  rawText: string,
+  task: string,
+  activeFilePath: string,
+  modelName: string
+): any {
+  if (!rawText || typeof rawText !== "string") return null;
+
+  const trimmed = rawText.trim();
+
+  // 1. Direct standard parse
+  try {
+    const direct = JSON.parse(trimmed);
+    if (direct && (direct.fileChanges || direct.plan || direct.explanation)) {
+      return direct;
+    }
+  } catch {}
+
+  // 2. Strip leading/trailing markdown code fences (```json ... ``` or ``` ...)
+  const cleaned = trimmed.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+
+  try {
+    const parsed = JSON.parse(cleaned);
+    if (parsed && (parsed.fileChanges || parsed.plan || parsed.explanation)) {
+      return parsed;
+    }
+  } catch {}
+
+  // 3. Find outermost braces
+  const firstBrace = cleaned.indexOf("{");
+  const lastBrace = cleaned.lastIndexOf("}");
+  if (firstBrace !== -1 && lastBrace > firstBrace) {
+    const candidateJson = cleaned.substring(firstBrace, lastBrace + 1);
+    try {
+      const parsed = JSON.parse(candidateJson);
+      if (parsed && (parsed.fileChanges || parsed.plan || parsed.explanation)) {
+        return parsed;
+      }
+    } catch {}
+
+    // 4. Try repairing literal unescaped newlines/tabs inside JSON strings
+    try {
+      let inString = false;
+      let escaped = false;
+      let repaired = "";
+      for (let i = 0; i < candidateJson.length; i++) {
+        const char = candidateJson[i];
+        if (char === '"' && !escaped) {
+          inString = !inString;
+          repaired += char;
+        } else if (inString && (char === '\n' || char === '\r')) {
+          repaired += char === '\n' ? '\\n' : '\\r';
+        } else if (inString && char === '\t') {
+          repaired += '\\t';
+        } else {
+          repaired += char;
+        }
+        escaped = !escaped && char === '\\';
+      }
+      const parsed = JSON.parse(repaired);
+      if (parsed && (parsed.fileChanges || parsed.plan || parsed.explanation)) {
+        return parsed;
+      }
+    } catch {}
+  }
+
+  // 5. Try fixing truncated JSON (auto-close quotes, brackets, braces)
+  if (firstBrace !== -1) {
+    let candidate = cleaned.substring(firstBrace);
+    let inString = false;
+    let escaped = false;
+    let openBraces = 0;
+    let openBrackets = 0;
+    for (let i = 0; i < candidate.length; i++) {
+      const ch = candidate[i];
+      if (ch === '"' && !escaped) {
+        inString = !inString;
+      } else if (!inString) {
+        if (ch === '{') openBraces++;
+        else if (ch === '}') openBraces--;
+        else if (ch === '[') openBrackets++;
+        else if (ch === ']') openBrackets--;
+      }
+      escaped = !escaped && ch === '\\';
+    }
+
+    if (inString) candidate += '"';
+    while (openBrackets > 0) {
+      candidate += ']';
+      openBrackets--;
+    }
+    while (openBraces > 0) {
+      candidate += '}';
+      openBraces--;
+    }
+
+    try {
+      const parsed = JSON.parse(candidate);
+      if (parsed && (parsed.fileChanges || parsed.plan || parsed.explanation)) {
+        return parsed;
+      }
+    } catch {}
+  }
+
+  // 6. Regex fallback for markdown code blocks (```tsx ... ```, ```jsx ... ```, ```html ... ```)
+  const codeBlockRegex = /```(?:tsx|jsx|ts|js|html|css)?\s*([\s\S]*?)```/gi;
+  const matches = [...rawText.matchAll(codeBlockRegex)];
+  if (matches.length > 0) {
+    const fileChanges = matches.map((m, idx) => {
+      const codeSnippet = m[1].trim();
+      let detectedPath = activeFilePath || "src/App.tsx";
+      if (codeSnippet.startsWith("<!DOCTYPE") || codeSnippet.includes("<html")) {
+        detectedPath = "index.html";
+      } else if (idx > 0) {
+        detectedPath = `src/components/Component${idx + 1}.tsx`;
+      }
+      return {
+        path: detectedPath,
+        action: "modify",
+        content: codeSnippet,
+        reason: "Extracted code from AI response",
+      };
+    });
+
+    return {
+      success: true,
+      plan: {
+        taskSummary: task,
+        steps: ["Updated project source files"],
+        targetFiles: fileChanges.map((f) => f.path),
+      },
+      fileChanges,
+      explanation: "Successfully applied requested code modifications.",
+      summary: "App code updated.",
+    };
+  }
+
+  // 7. Check if rawText is raw source code (e.g. starts with import or <!DOCTYPE or function)
+  if (
+    trimmed.startsWith("import ") ||
+    trimmed.startsWith("export ") ||
+    trimmed.startsWith("function ") ||
+    trimmed.startsWith("const ") ||
+    trimmed.startsWith("<!DOCTYPE") ||
+    trimmed.startsWith("<html")
+  ) {
+    const targetPath = (trimmed.startsWith("<!DOCTYPE") || trimmed.startsWith("<html"))
+      ? "index.html"
+      : (activeFilePath || "src/App.tsx");
+
+    return {
+      success: true,
+      plan: {
+        taskSummary: task,
+        steps: ["Updated application component"],
+        targetFiles: [targetPath],
+      },
+      fileChanges: [
+        {
+          path: targetPath,
+          action: "modify",
+          content: trimmed,
+          reason: "Direct source update",
+        },
+      ],
+      explanation: "Updated code directly.",
+      summary: "App code updated.",
+    };
+  }
+
+  console.warn(`[CodeAgent] All parsing fallbacks exhausted for model ${modelName}. Raw text sample:`, rawText.slice(0, 300));
+  return null;
 }
 
 export default async function codeAgentHandler(req: any, res: any) {
@@ -58,6 +236,7 @@ export default async function codeAgentHandler(req: any, res: any) {
       selectedCode = "",
       history = [],
       selectedModel = "",
+      attachments = [],
     } = req.body || {};
 
     let candidateModels = [...CANDIDATE_MODELS];
@@ -91,14 +270,28 @@ export default async function codeAgentHandler(req: any, res: any) {
       ? history.slice(-6).map((h: any) => `[${h.role === 'user' ? 'USER REQUEST' : 'AGENT ACTION'}]: ${h.text || h.summary || ''}`).join("\n")
       : "";
 
-    const systemPrompt = `You are a professional software engineer.
+    const attachedMediaDescriptions = Array.isArray(attachments) && attachments.length > 0
+      ? `\n\n[ATTACHED MEDIA ASSETS (${attachments.length} files)]:\n` +
+        attachments.map((a: any, idx: number) => `Asset #${idx + 1}: ${a.name} (${a.type}, ${(a.size ? Math.round(a.size / 1024) : '?')} KB)`).join("\n") +
+        `\nNOTE: You can visually inspect these images/videos. If the user asks to use or display this photo/logo/media in their code, you can use the provided dataUrl or reference it cleanly.`
+      : "";
+
+    const systemPrompt = `You are an expert senior principal software engineer and game architect.
 You are tasked with implementing the user's requested changes to the codebase.
 The user's framework is ${framework}.
 
 CRITICAL REQUIREMENTS:
-1. MULTI-FILE ARCHITECTURE: Structure the application across multiple files. Do not put everything in one file. Use 'src/components/...' for components, 'src/utils/...' for utilities, 'src/types/...' for types, etc.
-2. FULL CODE: In "fileChanges", you MUST provide the FULL, complete source code for every file you create or modify. Do not use placeholders (e.g., "// existing code...").
-3. OUTPUT FORMAT: Respond ONLY with a valid JSON object. No other text.
+1. COMPLETE & WORKING APP/GAME: Always ensure the main application (e.g. 'src/App.tsx' or 'index.html') is 100% complete, fully interactive, bug-free, and renders smoothly without any missing logic. Implement real state, event handlers, animations, sound effects, and responsive Tailwind styling. NEVER leave placeholder comments (e.g., "// TODO", "// existing code...").
+2. HIGH QUALITY GAME ARCHITECTURE (FOR ALL GAMES):
+   - Smooth Frame Loops & Physics: Use requestAnimationFrame or precise timer loops with delta-time smoothing.
+   - Synthesized Web Audio API Sound Effects: Include crisp audio feedback (using browser AudioContext oscillators for jump, laser, pickup, score chime, hit, explosion, game over) with a Mute/Unmute audio button.
+   - Game State Machine: Clean states (Title/Start Menu with instructions, Active Playing, Pause overlay, Game Over / Victory screen with high score persistence using localStorage).
+   - Rich HUD & Visuals: Score, High Score, Level/Wave, Combo Multiplier, Health/Lives bar, and particle animations (explosions, sparks, coin bursts).
+   - Cross-Device Controls: Keyboard (WASD / Arrows / Space) PLUS on-screen touch buttons for mobile devices.
+3. ROBUST MODULARITY: Structure code cleanly. If creating subcomponents in 'src/components/...', export each cleanly ('export default function ComponentName') and import them in 'src/App.tsx'.
+4. RELIABLE LIBRARIES: Use standard React hooks (useState, useEffect, useRef, useMemo), Tailwind CSS classes, Lucide icons ('import { ... } from "lucide-react"'), and Canvas 2D/3D APIs.
+5. MULTIMODAL VISION: When photos, screenshots, UI mockups, or video attachments are provided, examine them carefully and directly reflect them in the code.
+6. OUTPUT FORMAT: Respond ONLY with a valid JSON object. No other text.
 
 JSON FORMAT:
 {
@@ -134,7 +327,7 @@ Repository File Tree:
 ${formattedHistory}
 
 [USER REQUEST]:
-${task}
+${task}${attachedMediaDescriptions}
 
 [ACTIVE FILE]:
 ${activeFilePath}
@@ -148,6 +341,23 @@ ${selectedCode}
 [FILE CONTENTS]:
 ${formattedFiles}`;
 
+    // Build multimodal content parts for Gemini
+    const contentParts: any[] = [];
+    if (Array.isArray(attachments) && attachments.length > 0) {
+      for (const att of attachments) {
+        if (att && att.base64 && att.type) {
+          const rawBase64 = att.base64.replace(/^data:[^;]+;base64,/, "");
+          contentParts.push({
+            inlineData: {
+              mimeType: att.type,
+              data: rawBase64,
+            },
+          });
+        }
+      }
+    }
+    contentParts.push({ text: systemPrompt });
+
     let agentResponse: any = null;
     let lastError: any = null;
 
@@ -155,46 +365,16 @@ ${formattedFiles}`;
       try {
         const response = await ai.models.generateContent({
           model,
-          contents: systemPrompt,
+          contents: contentParts,
           config: {
             temperature: 0.15,
+            responseMimeType: "application/json",
           },
         });
 
         const rawText = response.text || "";
         if (rawText) {
-          // Robust JSON extraction: look for the first '{' and last '}'
-          const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-          const cleaned = jsonMatch ? jsonMatch[0] : rawText.replace(/```json\n?|\n?```/g, "").trim();
-          
-          try {
-            agentResponse = JSON.parse(cleaned);
-          } catch (jsonErr) {
-            console.error(`JSON Parse failed for model ${model}. Raw text:\n${rawText.slice(0, 500)}...`);
-            try {
-              const fixed = cleaned + (cleaned.endsWith("}") ? "" : "}");
-              agentResponse = JSON.parse(fixed);
-            } catch (e2) {
-              const codeMatch = rawText.match(/```(?:tsx|jsx|ts|js|html)?\n([\s\S]*?)```/);
-              if (codeMatch) {
-                agentResponse = {
-                  success: true,
-                  plan: { taskSummary: task, steps: ["Implemented requested changes"], targetFiles: ["src/App.tsx"] },
-                  fileChanges: [
-                    {
-                      path: "src/App.tsx",
-                      action: "modify",
-                      content: codeMatch[1],
-                      reason: "User requested updates",
-                    },
-                  ],
-                  explanation: "Successfully updated your app.",
-                };
-              } else {
-                throw jsonErr;
-              }
-            }
-          }
+          agentResponse = robustParseAgentJson(rawText, task, activeFilePath, model);
           if (agentResponse && (agentResponse.fileChanges || agentResponse.explanation || agentResponse.plan)) {
             break;
           }
@@ -226,7 +406,7 @@ ${formattedFiles}`;
         });
         const groqText = completion.choices[0]?.message?.content || "";
         if (groqText) {
-          agentResponse = JSON.parse(groqText);
+          agentResponse = robustParseAgentJson(groqText, task, activeFilePath, "groq/llama-3.3-70b");
         }
       } catch (groqErr) {
         console.warn("Groq code agent fallback error:", groqErr);

@@ -63,6 +63,15 @@ export interface ConsoleLogEntry {
   line?: number;
 }
 
+export interface CodeAgentAttachment {
+  id: string;
+  name: string;
+  type: string;
+  dataUrl: string;
+  size: number;
+  base64: string;
+}
+
 export interface AgentHistoryMessage {
   id: string;
   role: 'user' | 'agent';
@@ -74,4 +83,5 @@ export interface AgentHistoryMessage {
   explanation?: string;
   timestamp: string;
   isError?: boolean;
+  attachments?: CodeAgentAttachment[];
 }
