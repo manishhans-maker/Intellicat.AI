@@ -19,6 +19,7 @@ import { ImageGenStudio } from './components/ImageGenStudio';
 import { SettingsModal } from './components/SettingsModal';
 import { OwnerApprovalModal } from './components/OwnerApprovalModal';
 import { CodeModeWorkspace2 } from './components/CodeWorkspace/CodeModeWorkspace2';
+import { CatVoiceAssistantModal } from './components/CatVoiceAssistantModal';
 import { ProjectSpace, StudyGrade, AiMode, AiProvider, UserPlanTier } from './types';
 import { useAuth } from './context/AuthContext';
 import { AnimatePresence, motion } from 'motion/react';
@@ -62,6 +63,7 @@ export default function App() {
   const [infoTab, setInfoTab] = useState('features');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [ownerApprovalOpen, setOwnerApprovalOpen] = useState(false);
+  const [voiceAssistantOpen, setVoiceAssistantOpen] = useState(false);
 
   // Studio, Study, and Spaces State
   const [studyGrade, setStudyGrade] = useState<StudyGrade>('class-7');
@@ -263,6 +265,7 @@ export default function App() {
           onOpenPremium={handleOpenPremium}
           onOpenBuyVip={handleOpenBuyVip}
           onOpenSettings={() => setSettingsOpen(true)}
+          onOpenVoiceAssistant={() => setVoiceAssistantOpen(true)}
           onOpenOwnerApproval={() => {
             if (isOwner) {
               setOwnerApprovalOpen(true);
@@ -554,6 +557,17 @@ export default function App() {
         onOpenCodeWorkspace={() => {
           setAiChatOpen(false);
           setCurrentView('code2');
+        }}
+        onOpenVoiceAssistant={() => setVoiceAssistantOpen(true)}
+      />
+
+      {/* Interactive Sassy Cat Voice Assistant Modal */}
+      <CatVoiceAssistantModal
+        isOpen={voiceAssistantOpen}
+        onClose={() => setVoiceAssistantOpen(false)}
+        onOpenChatMode={(mode) => {
+          setVoiceAssistantOpen(false);
+          handleOpenChat(mode);
         }}
       />
 

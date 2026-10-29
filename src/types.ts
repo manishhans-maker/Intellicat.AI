@@ -8,8 +8,8 @@ export interface StatItem {
   label: string;
 }
 
-export type ChatMode = 'normal' | 'cat-code' | 'fast' | 'deep-think' | 'search' | 'creative' | 'coding' | 'study';
-export type AiMode = 'fast' | 'deep-think' | 'search' | 'creative' | 'coding' | 'study' | 'normal' | 'cat-code';
+export type ChatMode = 'normal' | 'cat-code' | 'sassy-cat' | 'fast' | 'deep-think' | 'search' | 'creative' | 'coding' | 'study';
+export type AiMode = 'fast' | 'deep-think' | 'search' | 'creative' | 'coding' | 'study' | 'normal' | 'cat-code' | 'sassy-cat';
 export type AiProvider = 'groq' | 'gemini';
 
 export type UserPlanTier = 'free' | 'pro' | 'elite' | 'founder' | 'owner';
