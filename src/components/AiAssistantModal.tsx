@@ -98,6 +98,7 @@ interface AiAssistantModalProps {
   activeSpace?: ProjectSpace | null;
   onSelectSpace?: (space: ProjectSpace | null) => void;
   onOpenCodeWorkspace?: () => void;
+  onOpenVoiceAssistant?: () => void;
 }
 
 export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
@@ -111,6 +112,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
   activeSpace,
   onSelectSpace,
   onOpenCodeWorkspace,
+  onOpenVoiceAssistant,
 }) => {
   const {
     user,
@@ -523,6 +525,16 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
           timestamp: 'Just now',
           createdAt: new Date().toISOString(),
           mode: 'study',
+          provider: 'gemini',
+        };
+      case 'sassy-cat':
+        return {
+          id: `welcome-${Date.now()}`,
+          role: 'assistant',
+          content: `Meow~ 🐱✨ Welcome to **Sassy Cat Mode**! *stretches claws and gives a dramatic feline gaze*\n\nAsk me anything, human! I'll give you real, smart answers — but expect plenty of meows, feline sass, purrs, and playful attitude. Meow meow! 🐾`,
+          timestamp: 'Just now',
+          createdAt: new Date().toISOString(),
+          mode: 'sassy-cat',
           provider: 'gemini',
         };
       case 'cat-code':
@@ -1867,6 +1879,30 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                   <img src="/assets/intellicat-logo.png" alt="Code 2.0 Logo" className="w-4 h-4 rounded-md object-cover inline-block" />
                   <span>Code 2.0 ⚡</span>
                 </button>
+                <button
+                  onClick={() => handleSwitchMode('sassy-cat')}
+                  type="button"
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap min-h-[32px] ${
+                    mode === 'sassy-cat'
+                      ? 'bg-gradient-to-r from-pink-500 to-rose-600 text-white shadow-md shadow-pink-500/30 border border-pink-300'
+                      : 'text-pink-300 hover:text-white bg-pink-500/10 hover:bg-pink-500/20 border border-pink-500/30'
+                  }`}
+                  title="Sassy Cat Persona Mode - Meows & Playful Attitude"
+                >
+                  <Cat className="w-3 h-3 text-pink-300" />
+                  <span>Sassy Cat 🐱</span>
+                </button>
+                {onOpenVoiceAssistant && (
+                  <button
+                    onClick={onOpenVoiceAssistant}
+                    type="button"
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap min-h-[32px] bg-gradient-to-r from-amber-500 to-yellow-400 text-black shadow-md shadow-amber-500/30 border border-yellow-200 hover:scale-105 active:scale-95"
+                    title="Launch Interactive Sassy Cat Voice Assistant Modal"
+                  >
+                    <Mic className="w-3 h-3 text-black" />
+                    <span>Cat Voice 🎙️</span>
+                  </button>
+                )}
                 <button
                   onClick={() => handleSwitchMode('study')}
                   type="button"

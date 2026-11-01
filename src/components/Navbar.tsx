@@ -38,6 +38,7 @@ interface NavbarProps {
   onOpenBuyVip?: () => void;
   onOpenSettings?: () => void;
   onOpenOwnerApproval?: () => void;
+  onOpenVoiceAssistant?: () => void;
   isVipMember?: boolean;
   isFounder?: boolean;
 }
@@ -52,6 +53,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenBuyVip,
   onOpenSettings,
   onOpenOwnerApproval,
+  onOpenVoiceAssistant,
   isVipMember = false,
   isFounder = false,
 }) => {
@@ -245,6 +247,29 @@ export const Navbar: React.FC<NavbarProps> = ({
           <MessageSquare className="w-3.5 h-3.5 text-sky-400" />
           <span>Chat</span>
         </button>
+
+        <button
+          onClick={() => (onOpenChat ? onOpenChat('sassy-cat') : onGetStarted?.())}
+          className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs sm:text-sm font-bold rounded-lg transition-all duration-200 text-pink-300 hover:text-white hover:bg-pink-500/20 cursor-pointer"
+          title="Sassy Cat Chat Mode (Meows & Sassy Persona)"
+        >
+          <Cat className="w-3.5 h-3.5 text-pink-400" />
+          <span>Sassy Cat 🐱</span>
+        </button>
+
+        {onOpenVoiceAssistant && (
+          <button
+            onClick={onOpenVoiceAssistant}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs sm:text-sm font-bold rounded-lg transition-all duration-200 bg-amber-400/20 hover:bg-amber-400/30 text-amber-300 border border-amber-400/40 cursor-pointer shadow-sm hover:scale-105 active:scale-95"
+            title="Launch Interactive Sassy Cat Voice Assistant Modal"
+          >
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-400"></span>
+            </span>
+            <span>Cat Voice 🎙️</span>
+          </button>
+        )}
 
         <button
           onClick={() => (onOpenChat ? onOpenChat('cat-code') : onGetStarted?.())}
