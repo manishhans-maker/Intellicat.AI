@@ -158,10 +158,13 @@ export async function classifyQueryComplexity(
 User Prompt: "${trimmed.slice(0, 300)}"
 Reply with only the chosen single word.`;
 
-      const res = await aiClient.models.generateContent({
-        model: "gemini-3.5-flash-lite",
-        contents: classificationPrompt,
-      });
+      const res = await Promise.race([
+        aiClient.models.generateContent({
+          model: "gemini-3.5-flash-lite",
+          contents: classificationPrompt,
+        }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("Classification timeout")), 3500)),
+      ]) as any;
 
       const reply = (res.text || "").toUpperCase().trim();
       if (reply.includes("INTENSIVE")) {
@@ -345,13 +348,16 @@ Reply in strict JSON with no markdown wrapping:
 {"passed": true|false, "issue": "brief description if failed, or none"}
 `;
 
-    const res = await aiClient.models.generateContent({
-      model: "gemini-3.5-flash-lite",
-      contents: verificationPrompt,
-      config: {
-        responseMimeType: "application/json",
-      },
-    });
+    const res = await Promise.race([
+      aiClient.models.generateContent({
+        model: "gemini-3.5-flash-lite",
+        contents: verificationPrompt,
+        config: {
+          responseMimeType: "application/json",
+        },
+      }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("Semantic verification timeout")), 7000)),
+    ]) as any;
 
     const parsed = JSON.parse(res.text?.trim() || '{"passed": true, "issue": "none"}');
     const semanticChecks = [...deterministic.checks];
@@ -406,7 +412,7 @@ export async function runCorrectionStep(
   draft: string,
   issues: string[],
   systemInstruction: string,
-  modelName: string = "gemini-3.6-flash"
+  modelName: string = "gemini-3.8-flash"
 ): Promise<{ correctedText: string; verified: boolean; checks: VerificationCheckResult[] }> {
   const correctionPrompt = `[CORRECTION DIRECTIVE]
 The draft response to the user's prompt had the following issues identified by the verification engine:
@@ -421,18 +427,21 @@ Draft Response to Fix:
 ${draft}`;
 
   try {
-    const res = await aiClient.models.generateContent({
-      model: modelName,
-      contents: [
-        {
-          role: "user",
-          parts: [{ text: correctionPrompt }],
+    const res = await Promise.race([
+      aiClient.models.generateContent({
+        model: modelName,
+        contents: [
+          {
+            role: "user",
+            parts: [{ text: correctionPrompt }],
+          },
+        ],
+        config: {
+          systemInstruction,
         },
-      ],
-      config: {
-        systemInstruction,
-      },
-    });
+      }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("Correction timeout")), 18000)),
+    ]) as any;
 
     const corrected = (res.text || "").trim();
     if (!corrected) {

@@ -1061,7 +1061,7 @@ export default async function handler(req: any, res: any) {
               }
 
               // If parameter error (thinkingConfig unsupported by candidate), try once without thinkingConfig
-              if (thinkModelConfig.thinkingConfig && (draftErr?.status === 400 || draftErr?.message?.includes("thinkingConfig"))) {
+              if (!isTimeout && thinkModelConfig.thinkingConfig && (draftErr?.status === 400 || draftErr?.message?.includes("thinkingConfig"))) {
                 console.warn("Model does not support thinkingConfig, retrying without thinkingConfig...");
                 delete thinkModelConfig.thinkingConfig;
                 try {
