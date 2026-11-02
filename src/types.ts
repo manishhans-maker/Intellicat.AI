@@ -187,6 +187,24 @@ export interface StudyFlashcard {
 
 export type AppActiveTab = 'chat' | 'search' | 'files' | 'study' | 'spaces' | 'images' | 'settings';
 
+export type ThinkDepthLevel = 'FAST' | 'STANDARD' | 'DEEP' | 'INTENSIVE';
+
+export interface VerificationCheckResult {
+  name: string;
+  passed: boolean;
+  details: string;
+}
+
+export interface ThinkVerificationSummary {
+  status: 'verified' | 'fast_pass' | 'corrected' | 'unverified';
+  depth: ThinkDepthLevel;
+  classifiedComplexity: string;
+  checks: VerificationCheckResult[];
+  correctionApplied: boolean;
+  durationMs: number;
+  timestamp: string;
+}
+
 export interface UserSettings {
   defaultMode: AiMode;
   defaultProvider: AiProvider | 'auto';
@@ -198,6 +216,9 @@ export interface UserSettings {
   selectedVoiceURI?: string;
   memoryEnabled: boolean;
   themeMode: 'vivid' | 'cinema' | 'balanced';
+  thinkEnabled?: boolean;
+  thinkIntensity?: 'auto' | 'standard' | 'deep' | 'intensive';
+  verificationEnabled?: boolean;
 }
 
 export interface ChatAttachment {
@@ -231,6 +252,9 @@ export interface ChatMessage {
   errorMessage?: string;
   studyGrade?: StudyGrade;
   spaceId?: string;
+  verificationSummary?: ThinkVerificationSummary;
+  statusStep?: 'thinking' | 'verifying' | 'correcting' | 'ready';
+  stepLabel?: string;
 }
 
 export interface Conversation {

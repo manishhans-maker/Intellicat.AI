@@ -528,7 +528,7 @@ export default function App() {
                 }}
               />
             </motion.div>
-          ) : currentView === 'code2' ? (
+          ) : currentView === 'code2' || currentView === 'code' ? (
             <motion.div
               key="code2-workspace-view"
               initial={{ opacity: 0, y: 10 }}

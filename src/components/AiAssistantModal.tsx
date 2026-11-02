@@ -61,8 +61,96 @@ import {
   AVAILABLE_AI_MODELS,
   AiModelOption,
   ProjectSpace,
+  ThinkVerificationSummary,
 } from '../types';
 export type { ChatMode, AiProvider };
+
+const VerificationCard: React.FC<{ summary: ThinkVerificationSummary }> = ({ summary }) => {
+  const [expanded, setExpanded] = useState(false);
+
+  const badgeColor =
+    summary.status === 'verified'
+      ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
+      : summary.status === 'fast_pass'
+      ? 'bg-cyan-500/15 border-cyan-500/40 text-cyan-300'
+      : summary.status === 'corrected'
+      ? 'bg-violet-500/15 border-violet-500/40 text-violet-300'
+      : 'bg-amber-500/15 border-amber-500/40 text-amber-300';
+
+  const badgeIcon =
+    summary.status === 'verified'
+      ? '✓'
+      : summary.status === 'fast_pass'
+      ? '⚡'
+      : summary.status === 'corrected'
+      ? '🛠️'
+      : '⚠️';
+
+  const badgeLabel =
+    summary.status === 'verified'
+      ? 'Verified Answer'
+      : summary.status === 'fast_pass'
+      ? 'Fast Track Pass'
+      : summary.status === 'corrected'
+      ? 'Repaired & Verified'
+      : 'Review Advised';
+
+  return (
+    <div className="mt-3 pt-2 border-t border-white/10 text-xs">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <button
+          type="button"
+          onClick={() => setExpanded(!expanded)}
+          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-medium transition-all cursor-pointer ${badgeColor} hover:brightness-110 shadow-sm`}
+        >
+          <span>{badgeIcon}</span>
+          <span className="font-semibold">{badgeLabel}</span>
+          <span className="opacity-70 text-[10px]">({summary.depth} Reasoning)</span>
+          <ChevronDown className={`w-3 h-3 transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`} />
+        </button>
+
+        <span className="text-[10px] text-neutral-400 font-mono">
+          {(summary.durationMs / 1000).toFixed(1)}s verification
+        </span>
+      </div>
+
+      {expanded && (
+        <div className="mt-2.5 p-3 rounded-xl bg-black/50 border border-white/15 space-y-2.5 animate-in fade-in duration-150">
+          <div className="flex items-center justify-between text-[11px] text-neutral-300 pb-2 border-b border-white/10 flex-wrap gap-1">
+            <span><strong className="text-white">Classification:</strong> {summary.classifiedComplexity}</span>
+            <span className="px-1.5 py-0.5 rounded bg-white/10 font-mono text-[10px] text-purple-300">
+              Depth: {summary.depth}
+            </span>
+          </div>
+
+          <div className="space-y-1.5">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">
+              How this answer was checked:
+            </div>
+            {summary.checks.map((check, idx) => (
+              <div key={idx} className="flex items-start gap-2 text-[11px]">
+                <span className={check.passed ? 'text-emerald-400 font-bold shrink-0' : 'text-amber-400 font-bold shrink-0'}>
+                  {check.passed ? '✓' : '⚠️'}
+                </span>
+                <div className="flex-1">
+                  <span className="font-semibold text-white">{check.name}: </span>
+                  <span className="text-neutral-300">{check.details}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {summary.correctionApplied && (
+            <div className="pt-2 border-t border-white/10 text-[11px] text-violet-300 flex items-center gap-1.5 font-medium">
+              <span>🛠️</span>
+              <span>Controlled single-step repair was applied to resolve identified issues.</span>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
 import { MarkdownRenderer } from './MarkdownRenderer';
 import { ArtifactRunner, isPreviewableArtifact } from './ArtifactRunner';
 import { ConversationSidebar } from './ConversationSidebar';
@@ -181,6 +269,30 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
     requiredTierName: string;
     requiredPrice: string;
   } | null>(null);
+
+  // Think Engine 1.0 State
+  const [thinkEnabled, setThinkEnabled] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('intelicat_think_enabled') !== 'false';
+    } catch {
+      return true;
+    }
+  });
+  const [thinkIntensity, setThinkIntensity] = useState<'auto' | 'standard' | 'deep'>(() => {
+    try {
+      return (localStorage.getItem('intelicat_think_intensity') as any) || 'auto';
+    } catch {
+      return 'auto';
+    }
+  });
+  const [verificationEnabled, setVerificationEnabled] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('intelicat_verification_enabled') !== 'false';
+    } catch {
+      return true;
+    }
+  });
+  const [showThinkPopover, setShowThinkPopover] = useState(false);
 
   const [selectedModel, setSelectedModel] = useState<string>(() => {
     try {
@@ -1231,6 +1343,9 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
         customGroqKey: customGroqKey || undefined,
         userMemoryContext: memoryContext || undefined,
         spaceContext: spaceContext || undefined,
+        thinkEnabled: mode === 'fast' ? false : thinkEnabled,
+        thinkIntensity: mode === 'deep-think' ? 'deep' : thinkIntensity,
+        verificationEnabled,
       };
 
       const token = user?.getIdToken ? await user.getIdToken().catch(() => '') : '';
@@ -1322,6 +1437,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
       let buffer = '';
       let streamError: string | null = null;
       let streamProvider: AiProvider = provider;
+      let finalVerificationSummary: ThinkVerificationSummary | undefined;
       const gatheredCitations: CitationSource[] = [];
 
       while (true) {
@@ -1354,6 +1470,34 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
             streamProvider = parsed.provider;
           }
 
+          if (parsed.statusStep) {
+            setMessages((prev) =>
+              prev.map((msg) =>
+                msg.id === assistantMsgId
+                  ? {
+                      ...msg,
+                      statusStep: parsed.statusStep,
+                      stepLabel: parsed.stepLabel,
+                    }
+                  : msg
+              )
+            );
+          }
+
+          if (parsed.verificationSummary) {
+            finalVerificationSummary = parsed.verificationSummary;
+            setMessages((prev) =>
+              prev.map((msg) =>
+                msg.id === assistantMsgId
+                  ? {
+                      ...msg,
+                      verificationSummary: parsed.verificationSummary,
+                    }
+                  : msg
+              )
+            );
+          }
+
           if (parsed.citations && Array.isArray(parsed.citations)) {
             parsed.citations.forEach((cit: CitationSource) => {
               if (!gatheredCitations.some((existing) => existing.uri === cit.uri)) {
@@ -1381,6 +1525,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                       provider: streamProvider,
                       model: parsed.model || selectedModel,
                       citations: gatheredCitations.length > 0 ? [...gatheredCitations] : undefined,
+                      verificationSummary: finalVerificationSummary || msg.verificationSummary,
                     }
                   : msg
               )
@@ -1402,6 +1547,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
           content: accumulatedContent,
           provider: streamProvider,
           citations: gatheredCitations.length > 0 ? gatheredCitations : undefined,
+          verificationSummary: finalVerificationSummary,
         };
         await saveMessage(activeUid, activeConvId, finalizedMsg);
       }
@@ -1574,6 +1720,111 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                           )}
                           <ChevronDown className="w-2.5 h-2.5 text-neutral-400 group-hover:text-white transition-colors" />
                         </button>
+                        <span>•</span>
+                        {/* Think Engine 1.0 Quick Indicator & Popover */}
+                        <div className="relative">
+                          <button
+                            onClick={() => setShowThinkPopover((prev) => !prev)}
+                            type="button"
+                            className={`flex items-center gap-1 px-1.5 py-0.5 rounded-lg border text-[10px] font-semibold transition-all cursor-pointer shadow-sm active:scale-95 ${
+                              thinkEnabled
+                                ? 'bg-purple-500/20 border-purple-500/40 text-purple-200'
+                                : 'bg-white/10 hover:bg-white/20 border-white/15 text-neutral-400'
+                            }`}
+                            title="Think Engine 1.0: Real 'Think Before Answering' system"
+                          >
+                            <Brain className={`w-3 h-3 ${thinkEnabled ? 'text-purple-300' : 'text-neutral-500'}`} />
+                            <span className="hidden xs:inline font-semibold">Think:</span>
+                            <span>{thinkEnabled ? thinkIntensity.toUpperCase() : 'OFF'}</span>
+                            <ChevronDown className="w-2.5 h-2.5 opacity-70" />
+                          </button>
+
+                          {showThinkPopover && (
+                            <div className="absolute top-full left-0 mt-1.5 w-64 bg-neutral-900 border border-white/20 rounded-xl shadow-2xl p-3 z-50 backdrop-blur-xl space-y-2.5">
+                              <div className="flex items-center justify-between pb-1.5 border-b border-white/10">
+                                <div className="flex items-center gap-1.5 font-bold text-xs text-white">
+                                  <Brain className="w-3.5 h-3.5 text-purple-400" />
+                                  <span>Think Engine 1.0</span>
+                                </div>
+                                <span className="text-[9px] px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-300 font-mono font-bold">
+                                  Active
+                                </span>
+                              </div>
+
+                              <div className="flex items-center justify-between text-xs">
+                                <span className="text-neutral-300 font-medium">Think Before Answering</span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const next = !thinkEnabled;
+                                    setThinkEnabled(next);
+                                    localStorage.setItem('intelicat_think_enabled', String(next));
+                                  }}
+                                  className={`w-9 h-5 rounded-full transition-colors relative cursor-pointer ${
+                                    thinkEnabled ? 'bg-purple-600' : 'bg-neutral-700'
+                                  }`}
+                                >
+                                  <div
+                                    className={`w-3.5 h-3.5 rounded-full bg-white transition-transform absolute top-0.5 ${
+                                      thinkEnabled ? 'left-4.5' : 'left-1'
+                                    }`}
+                                  />
+                                </button>
+                              </div>
+
+                              {thinkEnabled && (
+                                <div className="space-y-1">
+                                  <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400 block">
+                                    Reasoning Depth
+                                  </span>
+                                  <div className="grid grid-cols-3 gap-1 text-[10px]">
+                                    {(['auto', 'standard', 'deep'] as const).map((lvl) => (
+                                      <button
+                                        key={lvl}
+                                        type="button"
+                                        onClick={() => {
+                                          setThinkIntensity(lvl);
+                                          localStorage.setItem('intelicat_think_intensity', lvl);
+                                        }}
+                                        className={`py-1 px-1 rounded-lg border text-center font-medium capitalize cursor-pointer transition-all ${
+                                          thinkIntensity === lvl
+                                            ? 'bg-purple-600 border-purple-500 text-white font-bold'
+                                            : 'bg-white/5 border-white/10 text-neutral-300 hover:text-white'
+                                        }`}
+                                      >
+                                        {lvl}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+
+                              <div className="flex items-center justify-between text-xs pt-1 border-t border-white/10">
+                                <div>
+                                  <span className="text-neutral-300 font-medium block">Verification Engine</span>
+                                  <span className="text-[9px] text-neutral-500">Safety & leak shield stays active</span>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const next = !verificationEnabled;
+                                    setVerificationEnabled(next);
+                                    localStorage.setItem('intelicat_verification_enabled', String(next));
+                                  }}
+                                  className={`w-9 h-5 rounded-full transition-colors relative cursor-pointer ${
+                                    verificationEnabled ? 'bg-emerald-600' : 'bg-neutral-700'
+                                  }`}
+                                >
+                                  <div
+                                    className={`w-3.5 h-3.5 rounded-full bg-white transition-transform absolute top-0.5 ${
+                                      verificationEnabled ? 'left-4.5' : 'left-1'
+                                    }`}
+                                  />
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
                         <span>•</span>
                         {/* Space Selector Button & Popover */}
                         <div className="relative">
@@ -2799,12 +3050,62 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                             </button>
                           </div>
                         ) : (
-                          <div className="flex items-center gap-2 text-neutral-400 py-1">
-                            <span className="w-2 h-2 rounded-full bg-[#EF233C] animate-ping" />
-                            <span className="text-xs font-mono">
-                              Intelicat is synthesizing response...
-                            </span>
+                          <div className="flex flex-col gap-2 py-1">
+                            {msg.statusStep ? (
+                              <div className="flex items-center gap-2.5 text-xs">
+                                {msg.statusStep === 'thinking' && (
+                                  <>
+                                    <div className="w-5 h-5 rounded-lg bg-purple-500/20 text-purple-300 border border-purple-500/40 flex items-center justify-center shrink-0">
+                                      <Brain className="w-3.5 h-3.5 animate-pulse" />
+                                    </div>
+                                    <span className="text-purple-300 font-mono text-xs">
+                                      {msg.stepLabel || 'Analyzing problem & formulating reasoning...'}
+                                    </span>
+                                  </>
+                                )}
+                                {msg.statusStep === 'verifying' && (
+                                  <>
+                                    <div className="w-5 h-5 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/40 flex items-center justify-center shrink-0">
+                                      <CheckCircle2 className="w-3.5 h-3.5 animate-spin" />
+                                    </div>
+                                    <span className="text-amber-300 font-mono text-xs">
+                                      {msg.stepLabel || 'Verifying factual completeness, code syntax & safety...'}
+                                    </span>
+                                  </>
+                                )}
+                                {msg.statusStep === 'correcting' && (
+                                  <>
+                                    <div className="w-5 h-5 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 flex items-center justify-center shrink-0">
+                                      <Sparkles className="w-3.5 h-3.5 animate-pulse" />
+                                    </div>
+                                    <span className="text-emerald-300 font-mono text-xs">
+                                      {msg.stepLabel || 'Refining response based on verification issues...'}
+                                    </span>
+                                  </>
+                                )}
+                                {msg.statusStep === 'ready' && (
+                                  <>
+                                    <div className="w-5 h-5 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 flex items-center justify-center shrink-0">
+                                      <Check className="w-3.5 h-3.5" />
+                                    </div>
+                                    <span className="text-emerald-300 font-mono text-xs">Finalizing verified answer...</span>
+                                  </>
+                                )}
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-2 text-neutral-400 py-1">
+                                <span className="w-2 h-2 rounded-full bg-[#EF233C] animate-ping" />
+                                <span className="text-xs font-mono">
+                                  Intelicat is synthesizing response...
+                                </span>
+                              </div>
+                            )}
                           </div>
+                        )}
+
+                        {/* Collapsible How This Answer Was Checked Card */}
+                        {!isUser && msg.verificationSummary && (
+                          <VerificationCard summary={msg.verificationSummary} />
                         )}
 
                         {/* Search Grounding Citations */}

@@ -356,8 +356,16 @@ export const CatVoiceAssistantModal: React.FC<CatVoiceAssistantModalProps> = ({
         } catch {}
       }
       setIsListening(false);
+    } else {
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') {
+          onClose();
+        }
+      };
+      window.addEventListener('keydown', handleKeyDown);
+      return () => window.removeEventListener('keydown', handleKeyDown);
     }
-  }, [isOpen]);
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
@@ -384,19 +392,9 @@ export const CatVoiceAssistantModal: React.FC<CatVoiceAssistantModalProps> = ({
           transition={{ duration: 0.2 }}
           className="relative w-full max-w-2xl max-h-[92vh] overflow-y-auto scrollbar-thin bg-[#0e0e16] border border-amber-500/40 rounded-3xl p-4 sm:p-7 shadow-[0_0_50px_rgba(245,158,11,0.25)] text-white flex flex-col gap-4 sm:gap-6"
         >
-          {/* Prominent Always-Visible Floating Close Cross Button */}
-          <button
-            onClick={onClose}
-            className="absolute top-3 right-3 sm:top-4 sm:right-4 z-40 p-2.5 rounded-full bg-red-600 hover:bg-red-500 text-white border-2 border-white/80 shadow-[0_0_15px_rgba(239,35,60,0.8)] transition-all cursor-pointer active:scale-90 flex items-center justify-center"
-            title="Close Cat Assistant (X)"
-            aria-label="Close Cat Assistant"
-          >
-            <X className="w-5 h-5 stroke-[3]" />
-          </button>
-
-          {/* Sticky Header Bar */}
-          <div className="sticky top-0 z-30 bg-[#0e0e16]/95 backdrop-blur-md pb-3 border-b border-white/10 flex items-center justify-between pr-10">
-            <div className="flex items-center gap-2.5 sm:gap-3">
+          {/* Sticky Header Bar with Integrated Always-Visible Close Button */}
+          <div className="sticky top-0 z-40 -mt-2 -mx-2 px-3 pt-2 pb-3 bg-[#0e0e16]/98 backdrop-blur-md border-b border-white/10 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
               <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-gradient-to-tr from-[#EF233C] via-amber-500 to-yellow-300 p-0.5 shadow-lg shadow-amber-500/30 animate-pulse shrink-0">
                 <img
                   src={INTELLICAT_LOGO_URL}
@@ -404,18 +402,29 @@ export const CatVoiceAssistantModal: React.FC<CatVoiceAssistantModalProps> = ({
                   className="w-full h-full object-cover rounded-[14px]"
                 />
               </div>
-              <div>
+              <div className="min-w-0">
                 <h2 className="text-sm sm:text-base font-black tracking-tight text-white flex items-center gap-1.5 flex-wrap">
-                  <span>Sassy Cat Voice Assistant</span>
-                  <span className="px-2 py-0.5 rounded-full bg-amber-400/20 text-amber-300 text-[10px] font-mono border border-amber-400/40 uppercase font-extrabold">
+                  <span className="truncate">Sassy Cat Voice</span>
+                  <span className="px-2 py-0.5 rounded-full bg-amber-400/20 text-amber-300 text-[10px] font-mono border border-amber-400/40 uppercase font-extrabold shrink-0">
                     Voice 🎙️
                   </span>
                 </h2>
-                <p className="text-[11px] sm:text-xs text-neutral-400">
-                  Zero-latency speech recognition with sassy cat audio purrs & answers
+                <p className="text-[11px] sm:text-xs text-neutral-400 truncate">
+                  Speech recognition with sassy cat purrs & answers
                 </p>
               </div>
             </div>
+
+            {/* Prominent High-Contrast Close Button */}
+            <button
+              onClick={onClose}
+              className="p-2 sm:p-2.5 rounded-2xl bg-red-600 hover:bg-red-500 text-white border border-red-400/50 shadow-[0_0_15px_rgba(239,35,60,0.6)] transition-all cursor-pointer active:scale-90 flex items-center gap-1.5 shrink-0"
+              title="Close Cat Assistant (Esc)"
+              aria-label="Close Cat Assistant"
+            >
+              <X className="w-5 h-5 stroke-[2.5]" />
+              <span className="hidden sm:inline text-xs font-bold pr-1">Close</span>
+            </button>
           </div>
 
           {/* Sassy Animated Cat Avatar Frame */}

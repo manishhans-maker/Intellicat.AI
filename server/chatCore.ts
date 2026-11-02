@@ -91,6 +91,9 @@ export interface ValidatedChatRequest {
   webSearch: boolean;
   userId?: string;
   isVipOrFounder: boolean;
+  thinkEnabled?: boolean;
+  thinkIntensity?: 'auto' | 'standard' | 'deep' | 'intensive';
+  verificationEnabled?: boolean;
 }
 
 export function validateChatPayload(body: any): { isValid: boolean; error?: string; data?: ValidatedChatRequest } {
@@ -176,6 +179,9 @@ export function validateChatPayload(body: any): { isValid: boolean; error?: stri
       webSearch: Boolean(webSearch),
       userId: typeof userId === 'string' ? userId.slice(0, 128) : undefined,
       isVipOrFounder: Boolean(isVipOrFounder),
+      thinkEnabled: typeof body.thinkEnabled === 'boolean' ? body.thinkEnabled : undefined,
+      thinkIntensity: body.thinkIntensity,
+      verificationEnabled: typeof body.verificationEnabled === 'boolean' ? body.verificationEnabled : undefined,
     },
   };
 }

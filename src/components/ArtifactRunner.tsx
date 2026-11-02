@@ -216,17 +216,21 @@ export function generateArtifactHtml(code: string, language?: string): string {
     trimmed.includes('const App =')
   ) {
     let cleanedCode = trimmed;
-    cleanedCode = cleanedCode.replace(/import\s+React\s*,?\s*(\{[^}]*\})?\s*from\s*['"]react['"];?/g, '');
-    cleanedCode = cleanedCode.replace(/import\s+(\{[^}]*\})\s*from\s*['"]react['"];?/g, '');
-    cleanedCode = cleanedCode.replace(/import\s+(\{[^}]*\})\s*from\s*['"]lucide-react['"];?/g, '');
-    cleanedCode = cleanedCode.replace(/import\s+[^;]+from\s*['"][^'"]+['"];?/g, '');
-    cleanedCode = cleanedCode.replace(/export\s+default\s+function\s+([A-Za-z0-9_]+)/g, 'function $1');
-    cleanedCode = cleanedCode.replace(/export\s+default\s+([A-Za-z0-9_]+);?/g, '');
+    cleanedCode = cleanedCode.replace(/\bimport\s+[\s\S]*?from\s*['"][^'"]+['"];?/g, '');
+    cleanedCode = cleanedCode.replace(/\bimport\s*['"][^'"]+['"];?/g, '');
+    cleanedCode = cleanedCode.replace(/\bexport\s+default\s+(?:async\s+)?function(?:\s+([A-Za-z0-9_$]+))?/g, 'function $1');
+    cleanedCode = cleanedCode.replace(/\bexport\s+default\s+class(?:\s+([A-Za-z0-9_$]+))?/g, 'class $1');
+    cleanedCode = cleanedCode.replace(/\bexport\s+default\s+/g, 'var App = ');
+    cleanedCode = cleanedCode.replace(/\bexport\s+(?:const|let|var)\s+/g, 'var ');
+    cleanedCode = cleanedCode.replace(/\bexport\s+(?:async\s+)?function\s+/g, 'function ');
 
     const matchComp =
       cleanedCode.match(/function\s+([A-Z][A-Za-z0-9_]*)/) ||
-      cleanedCode.match(/const\s+([A-Z][A-Za-z0-9_]*)\s*=/);
+      cleanedCode.match(/const\s+([A-Z][A-Za-z0-9_]*)\s*=/) ||
+      cleanedCode.match(/var\s+([A-Z][A-Za-z0-9_]*)\s*=/);
     const componentName = matchComp ? matchComp[1] : 'App';
+
+    const encodedArtifactCode = encodeURIComponent(cleanedCode);
 
     return `<!DOCTYPE html>
 <html>
@@ -254,56 +258,99 @@ export function generateArtifactHtml(code: string, language?: string): string {
 <body>
   <div id="root"></div>
   ${errorOverlayScript}
-  <script type="text/babel" data-presets="react,typescript">
-    const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
-    // Dynamic Lucide React icon proxy so any imported icon renders safely
-    const IconProxy = new Proxy({}, {
-      get: (target, prop) => {
-        return function DynamicIcon(props) {
-          const { size = 18, className = '', color = 'currentColor', ...rest } = props || {};
-          return (
-            <span
-              className={'inline-flex items-center justify-center align-middle ' + className}
-              style={{ display: 'inline-flex', verticalAlign: 'middle' }}
-              {...rest}
-            >
-              <svg
-                width={size}
-                height={size}
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke={color}
-                strokeWidth={2}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <circle cx="12" cy="12" r="8" opacity="0.3" />
-                <path d="M12 8v8M8 12h8" />
-              </svg>
-            </span>
-          );
-        };
+  <script id="artifact-raw-code" type="text/plain">${encodedArtifactCode}</script>
+
+  <script>
+    function bootArtifact() {
+      try {
+        window.exports = window.exports || {};
+        window.module = { exports: window.exports };
+        window.React = React;
+        window.ReactDOM = ReactDOM;
+        window.useState = React.useState;
+        window.useEffect = React.useEffect;
+        window.useRef = React.useRef;
+        window.useMemo = React.useMemo;
+        window.useCallback = React.useCallback;
+
+        function makeIconComponent(iconName) {
+          return function DynamicIcon(props) {
+            var p = props || {};
+            var size = p.size || 18;
+            var className = p.className || '';
+            var color = p.color || 'currentColor';
+            return React.createElement('span', {
+              className: 'inline-flex items-center justify-center ' + className,
+              style: { width: size, height: size, display: 'inline-flex', verticalAlign: 'middle' },
+              title: iconName
+            }, React.createElement('svg', {
+              width: size,
+              height: size,
+              viewBox: '0 0 24 24',
+              fill: 'none',
+              stroke: color,
+              strokeWidth: 2,
+              strokeLinecap: 'round',
+              strokeLinejoin: 'round'
+            },
+              React.createElement('circle', { cx: '12', cy: '12', r: '8', opacity: '0.3' }),
+              React.createElement('path', { d: 'M12 8v8M8 12h8' })
+            ));
+          };
+        }
+
+        ['Sparkles', 'Cat', 'Code', 'Check', 'X', 'ArrowRight', 'Heart', 'Play', 'Trophy', 'Zap', 'Star', 'Crown', 'Plus', 'Minus', 'RotateCcw'].forEach(function(icon) {
+          window[icon] = makeIconComponent(icon);
+        });
+
+        var rawCodeEl = document.getElementById('artifact-raw-code');
+        var rawCode = rawCodeEl ? decodeURIComponent(rawCodeEl.textContent || '') : '';
+        var transpiled = '';
+        try {
+          transpiled = Babel.transform(rawCode, { presets: ['react', 'typescript'] }).code;
+        } catch(babelErr) {
+          if (window.showError) window.showError('Babel Compilation Error:\n' + (babelErr.message || String(babelErr)));
+          return;
+        }
+
+        transpiled = transpiled
+          .replace(/\bimport\s+[\s\S]*?from\s*['"][^'"]+['"];?/g, '')
+          .replace(/\bimport\s*['"][^'"]+['"];?/g, '')
+          .replace(/\bexport\s+default\s+(?:async\s+)?function(?:\s+([A-Za-z0-9_$]+))?/g, 'function $1')
+          .replace(/\bexport\s+default\s+/g, 'window.App = exports.default = ')
+          .replace(/\bexport\s+(?:const|let|var)\s+/g, 'var ')
+          .replace(/\bexport\s+(?:async\s+)?function\s+/g, 'function ')
+          .replace(/\bexport\b/g, '/* export */')
+          .replace(/\bimport\b/g, '/* import */');
+
+        var targetName = ${JSON.stringify(componentName)};
+        var glueCode = '\nif (typeof ' + targetName + ' !== "undefined") { window[' + JSON.stringify(targetName) + '] = ' + targetName + '; window.App = ' + targetName + '; }';
+
+        try {
+          var fn = new Function(transpiled + glueCode);
+          fn();
+        } catch(evalErr) {
+          if (window.showError) window.showError('Runtime Execution Error:\n' + (evalErr.stack || evalErr.message || String(evalErr)));
+          return;
+        }
+
+        var TargetComp = window[targetName] || window.App;
+        if (TargetComp) {
+          var root = ReactDOM.createRoot(document.getElementById('root'));
+          root.render(React.createElement(TargetComp));
+        } else {
+          if (window.showError) window.showError('No valid component found to render.');
+        }
+      } catch(err) {
+        if (window.showError) window.showError(err.stack || err.message || String(err));
       }
-    });
+    }
 
-    // Common Lucide icon aliases
-    const Sparkles = IconProxy.Sparkles;
-    const Cat = IconProxy.Cat;
-    const Code = IconProxy.Code;
-    const Check = IconProxy.Check;
-    const X = IconProxy.X;
-    const ArrowRight = IconProxy.ArrowRight;
-    const Heart = IconProxy.Heart;
-    const Play = IconProxy.Play;
-    const Trophy = IconProxy.Trophy;
-    const Zap = IconProxy.Zap;
-
-    ${cleanedCode}
-
-    if (typeof ${componentName} !== 'undefined') {
-      const root = ReactDOM.createRoot(document.getElementById('root'));
-      root.render(<${componentName} />);
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', bootArtifact);
+    } else {
+      bootArtifact();
     }
   </script>
 </body>

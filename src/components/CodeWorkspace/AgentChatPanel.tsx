@@ -210,9 +210,10 @@ export const AgentChatPanel: React.FC<AgentChatPanelProps> = ({
                 className="bg-transparent text-[11px] font-bold text-white outline-none cursor-pointer"
                 title="Choose AI Model for coding"
               >
-                <option value="gemini-3.5-flash" className="bg-[#11121d] text-white">Gemini 3.5 Flash (⚡ Stable & Recommended)</option>
-                <option value="gemini-3.5-flash-lite" className="bg-[#11121d] text-white">Gemini 3.5 Flash Lite (Fast)</option>
-                <option value="gemini-3.8-flash" className="bg-[#11121d] text-white">Gemini 3.8 Flash</option>
+                <option value="gemini-2.5-flash" className="bg-[#11121d] text-white">Gemini 2.5 Flash (⚡ Fast & Recommended)</option>
+                <option value="gemini-2.5-pro" className="bg-[#11121d] text-white">Gemini 2.5 Pro (🧠 Deep Logic)</option>
+                <option value="gemini-3.5-flash" className="bg-[#11121d] text-white">Gemini 3.5 Flash (Ultra-Stable)</option>
+                <option value="gemini-3.5-flash-lite" className="bg-[#11121d] text-white">Gemini 3.5 Flash Lite</option>
                 <option value="gemini-flash-latest" className="bg-[#11121d] text-white">Gemini Flash Latest</option>
               </select>
             </div>
