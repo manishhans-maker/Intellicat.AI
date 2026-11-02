@@ -5,8 +5,8 @@ import dotenv from "dotenv";
 import Groq from "groq-sdk";
 import { isSearchQuotaExhausted } from "./server/chatCore";
 import chatHandler from "./api/chat";
-import imageGenHandler from "./api/imageGen";
-import searchServiceHandler from "./api/searchService";
+import imageGenHandler from "./api/generate-image";
+import searchServiceHandler from "./api/search";
 import { translateHandler } from "./api/translate";
 import { newsFeedHandler, newsSummarizeHandler } from "./api/news";
 import codeAgentHandler from "./api/code-agent";
@@ -111,10 +111,14 @@ async function startServer() {
   // Dedicated Image Generation Studio endpoint (FLUX.1 100% Free)
   app.post("/api/generate-image", imageGenHandler);
   app.get("/api/generate-image", imageGenHandler);
+  app.post("/api/imageGen", imageGenHandler);
+  app.get("/api/imageGen", imageGenHandler);
 
   // Dedicated Web Search Service endpoint
   app.get("/api/search", searchServiceHandler);
   app.post("/api/search", searchServiceHandler);
+  app.get("/api/searchService", searchServiceHandler);
+  app.post("/api/searchService", searchServiceHandler);
 
   // Dedicated AI Translation endpoint
   app.post("/api/translate", translateHandler);

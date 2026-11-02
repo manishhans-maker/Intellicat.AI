@@ -390,3 +390,25 @@ function escapeHtml(str: string): string {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
 }
+
+export default async function githubAuthApiHandler(req: any, res: any) {
+  const url = req.url || "";
+  const action = req.query?.action || "";
+  if (url.includes("/url") || action === "url") {
+    return githubAuthUrlHandler(req, res);
+  }
+  if (url.includes("/verify") || action === "verify") {
+    return githubVerifyTokenHandler(req, res);
+  }
+  if (url.includes("/configure") || action === "configure") {
+    if (req.method === "DELETE") {
+      return githubClearConfigHandler(req, res);
+    }
+    return githubConfigureHandler(req, res);
+  }
+  if (url.includes("/callback") || action === "callback") {
+    return githubCallbackHandler(req, res);
+  }
+  return githubAuthUrlHandler(req, res);
+}
+

@@ -2,6 +2,22 @@
   "framework": "vite",
   "rewrites": [
     {
+      "source": "/api/imageGen",
+      "destination": "/api/generate-image"
+    },
+    {
+      "source": "/api/searchService",
+      "destination": "/api/search"
+    },
+    {
+      "source": "/api/news/summarize",
+      "destination": "/api/news"
+    },
+    {
+      "source": "/api/auth/github/:action",
+      "destination": "/api/githubAuth?action=:action"
+    },
+    {
       "source": "/((?!api/.*).*)",
       "destination": "/index.html"
     }
