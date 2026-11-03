@@ -933,7 +933,14 @@ export default async function handler(req: any, res: any) {
     // --- Provider 2: Gemini (Resilient multi-model cascade on temporary 503/high demand) ---
     if (activeProvider === "gemini") {
       if (!hasGeminiKey) {
-        throw new Error("GEMINI_API_KEY is not configured.");
+        res.write(
+          `data: ${JSON.stringify({
+            text: `⚠️ **Gemini API Key Required**\n\nTo talk to Google Gemini models, please configure \`GEMINI_API_KEY\` in environment variables or your Vercel Project Settings.\n\n*Tip: You can also switch to Groq from the ⚡ Engine menu at the top of the chat window!*`,
+            provider: "system",
+          })}\n\n`
+        );
+        res.write("data: [DONE]\n\n");
+        return res.end();
       }
 
       const ai = getAiClient();
@@ -1380,7 +1387,17 @@ export default async function handler(req: any, res: any) {
               }
             }
           } catch (groqFallbackErr) {
-            throw lastGeminiError;
+            console.warn("Groq fallback error after Gemini failure:", groqFallbackErr);
+            const cleanErr = formatCleanErrorMessage(lastGeminiError);
+            res.write(
+              `data: ${JSON.stringify({
+                text: `⚠️ **Notice:** ${cleanErr}\n\n*Tip: You can switch models using the ⚡ Engine menu at the top, or enter a free Groq key in Settings.*`,
+                provider: "system",
+              })}\n\n`
+            );
+            if (typeof (res as any).flush === "function") {
+              (res as any).flush();
+            }
           }
         } else {
           // Gracefully stream quota / error notice instead of throwing error
@@ -1403,16 +1420,30 @@ export default async function handler(req: any, res: any) {
   } catch (error: any) {
     console.error("Chat API Error:", error);
     const safeMessage = formatCleanErrorMessage(error);
-    const statusCode =
-      typeof error?.status === "number" && error.status >= 400 && error.status < 600
-        ? error.status
-        : 500;
 
-    if (!res.headersSent) {
-      res.status(statusCode).json({ error: safeMessage });
-    } else {
-      res.write(`data: ${JSON.stringify({ error: safeMessage })}\n\n`);
+    try {
+      if (!res.headersSent) {
+        res.setHeader("Content-Type", "text/event-stream");
+        res.setHeader("Cache-Control", "no-cache, no-transform");
+        res.setHeader("Connection", "keep-alive");
+        res.setHeader("X-Accel-Buffering", "no");
+        if (typeof res.flushHeaders === "function") {
+          res.flushHeaders();
+        }
+      }
+      res.write(
+        `data: ${JSON.stringify({
+          text: `⚠️ **Engine Notice:** ${safeMessage}\n\n*Tip: Tap Retry Response below or switch models in the ⚡ Engine menu.*`,
+          provider: "system",
+        })}\n\n`
+      );
+      res.write("data: [DONE]\n\n");
       res.end();
+    } catch (finalErr) {
+      console.error("Fatal error handling chat API catch block:", finalErr);
+      if (!res.writableEnded) {
+        res.end();
+      }
     }
   }
 }
