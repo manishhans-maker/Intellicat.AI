@@ -588,11 +588,10 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
   }, [latestArtifact, mode]);
 
   const getWelcomeMessage = (selectedMode: ChatMode = 'normal'): ChatMessage => {
-    const uid = Math.random().toString(36).slice(2, 7);
     switch (selectedMode) {
       case 'fast':
         return {
-          id: `welcome-${Date.now()}-${uid}`,
+          id: `welcome-${Date.now()}`,
           role: 'assistant',
           content: `⚡ **Fast Mode Enabled**\n\nOptimized for rapid-fire responses, quick answers, and minimal latency. Ask your question and get instant clarity.`,
           timestamp: 'Just now',
@@ -602,7 +601,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
         };
       case 'deep-think':
         return {
-          id: `welcome-${Date.now()}-${uid}`,
+          id: `welcome-${Date.now()}`,
           role: 'assistant',
           content: `🧠 **Deep Think & Reasoning Mode**\n\nI will break down complex problems step-by-step, trace algorithmic logic, evaluate edge cases, and provide comprehensive analytical reasoning. What problem are we dissecting today?`,
           timestamp: 'Just now',
@@ -612,7 +611,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
         };
       case 'search':
         return {
-          id: `welcome-${Date.now()}-${uid}`,
+          id: `welcome-${Date.now()}`,
           role: 'assistant',
           content: `🔍 **Live Web Search Mode**\n\nI retrieve up-to-the-minute web information, verify current facts, synthesize citations, and display sources directly in responses. What would you like me to research?`,
           timestamp: 'Just now',
@@ -622,7 +621,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
         };
       case 'creative':
         return {
-          id: `welcome-${Date.now()}-${uid}`,
+          id: `welcome-${Date.now()}`,
           role: 'assistant',
           content: `🎨 **Creative Writing & Story Mode**\n\nVivid imagination, expressive tone, and narrative depth. Share a premise, poem concept, scenario, or screenplay idea!`,
           timestamp: 'Just now',
@@ -632,7 +631,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
         };
       case 'study':
         return {
-          id: `welcome-${Date.now()}-${uid}`,
+          id: `welcome-${Date.now()}`,
           role: 'assistant',
           content: `🎓 **Study & Tutoring Mode**\n\nPersonalized academic guidance, homework walkthroughs, practice quizzes, and concept explanations tailored to your grade level. Let's master the topic together!`,
           timestamp: 'Just now',
@@ -642,7 +641,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
         };
       case 'sassy-cat':
         return {
-          id: `welcome-${Date.now()}-${uid}`,
+          id: `welcome-${Date.now()}`,
           role: 'assistant',
           content: `Meow~ 🐱✨ Welcome to **Sassy Cat Mode**! *stretches claws and gives a dramatic feline gaze*\n\nAsk me anything, human! I'll give you real, smart answers — but expect plenty of meows, feline sass, purrs, and playful attitude. Meow meow! 🐾`,
           timestamp: 'Just now',
@@ -653,7 +652,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
       case 'cat-code':
       case 'coding':
         return {
-          id: `welcome-${Date.now()}-${uid}`,
+          id: `welcome-${Date.now()}`,
           role: 'assistant',
           content: `Purr-fect timing! 🐾 I am **IntelicatAI**, your Cybernetic Cat Coder in **Cat Code Mode** featuring **Live Website Artifact Previews** ⚡.\n\nAsk me to build any website, web app, interactive game, calculator, or dashboard! I'll write the code and immediately launch the live website right inside the chat with desktop, tablet, and mobile previews. What app or website shall we build?`,
           timestamp: 'Just now',
@@ -664,7 +663,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
       case 'normal':
       default:
         return {
-          id: `welcome-${Date.now()}-${uid}`,
+          id: `welcome-${Date.now()}`,
           role: 'assistant',
           content: `Hello! I'm your AI conversational companion in **Normal Talk Mode** powered by **Groq LPU (Llama 3.3 70B)** ⚡ and **Google Gemini** ✨.\n\nAsk me anything — brainstorm ideas, summarize content, search real-time web facts, upload images/documents for analysis, or just talk. What's on your mind?`,
           timestamp: 'Just now',
@@ -1215,7 +1214,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
       };
 
       await saveConversation(activeUid, newConv);
-      setConversations((prev) => [newConv, ...prev]);
+      setConversations((prev) => [newConv, ...prev.filter((c) => c.id !== newConv.id)]);
     }
 
     const activeUidForMsg = user?.uid || 'guest';
@@ -1553,13 +1552,13 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
         await saveMessage(activeUid, activeConvId, finalizedMsg);
       }
     } catch (err: any) {
-      if (err.name === 'AbortError') {
+      if (err?.name === 'AbortError') {
         // User clicked "Stop Generation", gracefully finalize what was streamed so far
         console.log('Stream stopped by user.');
       } else {
-        console.error('Chat error:', err);
-        let errMsg = err.message || 'Unable to connect to AI engine.';
-        if (errMsg === 'Failed to fetch') {
+        console.warn('Chat request notice:', err?.message || err);
+        let errMsg = err?.message || 'Unable to connect to AI engine.';
+        if (errMsg === 'Failed to fetch' || errMsg?.toLowerCase().includes('network error') || err?.name === 'TypeError') {
           errMsg = 'Network connection interrupted. Please tap retry to regenerate.';
         }
         // Mark the assistant message as errored with inline retry

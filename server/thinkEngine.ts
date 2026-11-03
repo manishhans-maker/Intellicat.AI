@@ -160,7 +160,7 @@ Reply with only the chosen single word.`;
 
       const res = await Promise.race([
         aiClient.models.generateContent({
-          model: "gemini-3.5-flash-lite",
+          model: "gemini-3.1-flash-lite",
           contents: classificationPrompt,
         }),
         new Promise((_, reject) => setTimeout(() => reject(new Error("Classification timeout")), 3500)),
@@ -350,7 +350,7 @@ Reply in strict JSON with no markdown wrapping:
 
     const res = await Promise.race([
       aiClient.models.generateContent({
-        model: "gemini-3.5-flash-lite",
+        model: "gemini-3.1-flash-lite",
         contents: verificationPrompt,
         config: {
           responseMimeType: "application/json",

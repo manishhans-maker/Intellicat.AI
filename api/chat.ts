@@ -10,9 +10,6 @@ import {
   ThinkVerificationSummary,
 } from "../server/thinkEngine";
 
-// Vercel Serverless Function execution timeout configuration (Hobby plan supports up to 60s)
-export const maxDuration = 60;
-
 // --- Rate Limiting ---
 interface RateLimitRecord {
   timestamps: number[];
@@ -249,14 +246,15 @@ async function resolveGroqModel(groq: Groq, preferredModel?: string): Promise<st
   return "llama-3.1-8b-instant";
 }
 
-// Primary Gemini model cascade: default to high-availability gemini-3.8-flash
-const GEMINI_PRIMARY_MODEL = "gemini-3.8-flash";
+// Primary Gemini model cascade: default to high-availability gemini-3.6-flash
+const GEMINI_PRIMARY_MODEL = "gemini-3.6-flash";
 const GEMINI_MODELS_CASCADE = [
-  "gemini-3.8-flash",
-  "gemini-3.5-flash-lite",
+  "gemini-3.6-flash",
   "gemini-3.5-flash",
+  "gemini-3.5-flash-lite",
   "gemini-flash-latest",
   "gemini-3.7-flash",
+  "gemini-3.8-flash",
 ];
 
 // Real-Time Web Search & Grounding Engine (Google News RSS + Wikipedia Facts)
@@ -755,24 +753,27 @@ export default async function handler(req: any, res: any) {
       });
     }
 
-    // Normalize requested Gemini models (mapping legacy aliases and ensuring valid Gemini model name)
-    let effectiveGeminiModel = (requestedModel && requestedModel.startsWith("gemini-"))
-      ? requestedModel
-      : "gemini-3.8-flash";
+    // Normalize requested Gemini models (mapping legacy aliases)
+    let effectiveGeminiModel = requestedModel;
     if (
       effectiveGeminiModel === "gemini-3.1-pro-preview" ||
       effectiveGeminiModel === "gemini-3.1-pro" ||
       effectiveGeminiModel === "gemini-pro" ||
       effectiveGeminiModel === "gemini-2.0-flash" ||
       effectiveGeminiModel === "gemini-2.5-flash" ||
-      effectiveGeminiModel === "gemini-3.4-flash"
+      effectiveGeminiModel === "gemini-3.4-flash" ||
+      !effectiveGeminiModel
     ) {
-      effectiveGeminiModel = "gemini-3.5-flash-lite";
+      effectiveGeminiModel = effectiveGeminiModel ? "gemini-3.5-flash-lite" : "gemini-3.5-flash-lite";
     }
 
     // Verify model authorization based on plan tier
-    if (effectiveGeminiModel === "gemini-3.8-flash" && effectiveTier === "free" && !thinkEnabled) {
-      effectiveGeminiModel = "gemini-3.5-flash-lite";
+    if (effectiveGeminiModel) {
+      if (effectiveGeminiModel === "gemini-3.8-flash" && effectiveTier === "free") {
+        return res.status(403).json({
+          error: "Gemini 3.8 Flash requires Intelicat Pro ($10) or Elite ($50). Please use Gemini 3.5 Flash Lite (Default ⚡), Gemini 3.5 Flash (Ultra-Stable), or upgrade your plan.",
+        });
+      }
     }
 
     // Determine custom Groq Key from header or body or env
@@ -834,14 +835,10 @@ export default async function handler(req: any, res: any) {
     // Fallback if requested provider key is missing
     let groqFailReason: string | null = null;
     if (activeProvider === "groq" && !hasGroqKey) {
-      if (hasGeminiKey) {
-        groqFailReason = "Groq API key not configured. Auto-routed to Gemini Flash";
-        activeProvider = "gemini";
-      }
+      groqFailReason = "Groq API key is not configured. Add your free Groq key from console.groq.com in Model Settings";
+      activeProvider = hasGeminiKey ? "gemini" : "groq";
     } else if (activeProvider === "gemini" && !hasGeminiKey) {
-      if (hasGroqKey && !hasImageAttachments) {
-        activeProvider = "groq";
-      }
+      activeProvider = hasGroqKey && !hasImageAttachments ? "groq" : "gemini";
     }
 
     // Initialize SSE Headers
@@ -852,30 +849,6 @@ export default async function handler(req: any, res: any) {
 
     if (typeof res.flushHeaders === "function") {
       res.flushHeaders();
-    }
-
-    // Guard: If neither Gemini nor Groq key is configured on server/client, stream helpful guide instead of 500 error
-    if (!hasGroqKey && !hasGeminiKey) {
-      res.write(
-        `data: ${JSON.stringify({
-          text: `⚠️ **API Key Configuration Required on Vercel**\n\nIntellicatAI is deployed and running, but no API keys were detected in your Vercel Environment Variables.\n\n### How to fix this in 1 minute:\n1. **Quickest Fix (Free Groq Key):** Click the **⚡ Engine** menu in the top bar of this chat, paste a free key from [console.groq.com](https://console.groq.com), and start chatting instantly!\n2. **Vercel Settings Fix:** In your [Vercel Dashboard](https://vercel.com) → Project Settings → **Environment Variables**, add:\n   - \`GEMINI_API_KEY\` (from Google AI Studio)\n   - \`GROQ_API_KEY\` (from Groq Console)\n   Then click **Redeploy** on your latest deployment.\n\n*All chat features, model switching, and reasoning will activate immediately!*`,
-          provider: "system",
-        })}\n\n`
-      );
-      res.write("data: [DONE]\n\n");
-      return res.end();
-    }
-
-    // Guard: Groq requested with no key and Gemini not available
-    if (activeProvider === "groq" && !hasGroqKey) {
-      res.write(
-        `data: ${JSON.stringify({
-          text: `⚠️ **Groq API Key Required**\n\nYou selected **${requestedModel || "Llama 3.1 8B (Instant)"}**, but no Groq API key is configured.\n\n- Click the **⚡ Engine** menu at the top to paste your free Groq key from [console.groq.com](https://console.groq.com).\n- Or configure \`GROQ_API_KEY\` in your Vercel Project Settings → Environment Variables.\n- Or switch to Google Gemini from the model menu!`,
-          provider: "system",
-        })}\n\n`
-      );
-      res.write("data: [DONE]\n\n");
-      return res.end();
     }
 
     const systemInstruction = getSystemInstruction(mode, studyGrade, spaceContext, memoriesContext);
@@ -909,23 +882,11 @@ export default async function handler(req: any, res: any) {
         }
       } catch (groqErr: any) {
         console.warn("Groq streaming error:", groqErr?.message);
-        groqFailReason = `Groq API notice (${groqErr?.message || "connection/rate limit failure"})`;
+        groqFailReason = `Groq API error (${groqErr?.message || "connection/rate limit failure"})`;
         if (!streamStarted && hasGeminiKey) {
           activeProvider = "gemini";
-        } else if (!streamStarted) {
-          const cleanMsg = formatCleanErrorMessage(groqErr);
-          res.write(
-            `data: ${JSON.stringify({
-              text: `⚠️ **Groq Engine Notice:** ${cleanMsg}\n\n*Tip: Check your API key in the ⚡ Engine menu, or switch to Gemini in the model selector.*`,
-              provider: "groq",
-            })}\n\n`
-          );
-          res.write("data: [DONE]\n\n");
-          return res.end();
         } else {
-          res.write(`data: ${JSON.stringify({ text: `\n\n*[Notice: Response interrupted due to Groq upstream rate limit or connection reset.]*` })}\n\n`);
-          res.write("data: [DONE]\n\n");
-          return res.end();
+          throw groqErr;
         }
       }
     }
@@ -933,14 +894,7 @@ export default async function handler(req: any, res: any) {
     // --- Provider 2: Gemini (Resilient multi-model cascade on temporary 503/high demand) ---
     if (activeProvider === "gemini") {
       if (!hasGeminiKey) {
-        res.write(
-          `data: ${JSON.stringify({
-            text: `⚠️ **Gemini API Key Required**\n\nTo talk to Google Gemini models, please configure \`GEMINI_API_KEY\` in environment variables or your Vercel Project Settings.\n\n*Tip: You can also switch to Groq from the ⚡ Engine menu at the top of the chat window!*`,
-            provider: "system",
-          })}\n\n`
-        );
-        res.write("data: [DONE]\n\n");
-        return res.end();
+        throw new Error("GEMINI_API_KEY is not configured.");
       }
 
       const ai = getAiClient();
@@ -1062,7 +1016,7 @@ export default async function handler(req: any, res: any) {
             }
 
             const thinkConfig = SERVER_THINK_CONFIG[resolvedDepth];
-            const candidateThinkModel = primaryTargetModel || candidateModels[0] || "gemini-3.8-flash";
+            const candidateThinkModel = primaryTargetModel || candidateModels[0] || "gemini-3.6-flash";
 
             const thinkModelConfig: any = {
               ...geminiConfig,
@@ -1078,7 +1032,6 @@ export default async function handler(req: any, res: any) {
 
             // Generate draft with controlled timeout
             let draftResponse: any = null;
-            let draftTimedOut = false;
             try {
               draftResponse = await Promise.race([
                 ai.models.generateContent({
@@ -1087,41 +1040,32 @@ export default async function handler(req: any, res: any) {
                   config: thinkModelConfig,
                 }),
                 new Promise((_, reject) =>
-                  setTimeout(() => {
-                    draftTimedOut = true;
-                    reject(new Error("Think Engine draft generation timed out"));
-                  }, 38000)
+                  setTimeout(() => reject(new Error("Think Engine draft generation timed out")), 45000)
                 ),
               ]);
             } catch (draftErr: any) {
-              const isTimeout = draftTimedOut || (typeof draftErr?.message === "string" && draftErr.message.includes("timed out"));
-              if (isTimeout) {
-                console.warn("Think Engine draft timed out. Handing over directly to streaming cascade.");
-                res.write(
-                  `data: ${JSON.stringify({
-                    text: "*[Notice: Deep reasoning stage timed out under heavy load. Seamlessly handed over to normal response pipeline.]*\n\n",
-                    provider: "gemini",
-                  })}\n\n`
+              const hadThinking = Boolean(thinkModelConfig.thinkingConfig);
+              if (hadThinking) {
+                console.warn(
+                  "Think Engine draft with thinkingConfig failed, retrying without thinkingConfig:",
+                  draftErr?.message
                 );
-                if (typeof (res as any).flush === "function") {
-                  (res as any).flush();
-                }
-                // Leave thinkEngineRan = false so execution seamlessly streams from candidateModels below!
+              } else {
+                console.warn(
+                  "Think Engine draft generation encountered issue/timeout, retrying standard generation:",
+                  draftErr?.message
+                );
               }
-
-              // If parameter error (thinkingConfig unsupported by candidate), try once without thinkingConfig
-              if (!isTimeout && thinkModelConfig.thinkingConfig && (draftErr?.status === 400 || draftErr?.message?.includes("thinkingConfig"))) {
-                console.warn("Model does not support thinkingConfig, retrying without thinkingConfig...");
-                delete thinkModelConfig.thinkingConfig;
-                try {
-                  draftResponse = await ai.models.generateContent({
-                    model: candidateThinkModel,
-                    contents: formattedContents,
-                    config: thinkModelConfig,
-                  });
-                } catch (retryErr) {
-                  console.warn("Think draft fallback failed:", retryErr);
-                }
+              // Safe fallback without thinkingConfig
+              delete thinkModelConfig.thinkingConfig;
+              try {
+                draftResponse = await ai.models.generateContent({
+                  model: candidateThinkModel,
+                  contents: formattedContents,
+                  config: thinkModelConfig,
+                });
+              } catch (retryErr: any) {
+                throw retryErr;
               }
             }
 
@@ -1387,17 +1331,7 @@ export default async function handler(req: any, res: any) {
               }
             }
           } catch (groqFallbackErr) {
-            console.warn("Groq fallback error after Gemini failure:", groqFallbackErr);
-            const cleanErr = formatCleanErrorMessage(lastGeminiError);
-            res.write(
-              `data: ${JSON.stringify({
-                text: `⚠️ **Notice:** ${cleanErr}\n\n*Tip: You can switch models using the ⚡ Engine menu at the top, or enter a free Groq key in Settings.*`,
-                provider: "system",
-              })}\n\n`
-            );
-            if (typeof (res as any).flush === "function") {
-              (res as any).flush();
-            }
+            throw lastGeminiError;
           }
         } else {
           // Gracefully stream quota / error notice instead of throwing error
@@ -1420,30 +1354,16 @@ export default async function handler(req: any, res: any) {
   } catch (error: any) {
     console.error("Chat API Error:", error);
     const safeMessage = formatCleanErrorMessage(error);
+    const statusCode =
+      typeof error?.status === "number" && error.status >= 400 && error.status < 600
+        ? error.status
+        : 500;
 
-    try {
-      if (!res.headersSent) {
-        res.setHeader("Content-Type", "text/event-stream");
-        res.setHeader("Cache-Control", "no-cache, no-transform");
-        res.setHeader("Connection", "keep-alive");
-        res.setHeader("X-Accel-Buffering", "no");
-        if (typeof res.flushHeaders === "function") {
-          res.flushHeaders();
-        }
-      }
-      res.write(
-        `data: ${JSON.stringify({
-          text: `⚠️ **Engine Notice:** ${safeMessage}\n\n*Tip: Tap Retry Response below or switch models in the ⚡ Engine menu.*`,
-          provider: "system",
-        })}\n\n`
-      );
-      res.write("data: [DONE]\n\n");
+    if (!res.headersSent) {
+      res.status(statusCode).json({ error: safeMessage });
+    } else {
+      res.write(`data: ${JSON.stringify({ error: safeMessage })}\n\n`);
       res.end();
-    } catch (finalErr) {
-      console.error("Fatal error handling chat API catch block:", finalErr);
-      if (!res.writableEnded) {
-        res.end();
-      }
     }
   }
 }

@@ -1474,7 +1474,13 @@ export async function loadUserCodingProjects(userId?: string): Promise<CodingPro
         remoteProjects.forEach((p) => mergedMap.set(p.id, p));
         const merged = Array.from(mergedMap.values());
         merged.sort((a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime());
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+        } catch {
+          try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(merged.slice(0, 10)));
+          } catch {}
+        }
         return merged;
       }
     } catch (err) {
@@ -1509,7 +1515,16 @@ export async function saveUserCodingProject(project: CodingProject): Promise<voi
     } else {
       list.unshift(updatedProject);
     }
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+    
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+    } catch {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(list.slice(0, 10)));
+      } catch (quotaErr) {
+        console.warn('LocalStorage quota exceeded for coding projects:', quotaErr);
+      }
+    }
 
     if (project.userId) {
       const docRef = doc(db, 'users', project.userId, 'coding_projects', project.id);
@@ -1527,7 +1542,7 @@ export async function saveUserCodingProject(project: CodingProject): Promise<voi
       }, { merge: true });
     }
   } catch (err) {
-    console.error('Failed to save coding project:', err);
+    console.warn('Failed to save coding project:', err);
   }
 }
 

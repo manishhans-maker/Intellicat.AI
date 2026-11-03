@@ -10,14 +10,12 @@ function getGeminiClient(): GoogleGenAI {
 }
 
 const TRANSLATE_CANDIDATE_MODELS = [
-  "gemini-3.5-flash-lite",
   "gemini-3.8-flash",
-  "gemini-3.5-flash",
+  "gemini-3.1-flash-lite",
   "gemini-flash-latest",
 ];
 
 export async function translateHandler(req: any, res: any) {
-  // Set CORS headers
   res.setHeader("Access-Control-Allow-Credentials", "true");
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS,POST");
@@ -38,7 +36,7 @@ export async function translateHandler(req: any, res: any) {
       return res.status(400).json({ error: "Missing or empty text parameter to translate." });
     }
 
-    const trimmedText = text.trim().slice(0, 5000); // Guard max length
+    const trimmedText = text.trim().slice(0, 5000);
     const target = (targetLang || "English").trim();
     const source = (sourceLang || "auto").trim();
     const desiredTone = (tone || "natural").trim();
@@ -52,7 +50,7 @@ Translate the following source text into ${target}.
 {
   "translation": "The direct translation in ${target}",
   "detectedSourceLang": "The detected language name in English (e.g., Spanish, French, Japanese, Hindi)",
-  "phonetic": "Phonetic pronunciation guide if applicable (e.g. romaji, pinyin, or English pronunciation helper) or empty string",
+  "phonetic": "Phonetic pronunciation guide if applicable or empty string",
   "alternatives": ["1-2 alternative natural ways to say this in ${target}"]
 }
 
@@ -98,7 +96,6 @@ ${trimmedText}
             }
           }
         } catch (modelErr: any) {
-          console.warn(`Translation candidate model [${modelName}] warning:`, modelErr?.message || modelErr);
           lastError = modelErr;
           continue;
         }
@@ -108,31 +105,23 @@ ${trimmedText}
     if (translationResult) {
       return res.status(200).json({
         success: true,
-        translation: translationResult.translation,
-        detectedSourceLang: translationResult.detectedSourceLang || (source === "auto" ? "Auto" : source),
-        phonetic: translationResult.phonetic || "",
-        alternatives: translationResult.alternatives || [],
+        originalText: trimmedText,
         targetLang: target,
+        ...translationResult,
       });
     }
 
-    // Graceful offline translation fallback
-    return res.status(200).json({
-      success: true,
-      translation: `[Translated to ${target}]: ${trimmedText}`,
-      detectedSourceLang: source === "auto" ? "Auto" : source,
-      phonetic: "",
-      alternatives: [],
-      targetLang: target,
-      notice: lastError ? "Translated via fallback engine." : undefined,
+    if (lastError?.message?.includes("RESOURCE_EXHAUSTED") || lastError?.message?.includes("quota")) {
+      return res.status(429).json({
+        error: "Translation quota limit reached. Please retry in a few moments.",
+      });
+    }
+
+    return res.status(500).json({
+      error: "Translation service temporarily busy. Please retry.",
     });
   } catch (err: any) {
-    console.error("Translate Handler Error:", err);
-    return res.status(500).json({
-      error: "Translation service encountered an error.",
-      message: err?.message || String(err),
-    });
+    console.error("Translate API Error:", err);
+    return res.status(500).json({ error: "Failed to translate text." });
   }
 }
-
-export default translateHandler;
