@@ -10,6 +10,9 @@ import {
   ThinkVerificationSummary,
 } from "../server/thinkEngine";
 
+// Vercel Serverless Function execution timeout configuration (Hobby plan supports up to 60s)
+export const maxDuration = 60;
+
 // --- Rate Limiting ---
 interface RateLimitRecord {
   timestamps: number[];
@@ -752,25 +755,24 @@ export default async function handler(req: any, res: any) {
       });
     }
 
-    // Normalize requested Gemini models (mapping legacy aliases)
-    let effectiveGeminiModel = requestedModel;
+    // Normalize requested Gemini models (mapping legacy aliases and ensuring valid Gemini model name)
+    let effectiveGeminiModel = (requestedModel && requestedModel.startsWith("gemini-"))
+      ? requestedModel
+      : "gemini-3.8-flash";
     if (
       effectiveGeminiModel === "gemini-3.1-pro-preview" ||
       effectiveGeminiModel === "gemini-3.1-pro" ||
       effectiveGeminiModel === "gemini-pro" ||
       effectiveGeminiModel === "gemini-2.0-flash" ||
       effectiveGeminiModel === "gemini-2.5-flash" ||
-      effectiveGeminiModel === "gemini-3.4-flash" ||
-      !effectiveGeminiModel
+      effectiveGeminiModel === "gemini-3.4-flash"
     ) {
-      effectiveGeminiModel = effectiveGeminiModel ? "gemini-3.5-flash-lite" : "gemini-3.5-flash-lite";
+      effectiveGeminiModel = "gemini-3.5-flash-lite";
     }
 
     // Verify model authorization based on plan tier
-    if (effectiveGeminiModel) {
-      if (effectiveGeminiModel === "gemini-3.8-flash" && effectiveTier === "free" && !thinkEnabled) {
-        effectiveGeminiModel = "gemini-3.5-flash-lite";
-      }
+    if (effectiveGeminiModel === "gemini-3.8-flash" && effectiveTier === "free" && !thinkEnabled) {
+      effectiveGeminiModel = "gemini-3.5-flash-lite";
     }
 
     // Determine custom Groq Key from header or body or env
@@ -832,10 +834,14 @@ export default async function handler(req: any, res: any) {
     // Fallback if requested provider key is missing
     let groqFailReason: string | null = null;
     if (activeProvider === "groq" && !hasGroqKey) {
-      groqFailReason = "Groq API key is not configured. Add your free Groq key from console.groq.com in Model Settings";
-      activeProvider = hasGeminiKey ? "gemini" : "groq";
+      if (hasGeminiKey) {
+        groqFailReason = "Groq API key not configured. Auto-routed to Gemini Flash";
+        activeProvider = "gemini";
+      }
     } else if (activeProvider === "gemini" && !hasGeminiKey) {
-      activeProvider = hasGroqKey && !hasImageAttachments ? "groq" : "gemini";
+      if (hasGroqKey && !hasImageAttachments) {
+        activeProvider = "groq";
+      }
     }
 
     // Initialize SSE Headers
@@ -846,6 +852,30 @@ export default async function handler(req: any, res: any) {
 
     if (typeof res.flushHeaders === "function") {
       res.flushHeaders();
+    }
+
+    // Guard: If neither Gemini nor Groq key is configured on server/client, stream helpful guide instead of 500 error
+    if (!hasGroqKey && !hasGeminiKey) {
+      res.write(
+        `data: ${JSON.stringify({
+          text: `⚠️ **API Key Configuration Required on Vercel**\n\nIntellicatAI is deployed and running, but no API keys were detected in your Vercel Environment Variables.\n\n### How to fix this in 1 minute:\n1. **Quickest Fix (Free Groq Key):** Click the **⚡ Engine** menu in the top bar of this chat, paste a free key from [console.groq.com](https://console.groq.com), and start chatting instantly!\n2. **Vercel Settings Fix:** In your [Vercel Dashboard](https://vercel.com) → Project Settings → **Environment Variables**, add:\n   - \`GEMINI_API_KEY\` (from Google AI Studio)\n   - \`GROQ_API_KEY\` (from Groq Console)\n   Then click **Redeploy** on your latest deployment.\n\n*All chat features, model switching, and reasoning will activate immediately!*`,
+          provider: "system",
+        })}\n\n`
+      );
+      res.write("data: [DONE]\n\n");
+      return res.end();
+    }
+
+    // Guard: Groq requested with no key and Gemini not available
+    if (activeProvider === "groq" && !hasGroqKey) {
+      res.write(
+        `data: ${JSON.stringify({
+          text: `⚠️ **Groq API Key Required**\n\nYou selected **${requestedModel || "Llama 3.1 8B (Instant)"}**, but no Groq API key is configured.\n\n- Click the **⚡ Engine** menu at the top to paste your free Groq key from [console.groq.com](https://console.groq.com).\n- Or configure \`GROQ_API_KEY\` in your Vercel Project Settings → Environment Variables.\n- Or switch to Google Gemini from the model menu!`,
+          provider: "system",
+        })}\n\n`
+      );
+      res.write("data: [DONE]\n\n");
+      return res.end();
     }
 
     const systemInstruction = getSystemInstruction(mode, studyGrade, spaceContext, memoriesContext);
@@ -879,11 +909,23 @@ export default async function handler(req: any, res: any) {
         }
       } catch (groqErr: any) {
         console.warn("Groq streaming error:", groqErr?.message);
-        groqFailReason = `Groq API error (${groqErr?.message || "connection/rate limit failure"})`;
+        groqFailReason = `Groq API notice (${groqErr?.message || "connection/rate limit failure"})`;
         if (!streamStarted && hasGeminiKey) {
           activeProvider = "gemini";
+        } else if (!streamStarted) {
+          const cleanMsg = formatCleanErrorMessage(groqErr);
+          res.write(
+            `data: ${JSON.stringify({
+              text: `⚠️ **Groq Engine Notice:** ${cleanMsg}\n\n*Tip: Check your API key in the ⚡ Engine menu, or switch to Gemini in the model selector.*`,
+              provider: "groq",
+            })}\n\n`
+          );
+          res.write("data: [DONE]\n\n");
+          return res.end();
         } else {
-          throw groqErr;
+          res.write(`data: ${JSON.stringify({ text: `\n\n*[Notice: Response interrupted due to Groq upstream rate limit or connection reset.]*` })}\n\n`);
+          res.write("data: [DONE]\n\n");
+          return res.end();
         }
       }
     }
