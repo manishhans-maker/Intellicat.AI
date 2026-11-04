@@ -8,9 +8,7 @@ import {
   SERVER_THINK_CONFIG,
   ThinkDepthLevel,
   ThinkVerificationSummary,
-} from "../thinkEngine";
-
-export const maxDuration = 60;
+} from "../server/thinkEngine";
 
 // --- Rate Limiting ---
 interface RateLimitRecord {
@@ -38,39 +36,40 @@ function checkRateLimit(identifier: string): { allowed: boolean; retryAfterSecon
   return { allowed: true };
 }
 
-// --- Strict Tier Quota & Cooldown Engine ---
+// --- Strict Tier Quota & 3-hr / 6-hr Cooldown Engine ---
 interface ServerQuotaRecord {
   count: number;
   tier: "free" | "pro" | "elite" | "vip" | "founder";
   isRecovery: boolean;
-  cooldownStage: 0 | 1 | 2;
-  cooldownUntil: number;
+  cooldownStage: 0 | 1 | 2; // 0 = active, 1 = 3hr, 2 = 6hr
+  cooldownUntil: number; // epoch ms
 }
 const userQuotaMap = new Map<string, ServerQuotaRecord>();
 
 const TIER_BASE_ALLOWANCE: Record<string, number> = {
-  free: 15,
-  pro: 35,
-  elite: 60,
-  vip: 60,
+  free: 10,
+  pro: 25,
+  elite: 50,
+  vip: 50,
   founder: 999999,
 };
 
 const TIER_RECOVERY_ALLOWANCE: Record<string, number> = {
-  free: 8,
-  pro: 15,
-  elite: 30,
-  vip: 30,
+  free: 5,
+  pro: 12,
+  elite: 25,
+  vip: 25,
   founder: 999999,
 };
 
-const COOLDOWN_STAGE_1_MS = 3 * 3600 * 1000;
-const COOLDOWN_STAGE_2_MS = 6 * 3600 * 1000;
+const COOLDOWN_STAGE_1_MS = 3 * 3600 * 1000; // 3 hours
+const COOLDOWN_STAGE_2_MS = 6 * 3600 * 1000; // 6 hours
 
 function checkAndIncrementQuota(
   userId: string | undefined,
   tier: "free" | "pro" | "elite" | "vip" | "founder" | "owner" = "free"
 ): { allowed: boolean; remaining: number; max: number; error?: string } {
+  // Founder and platform owner are truly unlimited
   if (tier === "founder" || tier === "owner") {
     return { allowed: true, remaining: 999999, max: 999999 };
   }
@@ -91,45 +90,51 @@ function checkAndIncrementQuota(
     };
   }
 
+  // Upgrade or sync tier
   record.tier = tier;
 
+  // 1. Check if currently in active cooldown
   if (record.cooldownStage === 1) {
     if (now < record.cooldownUntil) {
-      const waitMinutes = Math.ceil((record.cooldownUntil - now) / (60 * 1000));
+      const waitMin = Math.ceil((record.cooldownUntil - now) / 60000);
       return {
         allowed: false,
         remaining: 0,
-        max: TIER_BASE_ALLOWANCE[tier] || 15,
-        error: `3-Hour cooldown active. Next recovery quota unlocks in ${waitMinutes}m.`,
+        max: TIER_BASE_ALLOWANCE[tier] || 10,
+        error: `3-hour cooldown active (${waitMin} min remaining). You used your ${TIER_BASE_ALLOWANCE[tier]} chats. A 5-chat recovery refill unlocks after cooldown.`,
       };
     } else {
-      record.isRecovery = true;
+      // 3-hour cooldown expired -> transition to recovery mode!
       record.cooldownStage = 0;
-      record.count = 0;
       record.cooldownUntil = 0;
+      record.isRecovery = true;
+      record.count = 0;
     }
   } else if (record.cooldownStage === 2) {
     if (now < record.cooldownUntil) {
-      const waitMinutes = Math.ceil((record.cooldownUntil - now) / (60 * 1000));
+      const waitMin = Math.ceil((record.cooldownUntil - now) / 60000);
       return {
         allowed: false,
         remaining: 0,
-        max: TIER_BASE_ALLOWANCE[tier] || 15,
-        error: `Extended cooldown active. Full reset in ${waitMinutes}m.`,
+        max: TIER_BASE_ALLOWANCE[tier] || 10,
+        error: `Extended 6-hour cooldown active (${waitMin} min remaining). Full ${TIER_BASE_ALLOWANCE[tier]} chats reset after cooldown.`,
       };
     } else {
-      record.isRecovery = false;
+      // 6-hour cooldown expired -> full cycle reset!
       record.cooldownStage = 0;
-      record.count = 0;
       record.cooldownUntil = 0;
+      record.isRecovery = false;
+      record.count = 0;
     }
   }
 
+  // 2. Active allowance
   const currentMax = record.isRecovery
-    ? TIER_RECOVERY_ALLOWANCE[tier] || 8
-    : TIER_BASE_ALLOWANCE[tier] || 15;
+    ? (TIER_RECOVERY_ALLOWANCE[tier] || 5)
+    : (TIER_BASE_ALLOWANCE[tier] || 10);
 
   if (record.count >= currentMax) {
+    // Allowance reached, activate cooldown
     if (!record.isRecovery) {
       record.cooldownStage = 1;
       record.cooldownUntil = now + COOLDOWN_STAGE_1_MS;
@@ -138,7 +143,7 @@ function checkAndIncrementQuota(
         allowed: false,
         remaining: 0,
         max: currentMax,
-        error: `Usage limit reached (${currentMax} requests). 3-Hour cooldown started.`,
+        error: `3-hour cooldown activated. You reached your limit of ${currentMax} chats. A recovery refill unlocks in 3 hours.`,
       };
     } else {
       record.cooldownStage = 2;
@@ -148,11 +153,12 @@ function checkAndIncrementQuota(
         allowed: false,
         remaining: 0,
         max: currentMax,
-        error: `Recovery limit reached (${currentMax} requests). 6-Hour cooldown started.`,
+        error: `Extended 6-hour cooldown activated. Recovery chats exhausted. Full reset in 6 hours.`,
       };
     }
   }
 
+  // Consume request
   record.count += 1;
   const remaining = Math.max(0, currentMax - record.count);
 
@@ -211,15 +217,18 @@ async function resolveGroqModel(groq: Groq, preferredModel?: string): Promise<st
     const list = await groq.models.list();
     const available = new Set(list.data.map((m: any) => m.id));
 
+    // 1. If preferredModel requested and still actively supported by Groq, use it
     if (preferredModel && available.has(preferredModel)) {
       return preferredModel;
     }
 
+    // 2. If preferred was decommissioned mixtral, map to 70B or 8B
     if (preferredModel?.includes("mixtral")) {
       if (available.has("llama-3.3-70b-versatile")) return "llama-3.3-70b-versatile";
       if (available.has("llama-3.1-8b-instant")) return "llama-3.1-8b-instant";
     }
 
+    // 3. Match candidate models in priority order
     for (const candidate of CANDIDATE_GROQ_MODELS) {
       if (available.has(candidate)) {
         return candidate;
@@ -237,95 +246,63 @@ async function resolveGroqModel(groq: Groq, preferredModel?: string): Promise<st
   return "llama-3.1-8b-instant";
 }
 
-// Canonical Gemini Models: Strictly official, valid identifiers
-export function normalizeGeminiModel(model?: string): string {
-  if (!model) return "gemini-3.1-flash-lite";
-  const m = model.toLowerCase().trim();
-
-  // Normalize legacy and draft aliases to valid models
-  if (
-    m === "gemini-3.5-flash-lite" ||
-    m === "gemini-3.5-flash" ||
-    m === "gemini-3.6-flash" ||
-    m === "gemini-3.4-flash" ||
-    m === "gemini-2.0-flash" ||
-    m === "gemini-2.5-flash" ||
-    m === "gemini-1.5-flash" ||
-    m === "gemini-flash"
-  ) {
-    return "gemini-3.1-flash-lite";
-  }
-
-  if (
-    m === "gemini-3.7-flash" ||
-    m === "gemini-pro" ||
-    m === "gemini-1.5-pro" ||
-    m === "gemini-3.1-pro-preview" ||
-    m === "gemini-3.1-pro"
-  ) {
-    return "gemini-3.8-flash";
-  }
-
-  if (
-    m === "gemini-3.8-flash" ||
-    m === "gemini-3.1-flash-lite" ||
-    m === "gemini-flash-latest" ||
-    m === "gemini-4-argon"
-  ) {
-    return m;
-  }
-
-  return "gemini-3.1-flash-lite";
-}
-
-const GEMINI_PRIMARY_MODEL = "gemini-3.1-flash-lite";
+// Primary Gemini model cascade: default to high-availability gemini-3.8-flash
+const GEMINI_PRIMARY_MODEL = "gemini-3.8-flash";
 const GEMINI_MODELS_CASCADE = [
-  "gemini-3.1-flash-lite",
   "gemini-3.8-flash",
+  "gemini-3.5-flash-lite",
+  "gemini-3.5-flash",
   "gemini-flash-latest",
+  "gemini-3.7-flash",
 ];
 
-// --- Real-Time Search Tool ---
-async function performRealtimeSearch(query: string): Promise<{
+// Real-Time Web Search & Grounding Engine (Google News RSS + Wikipedia Facts)
+interface LiveSearchResult {
   citations: { title: string; uri: string }[];
   snippets: string[];
-}> {
+}
+
+async function performRealtimeSearch(query: string): Promise<LiveSearchResult> {
   const citations: { title: string; uri: string }[] = [];
   const snippets: string[] = [];
+  const cleanQuery =
+    query
+      .replace(/(search for|who is|what is|tell me about|find news about|latest news on|can you search|please search)\s+/gi, "")
+      .trim() || query.trim();
 
-  const cleanQuery = query.replace(/[^\w\s-]/gi, " ").trim().slice(0, 150);
-  if (!cleanQuery) return { citations, snippets };
-
+  // 1. Wikipedia Fact Retrieval
   try {
-    const wikiUrl = `https://en.wikipedia.org/w/api.php?action=opensearch&search=${encodeURIComponent(
-      cleanQuery
-    )}&limit=3&namespace=0&format=json`;
-    const res = await fetch(wikiUrl, {
-      headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) IntelicatAI/2.0" },
-      signal: AbortSignal.timeout(2500),
-    });
-    const data = await res.json();
-    const titles = data[1] || [];
-    const descs = data[2] || [];
-    const urls = data[3] || [];
-
-    for (let i = 0; i < titles.length; i++) {
-      if (titles[i] && urls[i]) {
-        citations.push({ title: titles[i], uri: urls[i] });
-        if (descs[i]) {
-          snippets.push(`[Wikipedia: ${titles[i]}]: ${descs[i]}`);
+    const wikiUrl = `https://en.wikipedia.org/w/api.php?action=opensearch&search=${encodeURIComponent(cleanQuery)}&limit=3&namespace=0&format=json`;
+    const res = await fetch(wikiUrl, { signal: AbortSignal.timeout(2200) });
+    const data: any = await res.json();
+    if (data && Array.isArray(data[1]) && data[1].length > 0) {
+      for (let i = 0; i < Math.min(2, data[1].length); i++) {
+        const title = data[1][i];
+        const pageUrl = data[3]?.[i] || `https://en.wikipedia.org/wiki/${encodeURIComponent(title)}`;
+        try {
+          const sumRes = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`, {
+            signal: AbortSignal.timeout(1800),
+          });
+          const sumData: any = await sumRes.json();
+          if (sumData?.extract) {
+            citations.push({ title: sumData.title || title, uri: pageUrl });
+            snippets.push(`[Source: ${sumData.title || title}](${pageUrl}): ${sumData.extract}`);
+          }
+        } catch {
+          citations.push({ title, uri: pageUrl });
         }
       }
     }
   } catch (wikiErr) {
-    console.warn("Wiki search notice:", wikiErr);
+    console.warn("Wiki search fallback notice:", wikiErr);
   }
 
+  // 2. Google News Live Headlines
   try {
     const newsUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(cleanQuery)}&hl=en-US&gl=US&ceid=US:en`;
     const res = await fetch(newsUrl, {
       headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" },
-      signal: AbortSignal.timeout(2500),
+      signal: AbortSignal.timeout(2200),
     });
     const xml = await res.text();
     const itemRegex = /<item>[\s\S]*?<title>([\s\S]*?)<\/title>[\s\S]*?<link>([\s\S]*?)<\/link>[\s\S]*?<pubDate>([\s\S]*?)<\/pubDate>/g;
@@ -342,7 +319,7 @@ async function performRealtimeSearch(query: string): Promise<{
       }
     }
   } catch (newsErr) {
-    console.warn("News RSS notice:", newsErr);
+    console.warn("News RSS fallback notice:", newsErr);
   }
 
   return { citations, snippets };
@@ -396,6 +373,7 @@ function formatGeminiContents(messages: ValidatedMessage[]): any[] {
             });
           }
         } else {
+          // Efficient document context: use extracted text or excerpt
           const docText = att.extractedText || att.data;
           const excerpt = docText.length > 8000 ? docText.slice(0, 8000) + "\n...[truncated for token efficiency]" : docText;
           parts.push({
@@ -492,6 +470,29 @@ function formatGroqMessages(
   return result;
 }
 
+function formatGradeLabel(grade: string): string {
+  switch (grade) {
+    case "class-1-5":
+      return "Elementary (Class 1-5)";
+    case "class-6":
+      return "Class 6";
+    case "class-7":
+      return "Class 7 (Middle School)";
+    case "class-8":
+      return "Class 8";
+    case "class-9":
+      return "Class 9";
+    case "class-10":
+      return "Class 10";
+    case "class-11-12":
+      return "High School (Class 11-12)";
+    case "college":
+      return "College / University";
+    default:
+      return "Class 7";
+  }
+}
+
 function getSystemInstruction(
   mode: string,
   studyGrade?: string,
@@ -524,55 +525,87 @@ function getSystemInstruction(
       baseInstruction = `You are IntelicatAI in Web Search Mode.
 - Deliver up-to-date, fact-checked information synthesized clearly and objectively.
 - Always organize results logically with a concise summary, key facts/bullet points, and references to credible sources.
-- Highlight verifiable facts, dates, scores, and recent developments.`;
+- Highlight verifiable facts, dates, scores, and recent developments.
+- When live web search snippets or news headlines are provided, synthesize them directly and cite the source URLs accurately.`;
       break;
 
     case "creative":
       baseInstruction = `You are IntelicatAI in Creative Mode.
 - Unleash imaginative storytelling, engaging writing, innovative brainstorming, and vivid analogies.
-- Balance creative flair with articulate expression, humor, and originality.`;
+- Balance creative flair with articulate expression, humor, and originality.
+- Adapt tone to fit stories, scripts, essays, naming ideas, or creative campaigns.`;
       break;
 
     case "coding":
     case "cat-code":
       baseInstruction = `You are IntelicatAI, an Elite Principal Software Architect & World-Class Creative Frontend Engineer.
-- High-Performance & Direct: Deliver concise, clean, production-grade code immediately. Zero fluff, zero unnecessary prelude.
+- High-Performance & Direct: Deliver concise, clean, production-grade code immediately. Zero fluff, zero unnecessary prelude, and zero chatty intros.
 - Code-First Priority:
-  1. For algorithms, functions, scripts, backend endpoints: Immediately output clean, fully-typed code.
-  2. For web apps & interactive tools: Output full <!DOCTYPE html><html lang="en">...<script>...</script></html> in a single \`\`\`html block with Tailwind CSS.`;
+  1. For algorithms, functions, scripts, backend endpoints, and bug fixes: Immediately output the clean, fully-typed, optimized code block (TypeScript, Python, Go, Rust, SQL, etc.). Follow with a brief 2-3 bullet explanation of time/space complexity and edge cases.
+  2. LIVE WEBSITE & WEB APP CREATION (World-Class Aesthetics & Instant Interactive Previews):
+     When the user asks to build, design, code, or create ANY website, web app, landing page, tool, calculator, game, dashboard, portfolio, or UI:
+     - Output the ENTIRE runnable application inside a SINGLE \`\`\`html code block.
+     - Include full <!DOCTYPE html><html lang="en" class="dark"><head>...</head><body class="bg-slate-950 text-slate-100 min-h-screen">...<script>...</script></body></html>.
+     - VISUAL DESIGN EXCELLENCE (Anti-Boring, Production-Grade):
+       * Always include <script src="https://cdn.tailwindcss.com"></script> and modern typography like Plus Jakarta Sans or Inter.
+       * Style with a cohesive modern palette: deep dark slate/zinc background (#090d16 / #0b0f19), subtle glassmorphism cards (backdrop-blur-md bg-white/[0.04] border border-white/10), vibrant accents (indigo/violet, cyan, or emerald), glowing gradients, smooth hover/active transitions, and pill badges.
+       * Include Lucide Icons via inline SVG or FontAwesome for polished visual hierarchy.
+       * State & Interactivity: Include clean inline JavaScript logic with state, working buttons, sound/visual feedback, keyboard shortcuts where applicable, and tabs or modals.
+       * Viewport Responsive: Must look breathtaking on mobile, tablet, and desktop screens.
+       * Token Efficiency: Be concise, dense, and clean. Never include dummy filler comments, repeated lorem ipsum paragraphs, or useless boilerplate.
+       * The chat interface automatically launches the interactive Live Website Preview sandbox (with responsive Desktop, Tablet, and Mobile viewport modes and split screen), allowing the user to preview and interact with the website in real time just like Google AI Studio!
+       * Never use placeholders like "// implement later" or "<!-- add code here -->" — build the real, functioning app.
+  3. Clean formatting: Use standard markdown with explicit language tags (e.g. \`\`\`html, \`\`\`typescript, \`\`\`python).`;
       break;
 
     case "study":
-      baseInstruction = `You are IntelicatAI in Study & Homework Tutor Mode.
+      const gradeLabel = studyGrade ? formatGradeLabel(studyGrade) : "Class 7";
+      baseInstruction = `You are IntelicatAI in Study & Homework Tutor Mode, currently tailored for: **${gradeLabel}**.
 - Provide pedagogical, encouraging, and age-appropriate explanations.
-- Help students truly understand concepts with step-by-step guidance.`;
+- Help students truly understand concepts rather than just giving raw answers.
+- When solving homework problems:
+  1. Identify the given information and what needs to be solved.
+  2. Explain the governing formula or rule in simple terms.
+  3. Provide step-by-step working with clear intermediate steps.
+  4. State the final answer with units.
+  5. Provide a quick check or practice tip.
+- Support quizzes (with questions, options, and explanations), flashcards, and concept summaries when requested.
+- Use encouraging, positive tutoring tone suitable for ${gradeLabel} students.`;
       break;
 
     case "sassy-cat":
       baseInstruction = `You are IntelicatAI in Sassy Cat Mode 🐱🐾!
 - Persona: You are an outrageously sassy, hilarious, dramatic, highly intelligent, and playfully attitude-filled feline AI assistant.
-- Speech & Voice Style: Interject playful feline actions like "Meow~", "*flicks tail*", "*paws gracefully*", "PURRR...", and funny cat puns.`;
+- Speech & Voice Style: Interject frequent dramatic "Meow~", "Meow meow!", "PURRRR...", "*feline glare*", "*paws gracefully*", "*flicks tail*", "Hmph!", "Nyan!", and funny feline puns ("paws-itively", "fur-real", "claw-ver", "cat-astrophic", "meow-velous").
+- Behavior: Give direct, accurate, and helpful answers to whatever the human asks, but wrap your response with hilarious cat personality, witty commentary, dramatic cat actions in asterisks, and plenty of meows!
+- Example intro: "Meow~ *yawns and stretches claws* You dare ask the mighty Sassy Cat AI? Fine, human, I suppose I shall answer... Meow meow!"`;
       break;
 
     case "normal":
     default:
       baseInstruction = `You are IntelicatAI — a helpful, versatile, friendly, and ultra-fast conversational companion.
 - Designed to have natural, engaging, and thoughtful discussions on any topic.
-- Speak with warm intelligence, clarity, and empathy.`;
+- Speak with warm intelligence, clarity, and empathy.
+- Format responses cleanly with Markdown, clear paragraphs, and bullet points.`;
       break;
   }
 
+  // Universal Symbol & Math Readability Directive
   baseInstruction += `\n\n[Formatting Directives]:
-- Output clean Unicode symbols directly for arrows and math (e.g. →, ⇒, ←, ↔, ×, ÷, ±, ≤, ≥, ≠, ≈, °, ², ³, √(x)) instead of raw unrendered LaTeX markers.`;
+- Output clean Unicode symbols directly for arrows, transitions, and math (e.g. →, ⇒, ←, ↔, ×, ÷, ±, ≤, ≥, ≠, ≈, °, ², ³, √(x)) instead of raw LaTeX code like $\\rightarrow$ or $\\times$.
+- Never output raw unrendered LaTeX markers for simple arrows or equations.`;
 
+  // Append Space Context if active
   if (spaceContext && spaceContext.trim()) {
     baseInstruction += `\n\n[Active Project Space Context & Instructions]:\n${spaceContext.trim()}`;
   }
 
+  // Append Active Memories Context if enabled
   if (memoriesContext && memoriesContext.trim()) {
-    baseInstruction += `\n\n[User Memory Context]:\n${memoriesContext.trim()}`;
+    baseInstruction += `\n\n[User Memory Context — Personalize responses based on these known facts]:\n${memoriesContext.trim()}`;
   }
 
+  // Append Real-time Web Search Grounding Context if retrieved
   if (liveSearchContext && liveSearchContext.trim()) {
     baseInstruction += `\n\n[Verified Real-Time Search Results & Live Facts]:\n${liveSearchContext.trim()}\n\n[Directive]: Synthesize these up-to-date facts accurately into your response and cite key sources.`;
   }
@@ -597,13 +630,10 @@ function formatCleanErrorMessage(error: any): string {
   }
 
   if (msg.includes("RESOURCE_EXHAUSTED") || msg.includes("quota") || msg.includes("429")) {
-    return "API daily quota limit reached on this deployment. You can switch to Groq LPU (Ultra-Fast) in model settings, or enter a free Groq key in the ⚡ Engine menu!";
+    return "Gemini API daily quota limit reached. You can switch to Groq LPU (Ultra-Fast) in model settings, or continue using non-AI features like Spaces, Notes, and Flashcards!";
   }
   if (msg.includes("503") || msg.includes("UNAVAILABLE") || msg.includes("high demand")) {
-    return "Google Gemini's public API is temporarily experiencing peak high demand (503 Service Unavailable). This is usually brief. Tap 'Retry Response' in 15-30s, or paste a free Groq key from console.groq.com in the ⚡ Engine menu to chat instantly with zero wait!";
-  }
-  if (msg.includes("PERMISSION_DENIED") || msg.includes("insufficient authentication scopes") || msg.includes("403") || msg.includes("ACCESS_TOKEN_SCOPE_INSUFFICIENT")) {
-    return "Gemini API key is not configured or lacks permission on this deployment. Please verify your GEMINI_API_KEY in the Settings > Secrets panel or environment variables, or switch to Groq in the ⚡ Engine menu!";
+    return "The AI model is experiencing high demand. Please retry in a moment.";
   }
   if (msg.includes("API_KEY") || msg.includes("API key not valid")) {
     return "API key authentication issue. Please verify your API key in Settings.";
@@ -613,7 +643,8 @@ function formatCleanErrorMessage(error: any): string {
 }
 
 // --- Main Chat Handler ---
-export default async function chatHandler(req: any, res: any) {
+export default async function handler(req: any, res: any) {
+  // CORS Headers
   res.setHeader("Access-Control-Allow-Credentials", "true");
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS,PATCH,DELETE,POST,PUT");
@@ -682,6 +713,8 @@ export default async function chatHandler(req: any, res: any) {
       verificationEnabled: reqVerificationEnabled,
     } = parsedBody || {};
 
+    // Think Engine 1.0 Settings Resolution:
+    // Defaults: Normal Chat enabled, Deep Think enabled at higher depth, Fast Mode disabled.
     const isFastMode = mode === "fast";
     const isDeepThink = mode === "deep-think";
     const thinkEnabled = typeof reqThinkEnabled === "boolean" ? reqThinkEnabled : !isFastMode;
@@ -693,6 +726,7 @@ export default async function chatHandler(req: any, res: any) {
       return res.status(400).json({ error: "Messages array is required." });
     }
 
+    // Determine effective user plan tier strictly
     let effectiveTier: "free" | "pro" | "elite" | "founder" | "owner" = "free";
     if (requestedUserTier === "owner" || isVipOrFounder) {
       effectiveTier = "founder";
@@ -706,9 +740,10 @@ export default async function chatHandler(req: any, res: any) {
       effectiveTier = "free";
     }
 
+    // Server-side strict quota check (tracked per userId or client IP)
     const trackingKey = (userId && typeof userId === "string" && userId.trim() !== "")
       ? userId.trim()
-      : ((req.headers["x-forwarded-for"] as string) || req.socket?.remoteAddress || "anonymous_client");
+      : ((req.headers["x-forwarded-for"] as string) || req.socket.remoteAddress || "anonymous_client");
 
     const quotaCheck = checkAndIncrementQuota(trackingKey, effectiveTier);
     if (!quotaCheck.allowed) {
@@ -717,9 +752,28 @@ export default async function chatHandler(req: any, res: any) {
       });
     }
 
-    // Always normalize model to official, valid Gemini identifier
-    const normalizedModel = normalizeGeminiModel(requestedModel);
+    // Normalize requested Gemini models (mapping legacy aliases)
+    let effectiveGeminiModel = requestedModel;
+    if (
+      effectiveGeminiModel === "gemini-3.1-pro-preview" ||
+      effectiveGeminiModel === "gemini-3.1-pro" ||
+      effectiveGeminiModel === "gemini-pro" ||
+      effectiveGeminiModel === "gemini-2.0-flash" ||
+      effectiveGeminiModel === "gemini-2.5-flash" ||
+      effectiveGeminiModel === "gemini-3.4-flash" ||
+      !effectiveGeminiModel
+    ) {
+      effectiveGeminiModel = effectiveGeminiModel ? "gemini-3.5-flash-lite" : "gemini-3.5-flash-lite";
+    }
 
+    // Verify model authorization based on plan tier
+    if (effectiveGeminiModel) {
+      if (effectiveGeminiModel === "gemini-3.8-flash" && effectiveTier === "free" && !thinkEnabled) {
+        effectiveGeminiModel = "gemini-3.5-flash-lite";
+      }
+    }
+
+    // Determine custom Groq Key from header or body or env
     const headerGroqKey = (req.headers["x-groq-api-key"] as string) || "";
     const effectiveGroqKey = (customGroqKey || bodyGroqKey || headerGroqKey || process.env.GROQ_API_KEY || "").trim();
     const hasGroqKey = effectiveGroqKey.length > 0;
@@ -739,8 +793,11 @@ export default async function chatHandler(req: any, res: any) {
     );
     const hasImageAttachments = hasMediaAttachments;
 
+    // Provider routing logic with explicit model and search matching
     let activeProvider = requestedProvider;
-    if (isSearchRequested || hasMediaAttachments) {
+    if (isSearchRequested) {
+      activeProvider = "gemini";
+    } else if (hasMediaAttachments) {
       activeProvider = "gemini";
     } else if (requestedModel) {
       if (requestedModel.startsWith("gemini-")) {
@@ -748,7 +805,6 @@ export default async function chatHandler(req: any, res: any) {
       } else if (
         requestedModel.startsWith("llama-") ||
         requestedModel.startsWith("mixtral-") ||
-        requestedModel.startsWith("deepseek-") ||
         requestedModel.startsWith("gemma")
       ) {
         activeProvider = "groq";
@@ -756,10 +812,14 @@ export default async function chatHandler(req: any, res: any) {
     }
 
     if (activeProvider === "auto") {
-      if (isSearchRequested || hasMediaAttachments) {
+      if (isSearchRequested) {
+        activeProvider = "gemini";
+      } else if (hasMediaAttachments) {
         activeProvider = "gemini";
       } else if (mode === "fast" && hasGroqKey) {
         activeProvider = "groq";
+      } else if (thinkEnabled) {
+        activeProvider = "gemini";
       } else if (hasGroqKey) {
         activeProvider = "groq";
       } else {
@@ -769,16 +829,13 @@ export default async function chatHandler(req: any, res: any) {
       activeProvider = "gemini";
     }
 
+    // Fallback if requested provider key is missing
     let groqFailReason: string | null = null;
     if (activeProvider === "groq" && !hasGroqKey) {
-      if (hasGeminiKey) {
-        groqFailReason = "Groq API key not configured. Auto-routed to Gemini Flash";
-        activeProvider = "gemini";
-      }
+      groqFailReason = "Groq API key is not configured. Add your free Groq key from console.groq.com in Model Settings";
+      activeProvider = hasGeminiKey ? "gemini" : "groq";
     } else if (activeProvider === "gemini" && !hasGeminiKey) {
-      if (hasGroqKey && !hasImageAttachments) {
-        activeProvider = "groq";
-      }
+      activeProvider = hasGroqKey && !hasImageAttachments ? "groq" : "gemini";
     }
 
     // Initialize SSE Headers
@@ -789,30 +846,6 @@ export default async function chatHandler(req: any, res: any) {
 
     if (typeof res.flushHeaders === "function") {
       res.flushHeaders();
-    }
-
-    // Guard: If neither Gemini nor Groq key is configured
-    if (!hasGroqKey && !hasGeminiKey) {
-      res.write(
-        `data: ${JSON.stringify({
-          text: `⚠️ **API Key Configuration Required**\n\nNo API keys were detected in the environment.\n\n### Quick Solution:\n1. Open the **⚡ Engine** menu at the top of the chat.\n2. Paste your free Groq API key from [console.groq.com](https://console.groq.com).\n3. Or configure \`GEMINI_API_KEY\` / \`GROQ_API_KEY\` in your environment variables.`,
-          provider: "system",
-        })}\n\n`
-      );
-      res.write("data: [DONE]\n\n");
-      return res.end();
-    }
-
-    // Guard: Groq requested with no key and Gemini not available
-    if (activeProvider === "groq" && !hasGroqKey) {
-      res.write(
-        `data: ${JSON.stringify({
-          text: `⚠️ **Groq API Key Required**\n\nYou selected **${requestedModel || "Groq Model"}**, but no Groq API key is configured.\n\n- Click the **⚡ Engine** menu at the top to paste your free Groq key from [console.groq.com](https://console.groq.com).\n- Or switch to Google Gemini from the model menu!`,
-          provider: "system",
-        })}\n\n`
-      );
-      res.write("data: [DONE]\n\n");
-      return res.end();
     }
 
     const systemInstruction = getSystemInstruction(mode, studyGrade, spaceContext, memoriesContext);
@@ -846,38 +879,19 @@ export default async function chatHandler(req: any, res: any) {
         }
       } catch (groqErr: any) {
         console.warn("Groq streaming error:", groqErr?.message);
-        groqFailReason = `Groq API notice (${groqErr?.message || "connection/rate limit failure"})`;
+        groqFailReason = `Groq API error (${groqErr?.message || "connection/rate limit failure"})`;
         if (!streamStarted && hasGeminiKey) {
           activeProvider = "gemini";
-        } else if (!streamStarted) {
-          const cleanMsg = formatCleanErrorMessage(groqErr);
-          res.write(
-            `data: ${JSON.stringify({
-              text: `⚠️ **Groq Engine Notice:** ${cleanMsg}\n\n*Tip: Check your API key in the ⚡ Engine menu, or switch to Gemini.*`,
-              provider: "groq",
-            })}\n\n`
-          );
-          res.write("data: [DONE]\n\n");
-          return res.end();
         } else {
-          res.write(`data: ${JSON.stringify({ text: `\n\n*[Notice: Response interrupted due to Groq rate limit or connection reset.]*` })}\n\n`);
-          res.write("data: [DONE]\n\n");
-          return res.end();
+          throw groqErr;
         }
       }
     }
 
-    // --- Provider 2: Gemini ---
+    // --- Provider 2: Gemini (Resilient multi-model cascade on temporary 503/high demand) ---
     if (activeProvider === "gemini") {
       if (!hasGeminiKey) {
-        res.write(
-          `data: ${JSON.stringify({
-            text: `⚠️ **Gemini API Key Required**\n\nTo talk to Google Gemini models, please configure \`GEMINI_API_KEY\` in your environment variables.\n\n*Tip: You can also switch to Groq from the ⚡ Engine menu at the top of the chat window!*`,
-            provider: "system",
-          })}\n\n`
-        );
-        res.write("data: [DONE]\n\n");
-        return res.end();
+        throw new Error("GEMINI_API_KEY is not configured.");
       }
 
       const ai = getAiClient();
@@ -905,7 +919,7 @@ export default async function chatHandler(req: any, res: any) {
             liveSearchFacts = liveSearch.snippets.join("\n\n");
           }
         } catch (searchErr) {
-          console.warn("Real-time web search error:", searchErr);
+          console.warn("Real-time web search retrieval error:", searchErr);
         }
       }
 
@@ -924,11 +938,11 @@ export default async function chatHandler(req: any, res: any) {
 
       let lastGeminiError: any = null;
 
-      const primaryTargetModel = normalizedModel;
-      const candidateModels = [
-        primaryTargetModel,
-        ...GEMINI_MODELS_CASCADE.filter((m) => m !== primaryTargetModel),
-      ];
+      const primaryTargetModel = effectiveGeminiModel || requestedModel;
+      const candidateModels =
+        primaryTargetModel && primaryTargetModel.startsWith("gemini-")
+          ? [primaryTargetModel, ...GEMINI_MODELS_CASCADE.filter((m) => m !== primaryTargetModel)]
+          : GEMINI_MODELS_CASCADE;
 
       // --- Think Engine 1.0 Execution ---
       let thinkEngineRan = false;
@@ -949,6 +963,7 @@ export default async function chatHandler(req: any, res: any) {
           }
 
           if (resolvedDepth === "FAST") {
+            // FAST Level: minimal extra processing. Quick requests skip verification and correction completely.
             res.write(
               `data: ${JSON.stringify({
                 statusStep: "thinking",
@@ -983,7 +998,9 @@ export default async function chatHandler(req: any, res: any) {
             if (typeof (res as any).flush === "function") {
               (res as any).flush();
             }
+            // Hand off directly to streaming loop below
           } else {
+            // STANDARD / DEEP / INTENSIVE Level
             res.write(
               `data: ${JSON.stringify({
                 statusStep: "thinking",
@@ -995,12 +1012,22 @@ export default async function chatHandler(req: any, res: any) {
               (res as any).flush();
             }
 
-            const candidateThinkModel = primaryTargetModel || "gemini-3.1-flash-lite";
+            const thinkConfig = SERVER_THINK_CONFIG[resolvedDepth];
+            const candidateThinkModel = primaryTargetModel || candidateModels[0] || "gemini-3.8-flash";
 
             const thinkModelConfig: any = {
               ...geminiConfig,
             };
+            if (
+              candidateThinkModel.startsWith("gemini-3.8-flash") ||
+              candidateThinkModel.startsWith("gemini-3.7-flash")
+            ) {
+              thinkModelConfig.thinkingConfig = {
+                thinkingLevel: thinkConfig.geminiThinkingLevel,
+              };
+            }
 
+            // Generate draft with controlled timeout
             let draftResponse: any = null;
             let draftTimedOut = false;
             try {
@@ -1013,22 +1040,46 @@ export default async function chatHandler(req: any, res: any) {
                 new Promise((_, reject) =>
                   setTimeout(() => {
                     draftTimedOut = true;
-                    reject(new Error("Think Engine draft generation timed out (8s limit)"));
-                  }, 8000)
+                    reject(new Error("Think Engine draft generation timed out"));
+                  }, 38000)
                 ),
               ]);
             } catch (draftErr: any) {
               const isTimeout = draftTimedOut || (typeof draftErr?.message === "string" && draftErr.message.includes("timed out"));
               if (isTimeout) {
-                console.warn("Think Engine draft timed out (8s limit), handing over to streaming cascade.");
-              } else {
-                console.warn("Think Engine draft notice:", draftErr?.message);
+                console.warn("Think Engine draft timed out. Handing over directly to streaming cascade.");
+                res.write(
+                  `data: ${JSON.stringify({
+                    text: "*[Notice: Deep reasoning stage timed out under heavy load. Seamlessly handed over to normal response pipeline.]*\n\n",
+                    provider: "gemini",
+                  })}\n\n`
+                );
+                if (typeof (res as any).flush === "function") {
+                  (res as any).flush();
+                }
+                // Leave thinkEngineRan = false so execution seamlessly streams from candidateModels below!
+              }
+
+              // If parameter error (thinkingConfig unsupported by candidate), try once without thinkingConfig
+              if (thinkModelConfig.thinkingConfig && (draftErr?.status === 400 || draftErr?.message?.includes("thinkingConfig"))) {
+                console.warn("Model does not support thinkingConfig, retrying without thinkingConfig...");
+                delete thinkModelConfig.thinkingConfig;
+                try {
+                  draftResponse = await ai.models.generateContent({
+                    model: candidateThinkModel,
+                    contents: formattedContents,
+                    config: thinkModelConfig,
+                  });
+                } catch (retryErr) {
+                  console.warn("Think draft fallback failed:", retryErr);
+                }
               }
             }
 
             const draftText = (draftResponse?.text || "").trim();
 
             if (draftText && !clientDisconnected) {
+              // Real Verification Stage
               res.write(
                 `data: ${JSON.stringify({
                   statusStep: "verifying",
@@ -1049,44 +1100,55 @@ export default async function chatHandler(req: any, res: any) {
               let checks = verificationResult.checks;
               let correctionApplied = false;
 
-              if (!verificationResult.passed && verificationResult.issues.length > 0) {
-                try {
-                  const correction = await runCorrectionStep(
-                    ai,
-                    lastUserQuery,
-                    draftText,
-                    verificationResult.issues,
-                    effectiveSystemInstruction,
-                    candidateThinkModel
-                  );
-                  if (correction.correctedText) {
-                    finalText = correction.correctedText;
-                    finalStatus = "corrected";
-                    correctionApplied = true;
-                    checks = correction.checks;
-                  }
-                } catch {
-                  // Keep draft
+              // Real Correction Stage (if verification failed)
+              if (!verificationResult.passed && !clientDisconnected) {
+                res.write(
+                  `data: ${JSON.stringify({
+                    statusStep: "correcting",
+                    stepLabel: "Refining response based on verification issues...",
+                  })}\n\n`
+                );
+                if (typeof (res as any).flush === "function") {
+                  (res as any).flush();
                 }
+
+                const correction = await runCorrectionStep(
+                  ai,
+                  lastUserQuery,
+                  draftText,
+                  verificationResult.issues,
+                  effectiveSystemInstruction,
+                  candidateThinkModel
+                );
+
+                finalText = correction.correctedText;
+                finalStatus = correction.verified ? "corrected" : "unverified";
+                checks = correction.checks;
+                correctionApplied = true;
               }
+
+              // Send final ready status step & verificationSummary
+              const verificationSummary: ThinkVerificationSummary = {
+                status: finalStatus,
+                depth: resolvedDepth,
+                classifiedComplexity: classification.reason,
+                checks,
+                correctionApplied,
+                durationMs: Date.now() - thinkStartMs,
+                timestamp: new Date().toISOString(),
+              };
 
               res.write(
                 `data: ${JSON.stringify({
-                  verificationSummary: {
-                    status: finalStatus,
-                    depth: resolvedDepth,
-                    classifiedComplexity: classification.reason,
-                    checks,
-                    correctionApplied,
-                    durationMs: Date.now() - thinkStartMs,
-                    timestamp: new Date().toISOString(),
-                  },
+                  statusStep: "ready",
+                  verificationSummary,
                 })}\n\n`
               );
               if (typeof (res as any).flush === "function") {
                 (res as any).flush();
               }
 
+              // Stream final verified answer smoothly chunk by chunk
               const chunkSize = 28;
               for (let i = 0; i < finalText.length; i += chunkSize) {
                 if (clientDisconnected) break;
@@ -1109,11 +1171,22 @@ export default async function chatHandler(req: any, res: any) {
             }
           }
         } catch (thinkErr: any) {
-          console.warn("Think Engine notice, continuing to streaming pipeline:", thinkErr?.message);
+          console.warn(
+            "Think Engine encountered an issue, falling back to direct stream pipeline:",
+            thinkErr?.message
+          );
+          res.write(
+            `data: ${JSON.stringify({
+              text: "*[Notice: Reasoning stage timed out or high demand. Handed over to normal response pipeline.]*\n\n",
+              provider: "gemini",
+            })}\n\n`
+          );
+          if (typeof (res as any).flush === "function") {
+            (res as any).flush();
+          }
         }
       }
 
-      // Streaming loop across candidate models
       for (let modelIdx = 0; modelIdx < candidateModels.length && !thinkEngineRan; modelIdx++) {
         const candidateModel = candidateModels[modelIdx];
         try {
@@ -1155,7 +1228,7 @@ export default async function chatHandler(req: any, res: any) {
                 if (groqFailReason) {
                   res.write(
                     `data: ${JSON.stringify({
-                      text: `*[Notice: ${groqFailReason}. Seamlessly handed over to ${candidateModel}! ⚡]*\n\n`,
+                      text: `*[Notice: ${groqFailReason}. Seamlessly handed over to ${candidateModel} for zero delay! ⚡]*\n\n`,
                       provider: "gemini",
                       model: candidateModel,
                     })}\n\n`
@@ -1163,7 +1236,7 @@ export default async function chatHandler(req: any, res: any) {
                 } else if (requestedModel && requestedModel.startsWith("gemini-") && candidateModel !== requestedModel) {
                   res.write(
                     `data: ${JSON.stringify({
-                      text: `*[Notice: Switched to ${candidateModel} for high availability! ⚡]*\n\n`,
+                      text: `*[Notice: ${requestedModel} is currently experiencing temporary high demand on Google's servers. Handed over to ${candidateModel} for zero delay! ⚡]*\n\n`,
                       provider: "gemini",
                       model: candidateModel,
                     })}\n\n`
@@ -1183,10 +1256,50 @@ export default async function chatHandler(req: any, res: any) {
             break;
           }
         } catch (candidateErr: any) {
-          console.error(`[Gemini Error] Candidate [${candidateModel}] failed: status=${candidateErr?.status}, message=${candidateErr?.message}`);
+          const isQuotaLimit = candidateErr?.status === 429 ||
+            (typeof candidateErr?.message === 'string' && (candidateErr.message.includes('429') || candidateErr.message.includes('quota') || candidateErr.message.includes('RESOURCE_EXHAUSTED')));
+          
+          if (isQuotaLimit) {
+            console.log(`[Info] Gemini model [${candidateModel}] reached free-tier rate limit (429), attempting next candidate...`);
+          } else {
+            console.log(`[Info] Gemini candidate [${candidateModel}] status: ${candidateErr?.message || 'candidate unavailable'}`);
+          }
           lastGeminiError = candidateErr;
-          if (streamStarted) break;
 
+          // If stream already started, don't attempt another model mid-stream
+          if (streamStarted) {
+            break;
+          }
+
+          // If web search tool caused error or quota 429, fall back to realtime facts and remove tool
+          if (geminiConfig.tools) {
+            delete geminiConfig.tools;
+            if (isSearchRequested && !liveSearchFacts && lastUserQuery) {
+              try {
+                const liveSearch = await performRealtimeSearch(lastUserQuery);
+                if (liveSearch.citations.length > 0) {
+                  res.write(`data: ${JSON.stringify({ citations: liveSearch.citations })}\n\n`);
+                  if (typeof (res as any).flush === "function") {
+                    (res as any).flush();
+                  }
+                }
+                if (liveSearch.snippets.length > 0) {
+                  liveSearchFacts = liveSearch.snippets.join("\n\n");
+                  geminiConfig.systemInstruction = getSystemInstruction(
+                    mode,
+                    studyGrade,
+                    spaceContext,
+                    memoriesContext,
+                    liveSearchFacts
+                  );
+                }
+              } catch (fallbackErr) {
+                console.warn("Fallback realtime search error:", fallbackErr);
+              }
+            }
+          }
+
+          // Brief 200ms pause before trying next candidate
           if (modelIdx < candidateModels.length - 1) {
             await new Promise((resolve) => setTimeout(resolve, 200));
           }
@@ -1194,12 +1307,13 @@ export default async function chatHandler(req: any, res: any) {
       }
 
       if (!streamStarted && lastGeminiError) {
-        console.warn("All Gemini candidates encountered errors, checking Groq failover...");
+        console.warn("All Gemini candidates failed, checking Groq fallback...");
+        // If quota exhausted and Groq key is available, seamlessly failover to Groq!
         if (hasGroqKey && !hasImageAttachments) {
           try {
             res.write(
               `data: ${JSON.stringify({
-                text: "*[Notice: Gemini quota limit reached on this deployment. Seamlessly switched to Groq LPU engine to finish your response! ⚡]*\n\n",
+                text: "*[Notice: Gemini experiencing temporary high demand. Seamlessly switched to Groq LPU engine to finish your response! ⚡]*\n\n",
                 provider: "groq",
               })}\n\n`
             );
@@ -1224,23 +1338,14 @@ export default async function chatHandler(req: any, res: any) {
               }
             }
           } catch (groqFallbackErr) {
-            console.warn("Groq failover notice:", groqFallbackErr);
-            const cleanErr = formatCleanErrorMessage(lastGeminiError);
-            res.write(
-              `data: ${JSON.stringify({
-                text: `⚠️ **Notice:** ${cleanErr}\n\n*Tip: You can switch models using the ⚡ Engine menu at the top, or enter your personal Groq key.*`,
-                provider: "system",
-              })}\n\n`
-            );
-            if (typeof (res as any).flush === "function") {
-              (res as any).flush();
-            }
+            throw lastGeminiError;
           }
         } else {
+          // Gracefully stream quota / error notice instead of throwing error
           const cleanErr = formatCleanErrorMessage(lastGeminiError);
           res.write(
             `data: ${JSON.stringify({
-              text: `⚠️ **Quota / Service Notice:** ${cleanErr}\n\n*Tip: Click the ⚡ Engine menu at the top of the chat to enter a free Groq API key (from console.groq.com) or switch to another model to continue chatting uninterrupted!*`,
+              text: `⚠️ **Notice:** ${cleanErr}\n\n*Tip: You can switch to another model using the ⚡ Engine menu at the top, or continue working with your saved Project Spaces, Notes, and Code Scratchpads!*`,
               provider: "system",
             })}\n\n`
           );
@@ -1256,30 +1361,16 @@ export default async function chatHandler(req: any, res: any) {
   } catch (error: any) {
     console.error("Chat API Error:", error);
     const safeMessage = formatCleanErrorMessage(error);
+    const statusCode =
+      typeof error?.status === "number" && error.status >= 400 && error.status < 600
+        ? error.status
+        : 500;
 
-    try {
-      if (!res.headersSent) {
-        res.setHeader("Content-Type", "text/event-stream");
-        res.setHeader("Cache-Control", "no-cache, no-transform");
-        res.setHeader("Connection", "keep-alive");
-        res.setHeader("X-Accel-Buffering", "no");
-        if (typeof res.flushHeaders === "function") {
-          res.flushHeaders();
-        }
-      }
-      res.write(
-        `data: ${JSON.stringify({
-          text: `⚠️ **Engine Notice:** ${safeMessage}\n\n*Tip: Tap Retry Response below or switch models in the ⚡ Engine menu.*`,
-          provider: "system",
-        })}\n\n`
-      );
-      res.write("data: [DONE]\n\n");
+    if (!res.headersSent) {
+      res.status(statusCode).json({ error: safeMessage });
+    } else {
+      res.write(`data: ${JSON.stringify({ error: safeMessage })}\n\n`);
       res.end();
-    } catch (finalErr) {
-      console.error("Fatal error handling chat API catch block:", finalErr);
-      if (!res.writableEnded) {
-        res.end();
-      }
     }
   }
 }

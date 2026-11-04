@@ -2,66 +2,155 @@ import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
-import { apiRouter } from "./server/apiRouter";
+import Groq from "groq-sdk";
+import { isSearchQuotaExhausted } from "./server/chatCore";
+import chatHandler from "./api/chat";
+import imageGenHandler from "./api/imageGen";
+import searchServiceHandler from "./api/searchService";
+import { translateHandler } from "./api/translate";
+import { newsFeedHandler, newsSummarizeHandler } from "./api/news";
+import codeAgentHandler from "./api/code-agent";
+import {
+  githubAuthUrlHandler,
+  githubCallbackHandler,
+  githubVerifyTokenHandler,
+  githubConfigureHandler,
+  githubClearConfigHandler,
+} from "./api/githubAuth";
 
 dotenv.config();
 
-export const app = express();
+async function startServer() {
+  const app = express();
+  const PORT = 3000;
 
-// Middleware with size limits to protect against payload denial-of-service
-app.use(express.json({ limit: "15mb" }));
+  // Middleware with size limits to protect against payload denial-of-service
+  app.use(express.json({ limit: "15mb" }));
 
-// Middleware for parsing errors (e.g. malformed JSON payloads)
-app.use((err: any, _req: express.Request, res: express.Response, next: express.NextFunction) => {
-  if (err instanceof SyntaxError && "body" in err) {
-    return res.status(400).json({ error: "Malformed JSON in request body." });
-  }
-  if (err) {
-    console.error("Express middleware error:", err);
-    return res.status(500).json({ error: err.message || "Internal server error" });
-  }
-  next();
-});
+  // Middleware for parsing errors (e.g. malformed JSON payloads)
+  app.use((err: any, _req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (err instanceof SyntaxError && "body" in err) {
+      return res.status(400).json({ error: "Malformed JSON in request body." });
+    }
+    if (err) {
+      console.error("Express middleware error:", err);
+      return res.status(500).json({ error: err.message || "Internal server error" });
+    }
+    next();
+  });
 
-// SEO & Crawler routes to guarantee instant 200 OK delivery
-app.get("/robots.txt", (_req, res) => {
-  res.type("text/plain").sendFile(path.join(process.cwd(), "public", "robots.txt"));
-});
-app.get("/sitemap.xml", (_req, res) => {
-  res.type("application/xml").sendFile(path.join(process.cwd(), "public", "sitemap.xml"));
-});
-app.get("/llms.txt", (_req, res) => {
-  res.type("text/plain; charset=utf-8").sendFile(path.join(process.cwd(), "public", "llms.txt"));
-});
-app.get("/llms-full.txt", (_req, res) => {
-  res.type("text/plain; charset=utf-8").sendFile(path.join(process.cwd(), "public", "llms-full.txt"));
-});
+  // Providers availability check
+  app.get("/api/providers", (req, res) => {
+    const customGroqKey = ((req.headers["x-groq-api-key"] as string) || (req.query?.groqKey as string) || "").trim();
+    const hasServerGroq = Boolean(process.env.GROQ_API_KEY && process.env.GROQ_API_KEY.trim() !== "");
+    const hasGroq = hasServerGroq || customGroqKey.length > 0;
+    const hasGemini = Boolean(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim() !== "");
 
-// Mount all API endpoints from server/apiRouter
-app.use(apiRouter);
+    res.json({
+      groq: hasGroq,
+      serverGroqConfigured: hasServerGroq,
+      hasCustomGroqKey: customGroqKey.length > 0,
+      gemini: hasGemini,
+      defaultProvider: hasGroq ? "groq" : "gemini",
+      searchAvailable: hasGemini && !isSearchQuotaExhausted(),
+    });
+  });
 
-// Vite middleware for development vs static build for production
-if (process.env.NODE_ENV !== "production") {
-  (async () => {
+  // Verify personal Groq API key endpoint
+  app.post("/api/verify-groq", async (req, res) => {
+    const key = (req.body?.apiKey || (req.headers["x-groq-api-key"] as string) || process.env.GROQ_API_KEY || "").trim();
+    if (!key) {
+      return res.status(400).json({
+        valid: false,
+        error: "Missing Groq API key. Provide a key starting with 'gsk_' from console.groq.com.",
+      });
+    }
+
+    try {
+      const groq = new Groq({ apiKey: key });
+      const modelList = await groq.models.list();
+      const activeModels = modelList.data
+        .map((m: any) => m.id)
+        .filter((id: string) => !id.includes("whisper"));
+
+      return res.json({
+        valid: true,
+        modelsCount: activeModels.length,
+        models: activeModels.slice(0, 10),
+      });
+    } catch (err: any) {
+      return res.status(400).json({
+        valid: false,
+        error: err?.message || "Invalid Groq API key or network error connecting to Groq API.",
+      });
+    }
+  });
+
+  // Health check endpoint
+  app.get("/api/health", (_req, res) => {
+    res.json({ status: "ok", service: "IntelicatAI Engine", timestamp: new Date().toISOString() });
+  });
+
+  // Explicit SEO & Crawler routes to guarantee instant 200 OK delivery to Googlebot & AI agents
+  app.get("/robots.txt", (_req, res) => {
+    res.type("text/plain").sendFile(path.join(process.cwd(), "public", "robots.txt"));
+  });
+  app.get("/sitemap.xml", (_req, res) => {
+    res.type("application/xml").sendFile(path.join(process.cwd(), "public", "sitemap.xml"));
+  });
+  app.get("/llms.txt", (_req, res) => {
+    res.type("text/plain; charset=utf-8").sendFile(path.join(process.cwd(), "public", "llms.txt"));
+  });
+  app.get("/llms-full.txt", (_req, res) => {
+    res.type("text/plain; charset=utf-8").sendFile(path.join(process.cwd(), "public", "llms-full.txt"));
+  });
+
+  // Unified API endpoint for Chat
+  app.post("/api/chat", chatHandler);
+
+  // Dedicated Image Generation Studio endpoint (FLUX.1 100% Free)
+  app.post("/api/generate-image", imageGenHandler);
+  app.get("/api/generate-image", imageGenHandler);
+
+  // Dedicated Web Search Service endpoint
+  app.get("/api/search", searchServiceHandler);
+  app.post("/api/search", searchServiceHandler);
+
+  // Dedicated AI Translation endpoint
+  app.post("/api/translate", translateHandler);
+
+  // Dedicated Live Newspaper & News AI endpoints
+  app.get("/api/news", newsFeedHandler);
+  app.post("/api/news/summarize", newsSummarizeHandler);
+
+  // Dedicated AI Coding Agent Workspace endpoint
+  app.post("/api/code-agent", codeAgentHandler);
+
+  // GitHub OAuth Flow & Token Verification Endpoints
+  app.get("/api/auth/github/url", githubAuthUrlHandler);
+  app.get(["/auth/github/callback", "/auth/github/callback/"], githubCallbackHandler);
+  app.post("/api/auth/github/verify", githubVerifyTokenHandler);
+  app.post("/api/auth/github/configure", githubConfigureHandler);
+  app.delete("/api/auth/github/configure", githubClearConfigHandler);
+
+  // Vite middleware for development vs static build for production
+  if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
     });
     app.use(vite.middlewares);
-  })();
-} else {
-  const distPath = path.join(process.cwd(), "dist");
-  app.use(express.static(distPath));
-  app.get("*", (_req, res) => {
-    res.sendFile(path.join(distPath, "index.html"));
-  });
-}
+  } else {
+    const distPath = path.join(process.cwd(), "dist");
+    app.use(express.static(distPath));
+    app.get("*", (_req, res) => {
+      res.sendFile(path.join(distPath, "index.html"));
+    });
+  }
 
-const PORT = 3000;
-if (process.env.NODE_ENV !== "production") {
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`IntelicatAI server running on http://0.0.0.0:${PORT}`);
   });
 }
 
-export default app;
+startServer();

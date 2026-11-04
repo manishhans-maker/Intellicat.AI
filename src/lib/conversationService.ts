@@ -20,14 +20,7 @@ export function getLocalConversations(userId: string): Conversation[] {
   try {
     const raw = localStorage.getItem(`${LOCAL_STORAGE_KEY_PREFIX}${userId}`);
     if (!raw) return [];
-    const parsed: Conversation[] = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    const seen = new Set<string>();
-    return parsed.filter((c) => {
-      if (!c || !c.id || seen.has(c.id)) return false;
-      seen.add(c.id);
-      return true;
-    });
+    return JSON.parse(raw);
   } catch {
     return [];
   }
@@ -116,14 +109,9 @@ export async function loadUserConversations(userId: string = 'guest'): Promise<C
 
     if (!snap.empty) {
       const remoteList: Conversation[] = [];
-      const seen = new Set<string>();
       snap.forEach((d) => {
         const data = d.data() as Conversation;
-        const convId = d.id;
-        if (!seen.has(convId)) {
-          seen.add(convId);
-          remoteList.push({ ...data, id: convId });
-        }
+        remoteList.push({ ...data, id: d.id });
       });
 
       // Sort: pinned first, then by updatedAt desc
@@ -147,13 +135,19 @@ export async function loadUserConversations(userId: string = 'guest'): Promise<C
  * Save or update a conversation in Firestore and local storage
  */
 export async function saveConversation(userId: string = 'guest', conv: Conversation): Promise<void> {
-  if (!conv || !conv.id) return;
+  if (!conv.id) return;
   const effectiveUserId = userId || 'guest';
 
-  // 1. Update local cache immediately for zero-latency UI (deduplicated)
+  // 1. Update local cache immediately for zero-latency UI
   const currentLocal = getLocalConversations(effectiveUserId);
-  const filtered = currentLocal.filter((c) => c.id !== conv.id);
-  const updatedLocal = [conv, ...filtered];
+  const idx = currentLocal.findIndex((c) => c.id === conv.id);
+  let updatedLocal: Conversation[];
+  if (idx >= 0) {
+    updatedLocal = [...currentLocal];
+    updatedLocal[idx] = { ...updatedLocal[idx], ...conv };
+  } else {
+    updatedLocal = [conv, ...currentLocal];
+  }
   setLocalConversations(effectiveUserId, updatedLocal);
 
   // 2. Persist to Firestore if user is authenticated

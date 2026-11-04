@@ -12,18 +12,23 @@ function getGeminiClient(): GoogleGenAI | null {
   return geminiClient;
 }
 
-// Track last generation timestamp per client IP (2.5s cooldown)
+// Track last generation timestamp per client IP (3 second anti-spam cooldown instead of 45s lockout)
 const ipCooldownMap = new Map<string, number>();
-const COOLDOWN_MS = 2500;
+const COOLDOWN_MS = 2500; // 2.5 seconds
 
+/**
+ * Intelligent rule-based prompt cleaner & anatomical enhancer (instant fallback)
+ */
 function heuristicPromptEnhancer(rawPrompt: string, style: string): string {
   let cleaned = rawPrompt.trim();
 
+  // Strip conversational prefixes with generous typo tolerance
   cleaned = cleaned.replace(/^(can\s+you\s+)?(please\s+)?(make|create|generate|genrate|render|draw|paint|show|give)(\s+me)?(\s+an?|\s+the)?(\s+image|\s+picture|\s+photo|\s+illustration|\s+drawing|\s+art|\s+wallpaper)?(\s+of|\s+with|\s+about)?\s+/i, '');
   cleaned = cleaned.replace(/^(i\s+want\s+(an?|the)?\s*(image|picture|photo)?\s*(of)?\s*)/i, '');
   cleaned = cleaned.replace(/^(a\s+photo\s+of|a\s+picture\s+of|an\s+image\s+of)\s+/i, '');
   cleaned = cleaned.trim() || rawPrompt.trim();
 
+  // Fix common slang / typos
   cleaned = cleaned.replace(/\blambo\b/gi, 'Lamborghini supercar');
   cleaned = cleaned.replace(/\bferari\b/gi, 'Ferrari');
   cleaned = cleaned.replace(/\bporshe\b/gi, 'Porsche');
@@ -46,6 +51,7 @@ function heuristicPromptEnhancer(rawPrompt: string, style: string): string {
     anatomicalSafety = 'anatomically correct hands with exactly five distinct fingers, symmetrical facial features, realistic human proportions';
   }
 
+  // Style embellishments
   let styleSuffix = '';
   switch (style) {
     case 'realistic':
@@ -70,6 +76,9 @@ function heuristicPromptEnhancer(rawPrompt: string, style: string): string {
   return [cleaned, anatomicalSafety, styleSuffix].filter(Boolean).join(', ');
 }
 
+/**
+ * AI-Powered Prompt Expander via Gemini (Enforces Midjourney/Flux quality & anatomical perfection)
+ */
 async function optimizePromptWithAI(userPrompt: string, style: string): Promise<string> {
   const ai = getGeminiClient();
   if (!ai) {
@@ -81,15 +90,20 @@ Transform the user's raw image request into an anatomically and physically flawl
 MANDATORY PHYSICAL & ANATOMICAL RULES:
 1. Fix all typos, slang, and misspellings (e.g. "genrate" -> "generate", "lambo" -> "Lamborghini supercar", "ferari" -> "Ferrari").
 2. Strip conversational filler ("make me", "generate", "draw me", "give me a picture of").
-3. ENFORCE ANATOMICAL & STRUCTURAL INTEGRITY.
+3. ENFORCE ANATOMICAL & STRUCTURAL INTEGRITY:
+   - For CARS/VEHICLES: Explicitly specify "complete pristine vehicle, all four alloy wheels perfectly circular and symmetrical in accurate ground perspective, realistic tire tread firmly planted on asphalt, complete chassis with crisp windshield and aerodynamic curves, no missing wheels, no three wheels, no warped geometry".
+   - For ANIMALS (cats, dogs, etc.): Explicitly specify "anatomically accurate, exactly one natural tail, four symmetrical paws, clean facial symmetry, crisp whiskers, lifelike fur texture, no duplicate tails, no extra limbs".
+   - For HUMANS/CHARACTERS: Explicitly specify "anatomically accurate hands with five distinct fingers, symmetrical facial features, realistic proportions".
 4. Tailor to style: ${style}.
 5. Add professional composition, camera angle, and cinematic studio lighting.
 6. Output ONLY the optimized prompt text. Do NOT wrap in quotes. Do NOT add preamble or explanations.`;
 
   const candidateModels = [
-    "gemini-3.8-flash",
-    "gemini-3.1-flash-lite",
-    "gemini-flash-latest"
+    "gemini-3.6-flash",
+    "gemini-3.5-flash",
+    "gemini-3.5-flash-lite",
+    "gemini-flash-latest",
+    "gemini-3.8-flash"
   ];
 
   for (const model of candidateModels) {
@@ -107,6 +121,7 @@ MANDATORY PHYSICAL & ANATOMICAL RULES:
         return optimized.replace(/^["']|["']$/g, '');
       }
     } catch {
+      // Continue to next candidate model
       continue;
     }
   }
@@ -115,6 +130,7 @@ MANDATORY PHYSICAL & ANATOMICAL RULES:
 }
 
 export default async function generateImageHandler(req: any, res: any) {
+  // CORS Headers
   res.setHeader("Access-Control-Allow-Credentials", "true");
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS,POST");
@@ -122,6 +138,7 @@ export default async function generateImageHandler(req: any, res: any) {
     "Access-Control-Allow-Headers",
     "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization"
   );
+
   res.setHeader("Content-Type", "application/json; charset=utf-8");
 
   if (req.method === "OPTIONS") {
@@ -140,6 +157,7 @@ export default async function generateImageHandler(req: any, res: any) {
       return res.status(400).json({ error: "Prompt is required for image generation." });
     }
 
+    // IP-based anti-spam check (2.5 seconds per user rather than global 45s lockout)
     const clientIp =
       (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ||
       req.socket?.remoteAddress ||
@@ -158,8 +176,10 @@ export default async function generateImageHandler(req: any, res: any) {
       });
     }
 
+    // AI-Powered anatomical & structural prompt optimization
     const enhancedPrompt = await optimizePromptWithAI(prompt, style);
 
+    // Map aspect ratios to pixel dimensions
     let width = 1024;
     let height = 1024;
 
@@ -185,6 +205,7 @@ export default async function generateImageHandler(req: any, res: any) {
         height = 1024;
     }
 
+    // Model selection: flux or turbo
     const selectedModel = engine === "turbo" ? "turbo" : "flux";
     const cleanPromptText = enhancedPrompt.slice(0, 800).trim();
     const encodedPrompt = encodeURIComponent(cleanPromptText);
@@ -193,6 +214,7 @@ export default async function generateImageHandler(req: any, res: any) {
     const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${width}&height=${height}&seed=${seed}&nologo=true&model=${selectedModel}&enhance=true`;
     const fallbackUrl = `https://pollinations.ai/p/${encodedPrompt}?width=${width}&height=${height}&seed=${seed}&nologo=true&model=${selectedModel}`;
 
+    // Record client IP timestamp
     ipCooldownMap.set(clientIp, Date.now());
 
     return res.status(200).json({

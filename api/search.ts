@@ -19,7 +19,7 @@ export default async function searchHandler(req: any, res: any) {
   try {
     const results: Array<{ title: string; url: string; snippet: string }> = [];
 
-    // 1. DuckDuckGo Instant Answers API
+    // 1. DuckDuckGo Instant Answers API (fast, reliable, free, zero Gemini quota)
     try {
       const ddgUrl = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`;
       const ddgRes = await fetch(ddgUrl, {
@@ -58,35 +58,47 @@ export default async function searchHandler(req: any, res: any) {
           query
         )}&limit=4&namespace=0&format=json`;
         const wikiRes = await fetch(wikiUrl, {
-          headers: { "User-Agent": "Mozilla/5.0 (compatible; IntelicatAI/2.0)" },
+          headers: { "User-Agent": "IntelicatAI-Search/1.0" },
         });
+
         if (wikiRes.ok) {
-          const wikiData: any = await wikiRes.json();
+          const wikiData = await wikiRes.json();
           const titles = wikiData[1] || [];
           const snippets = wikiData[2] || [];
           const urls = wikiData[3] || [];
+
           for (let i = 0; i < titles.length; i++) {
-            if (titles[i] && urls[i] && !results.some((r) => r.url === urls[i])) {
+            if (titles[i] && urls[i]) {
               results.push({
                 title: titles[i],
                 url: urls[i],
-                snippet: snippets[i] || `Wikipedia article covering ${titles[i]}`,
+                snippet: snippets[i] || `Detailed reference article on ${titles[i]}`,
               });
             }
           }
         }
       } catch (e) {
-        console.warn("Wikipedia fallback notice:", e);
+        console.warn("Wikipedia fallback search failed:", e);
       }
+    }
+
+    // 3. Fallback direct web search destination
+    if (results.length === 0) {
+      results.push({
+        title: `Web results for: ${query}`,
+        url: `https://duckduckgo.com/?q=${encodeURIComponent(query)}`,
+        snippet: `Direct live web query for "${query}". Visit to view complete indexed articles, news, and official links.`,
+      });
     }
 
     return res.status(200).json({
       query,
-      resultsCount: results.length,
       results,
+      count: results.length,
+      timestamp: new Date().toISOString(),
     });
   } catch (err: any) {
-    console.error("Search API Error:", err);
+    console.error("Search Service error:", err);
     return res.status(500).json({ error: "Failed to perform web search." });
   }
 }

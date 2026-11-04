@@ -62,10 +62,6 @@ export const AuthModal: React.FC = () => {
         setError('Sign-in popup was closed before completing.');
       } else if (err.code === 'auth/cancelled-popup-request') {
         // Ignored
-      } else if (err.code === 'auth/network-request-failed') {
-        setError(
-          'Network request to Firebase Auth failed. Please check your internet connection or ad-blocker/firewall, then try again.'
-        );
       } else if (err.code === 'auth/unauthorized-domain') {
         setError(
           'Google Sign-in is restricted on this preview domain. You can sign in immediately using Email & Password below, or open this app in a new tab.'
@@ -106,9 +102,7 @@ export const AuthModal: React.FC = () => {
     } catch (err: any) {
       console.error('Auth error:', err);
       let msg = err.message || 'Authentication failed.';
-      if (err.code === 'auth/network-request-failed') {
-        msg = 'Network connection to Firebase Auth failed. Please check your internet connection, disable privacy blockers for Google domains, and retry.';
-      } else if (err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password' || err.code === 'auth/user-not-found') {
+      if (err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password' || err.code === 'auth/user-not-found') {
         msg = 'Invalid email or password. Please try again or create an account.';
       } else if (err.code === 'auth/email-already-in-use') {
         msg = 'An account with this email already exists. Please sign in instead.';

@@ -28,7 +28,7 @@ export default async function verifyGroqHandler(req: any, res: any) {
       .map((m: any) => m.id)
       .filter((id: string) => !id.includes("whisper"));
 
-    return res.json({
+    return res.status(200).json({
       valid: true,
       modelsCount: activeModels.length,
       models: activeModels.slice(0, 10),

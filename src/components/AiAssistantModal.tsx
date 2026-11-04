@@ -300,9 +300,9 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
       if (saved && AVAILABLE_AI_MODELS.some((m) => m.id === saved)) {
         return saved;
       }
-      return 'gemini-3.1-flash-lite';
+      return 'gemini-3.5-flash-lite';
     } catch {
-      return 'gemini-3.1-flash-lite';
+      return 'gemini-3.5-flash-lite';
     }
   });
   const [modelCategoryFilter, setModelCategoryFilter] = useState<'all' | 'gemini' | 'groq'>('all');
@@ -1154,7 +1154,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
     }
 
     // Prepare User Message
-    const userMsgId = `user-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const userMsgId = `user-${Date.now()}`;
     const userMsg: ChatMessage = {
       id: userMsgId,
       conversationId: currentConversationId || undefined,
@@ -1167,7 +1167,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
     };
 
     // Prepare Assistant Placeholder
-    const assistantMsgId = `assistant-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const assistantMsgId = `assistant-${Date.now()}`;
     const assistantMsg: ChatMessage = {
       id: assistantMsgId,
       conversationId: currentConversationId || undefined,
@@ -1197,7 +1197,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
     // 4. Manage Conversation Persistence (Auto-Title & Save)
     let activeConvId = currentConversationId;
     if (!activeConvId) {
-      activeConvId = `conv-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      activeConvId = `conv-${Date.now()}`;
       setCurrentConversationId(activeConvId);
 
       const newTitle = generateAutomaticTitle(text || 'Image Analysis');
@@ -1214,7 +1214,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
       };
 
       await saveConversation(activeUid, newConv);
-      setConversations((prev) => [newConv, ...prev.filter((c) => c.id !== newConv.id)]);
+      setConversations((prev) => [newConv, ...prev]);
     }
 
     const activeUidForMsg = user?.uid || 'guest';
@@ -1408,8 +1408,8 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
         );
       }
 
-        if (!response.ok) {
-        let errMsg = '';
+      if (!response.ok) {
+        let errMsg = `Server error (${response.status})`;
         try {
           const errorData = await response.json();
           if (errorData?.error) {
@@ -1419,13 +1419,10 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
           const rawText = await response.text().catch(() => '');
           if (rawText) {
             const stripped = rawText.replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ').trim();
-            if (stripped && stripped.length < 200 && !stripped.includes('<!DOCTYPE') && !stripped.includes('<html')) {
+            if (stripped && stripped.length < 120 && !stripped.includes('<!DOCTYPE') && !stripped.includes('<html')) {
               errMsg = stripped;
             }
           }
-        }
-        if (!errMsg) {
-          errMsg = `Server error (${response.status}): Vercel serverless function execution failed.`;
         }
         throw new Error(errMsg);
       }
@@ -1555,13 +1552,13 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
         await saveMessage(activeUid, activeConvId, finalizedMsg);
       }
     } catch (err: any) {
-      if (err?.name === 'AbortError') {
+      if (err.name === 'AbortError') {
         // User clicked "Stop Generation", gracefully finalize what was streamed so far
         console.log('Stream stopped by user.');
       } else {
-        console.warn('Chat request notice:', err?.message || err);
-        let errMsg = err?.message || 'Unable to connect to AI engine.';
-        if (errMsg === 'Failed to fetch' || errMsg?.toLowerCase().includes('network error') || err?.name === 'TypeError') {
+        console.error('Chat error:', err);
+        let errMsg = err.message || 'Unable to connect to AI engine.';
+        if (errMsg === 'Failed to fetch') {
           errMsg = 'Network connection interrupted. Please tap retry to regenerate.';
         }
         // Mark the assistant message as errored with inline retry

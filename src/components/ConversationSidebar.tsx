@@ -49,12 +49,7 @@ export const ConversationSidebar: React.FC<ConversationSidebarProps> = ({
   const [editTitle, setEditTitle] = useState('');
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
-  // Deduplicate conversations by ID
-  const uniqueConversations = Array.from(
-    new Map(conversations.map((c) => [c.id, c])).values()
-  );
-
-  const filteredConversations = uniqueConversations.filter((c) => {
+  const filteredConversations = conversations.filter((c) => {
     const matchesTab = activeTab === 'archived' ? Boolean(c.isArchived) : !c.isArchived;
     if (!matchesTab) return false;
     if (!searchQuery.trim()) return true;
@@ -80,13 +75,13 @@ export const ConversationSidebar: React.FC<ConversationSidebarProps> = ({
     setEditingId(null);
   };
 
-  const renderConversationItem = (c: Conversation, idx: number) => {
+  const renderConversationItem = (c: Conversation) => {
     const isActive = c.id === activeConversationId;
     const isEditing = c.id === editingId;
 
     return (
       <div
-        key={`${c.id}-${idx}`}
+        key={c.id}
         className={`group relative flex items-center justify-between p-2.5 rounded-xl text-xs transition-all cursor-pointer border ${
           isActive
             ? 'bg-[#EF233C]/15 border-[#EF233C]/40 text-white shadow-md shadow-[#EF233C]/5'
