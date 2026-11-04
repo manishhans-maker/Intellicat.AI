@@ -27,54 +27,34 @@ export interface AiModelOption {
 
 export const AVAILABLE_AI_MODELS: AiModelOption[] = [
   {
-    id: 'gemini-3.5-flash-lite',
-    name: 'Gemini 3.5 Flash Lite (Default ⚡)',
+    id: 'gemini-3.1-flash-lite',
+    name: 'Gemini 3.1 Flash Lite (Default ⚡)',
     provider: 'gemini',
-    description: 'Hyper-efficient ultra-fast flagship model. Instant responses, high daily quota, and zero lag.',
+    description: 'Hyper-efficient ultra-fast model. Instant responses, high daily quota, and zero lag.',
     badge: 'Default ⚡',
     speed: '~320 tok/s',
     capabilities: ['Instant Speed', 'High Quota', 'Code & STEM', 'Full Vision'],
     requiredTier: 'free',
   },
   {
-    id: 'gemini-3.5-flash',
-    name: 'Gemini 3.5 Flash (Ultra-Stable)',
-    provider: 'gemini',
-    description: 'Dependable production workhorse with consistent latency, deep reasoning, and robust code generation.',
-    badge: 'Ultra-Stable 🌟',
-    speed: '~220 tok/s',
-    capabilities: ['Deep Logic', 'High Uptime', 'Stable Quota', 'Vision & Audio'],
-    requiredTier: 'free',
-  },
-  {
-    id: 'gemini-3.6-flash',
-    name: 'Gemini 3.6 Flash (Flagship)',
-    provider: 'gemini',
-    description: 'Flagship multimodal reasoning and code generation with balanced speed and deep logic.',
-    badge: 'Flagship ⚡',
-    speed: '~160 tok/s',
-    capabilities: ['Multimodal', 'Reasoning', 'Code Synthesis', 'Balanced'],
-    requiredTier: 'free',
-  },
-  {
-    id: 'gemini-3.7-flash',
-    name: 'Gemini 3.7 Flash (Hybrid Reasoning)',
-    provider: 'gemini',
-    description: 'High-performance reasoning engine with hybrid chain-of-thought, rapid response, and STEM logic.',
-    badge: 'Hybrid 🧠',
-    speed: '~175 tok/s',
-    capabilities: ['Hybrid Reasoning', 'Deep STEM', 'Chain of Thought', 'Vision & Audio'],
-    requiredTier: 'free',
-  },
-  {
     id: 'gemini-3.8-flash',
-    name: 'Gemini 3.8 Flash (Pro Frontier)',
+    name: 'Gemini 3.8 Flash (Pro Frontier ⚡)',
     provider: 'gemini',
     description: 'Flagship speed & intelligence with live Google search grounding and advanced code synthesis.',
     badge: 'Pro ($10)+ ⚡',
     speed: '~180 tok/s',
     capabilities: ['Search Grounding', 'Vision & Audio', 'Code Synthesis', 'Reasoning'],
     requiredTier: 'pro',
+  },
+  {
+    id: 'gemini-flash-latest',
+    name: 'Gemini Flash Latest (Ultra-Stable 🌟)',
+    provider: 'gemini',
+    description: 'Dependable production workhorse with consistent latency, deep reasoning, and high availability.',
+    badge: 'Ultra-Stable 🌟',
+    speed: '~220 tok/s',
+    capabilities: ['Deep Logic', 'High Uptime', 'Stable Quota', 'Vision & Audio'],
+    requiredTier: 'free',
   },
   {
     id: 'llama-3.1-8b-instant',
@@ -269,4 +249,17 @@ export interface Conversation {
   createdAt: string;
   updatedAt: string;
   lastMessagePreview?: string;
+}
+
+export interface NewsArticle {
+  id: string;
+  title: string;
+  headline: string;
+  source: string;
+  link: string;
+  pubDate: string;
+  timeAgo: string;
+  snippet: string;
+  category: string;
+  newspaperName: string;
 }

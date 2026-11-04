@@ -100,29 +100,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [inputGroqKey, setInputGroqKey] = useState(groqKey);
   const [keySaved, setKeySaved] = useState(false);
 
-  // Think Engine 1.0 State
-  const [thinkEnabled, setThinkEnabled] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem('intelicat_think_enabled') !== 'false';
-    } catch {
-      return true;
-    }
-  });
-  const [thinkIntensity, setThinkIntensity] = useState<'auto' | 'standard' | 'deep'>(() => {
-    try {
-      return (localStorage.getItem('intelicat_think_intensity') as any) || 'auto';
-    } catch {
-      return 'auto';
-    }
-  });
-  const [verificationEnabled, setVerificationEnabled] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem('intelicat_verification_enabled') !== 'false';
-    } catch {
-      return true;
-    }
-  });
-
   // Voice Settings State
   const [voiceEnabled, setVoiceEnabled] = useState<boolean>(() => {
     try {
@@ -586,107 +563,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </button>
                   </div>
                 </form>
-
-                {/* Think Engine 1.0 Settings */}
-                <div className="p-5 rounded-2xl bg-black/40 border border-purple-500/30 space-y-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-start gap-2.5">
-                      <div className="p-2 rounded-xl bg-purple-500/20 text-purple-300 border border-purple-500/30 shrink-0 mt-0.5">
-                        <Brain className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <h4 className="font-bold text-white text-sm">Think Before Answering (Think Engine 1.0)</h4>
-                          <span className="px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-300 font-mono text-[9px] font-bold">
-                            Backend v1.0
-                          </span>
-                        </div>
-                        <p className="text-xs text-neutral-400 mt-0.5">
-                          Multi-stage backend reasoning: classifies complexity, generates drafts, verifies correctness & safety, and runs controlled repairs before returning answers.
-                        </p>
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const next = !thinkEnabled;
-                        setThinkEnabled(next);
-                        localStorage.setItem('intelicat_think_enabled', String(next));
-                      }}
-                      className={`w-11 h-6 rounded-full transition-colors relative cursor-pointer shrink-0 mt-1 ${
-                        thinkEnabled ? 'bg-purple-600' : 'bg-neutral-700'
-                      }`}
-                      title={thinkEnabled ? 'Click to disable Think Engine' : 'Click to enable Think Engine'}
-                    >
-                      <div
-                        className={`w-4 h-4 rounded-full bg-white transition-transform absolute top-1 ${
-                          thinkEnabled ? 'left-6' : 'left-1'
-                        }`}
-                      />
-                    </button>
-                  </div>
-
-                  {thinkEnabled && (
-                    <div className="space-y-2 pt-2 border-t border-white/10">
-                      <label className="text-xs font-bold uppercase tracking-wider text-neutral-400 block">
-                        Thinking Intensity
-                      </label>
-                      <div className="grid grid-cols-3 gap-2 text-xs">
-                        {(['auto', 'standard', 'deep'] as const).map((lvl) => (
-                          <button
-                            key={lvl}
-                            type="button"
-                            onClick={() => {
-                              setThinkIntensity(lvl);
-                              localStorage.setItem('intelicat_think_intensity', lvl);
-                            }}
-                            className={`p-2.5 rounded-xl border text-center capitalize cursor-pointer transition-all ${
-                              thinkIntensity === lvl
-                                ? 'bg-purple-600 border-purple-500 text-white font-bold shadow-md shadow-purple-600/30'
-                                : 'bg-white/5 border-white/10 text-neutral-300 hover:text-white'
-                            }`}
-                          >
-                            <div className="font-bold">{lvl}</div>
-                            <div className="text-[10px] text-neutral-400 opacity-80 mt-0.5">
-                              {lvl === 'auto'
-                                ? 'By complexity'
-                                : lvl === 'standard'
-                                ? 'Normal reasoning'
-                                : 'High depth'}
-                            </div>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="flex items-center justify-between pt-2 border-t border-white/10">
-                    <div>
-                      <span className="font-semibold text-white text-xs block">Verification Engine</span>
-                      <span className="text-[11px] text-neutral-400">
-                        Evaluates output against prompt requirements and code syntax. Mandatory safety & credential scans always remain active.
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const next = !verificationEnabled;
-                        setVerificationEnabled(next);
-                        localStorage.setItem('intelicat_verification_enabled', String(next));
-                      }}
-                      className={`w-11 h-6 rounded-full transition-colors relative cursor-pointer shrink-0 ${
-                        verificationEnabled ? 'bg-emerald-600' : 'bg-neutral-700'
-                      }`}
-                      title={verificationEnabled ? 'Click to disable semantic verification' : 'Click to enable semantic verification'}
-                    >
-                      <div
-                        className={`w-4 h-4 rounded-full bg-white transition-transform absolute top-1 ${
-                          verificationEnabled ? 'left-6' : 'left-1'
-                        }`}
-                      />
-                    </button>
-                  </div>
-                </div>
 
                 {/* Default Mode Selector */}
                 <div className="space-y-2">
