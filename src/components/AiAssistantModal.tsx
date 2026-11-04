@@ -1409,7 +1409,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
       }
 
         if (!response.ok) {
-        let errMsg = `Server error (${response.status})`;
+        let errMsg = '';
         try {
           const errorData = await response.json();
           if (errorData?.error) {
@@ -1419,13 +1419,13 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
           const rawText = await response.text().catch(() => '');
           if (rawText) {
             const stripped = rawText.replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ').trim();
-            if (stripped && stripped.length < 120 && !stripped.includes('<!DOCTYPE') && !stripped.includes('<html')) {
+            if (stripped && stripped.length < 200 && !stripped.includes('<!DOCTYPE') && !stripped.includes('<html')) {
               errMsg = stripped;
             }
           }
         }
-        if (response.status === 500 && errMsg.includes('Server error (500)')) {
-          errMsg = 'Server error (500): The serverless API function encountered an error. If deploying to Vercel, make sure you have added GEMINI_API_KEY (or GROQ_API_KEY) in your Vercel Project Settings > Environment Variables.';
+        if (!errMsg) {
+          errMsg = `Server error (${response.status}): Vercel serverless function execution failed.`;
         }
         throw new Error(errMsg);
       }
