@@ -2,15 +2,7 @@ import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
-import providersHandler from "./api/providers";
-import verifyGroqHandler from "./api/verify-groq";
-import healthHandler from "./api/health";
-import chatHandler from "./api/chat";
-import imageGenHandler from "./api/imageGen";
-import searchServiceHandler from "./api/searchService";
-import { translateHandler } from "./api/translate";
-import { newsFeedHandler, newsSummarizeHandler } from "./api/news";
-import codeAgentHandler from "./api/code-agent";
+import { apiRouter } from "./server/apiRouter";
 
 dotenv.config();
 
@@ -31,11 +23,6 @@ app.use((err: any, _req: express.Request, res: express.Response, next: express.N
   next();
 });
 
-// Providers & Verification Endpoints
-app.get("/api/providers", providersHandler);
-app.post("/api/verify-groq", verifyGroqHandler);
-app.get("/api/health", healthHandler);
-
 // SEO & Crawler routes to guarantee instant 200 OK delivery
 app.get("/robots.txt", (_req, res) => {
   res.type("text/plain").sendFile(path.join(process.cwd(), "public", "robots.txt"));
@@ -50,16 +37,8 @@ app.get("/llms-full.txt", (_req, res) => {
   res.type("text/plain; charset=utf-8").sendFile(path.join(process.cwd(), "public", "llms-full.txt"));
 });
 
-// Core AI Endpoints
-app.post("/api/chat", chatHandler);
-app.post("/api/generate-image", imageGenHandler);
-app.get("/api/generate-image", imageGenHandler);
-app.get("/api/search", searchServiceHandler);
-app.post("/api/search", searchServiceHandler);
-app.post("/api/translate", translateHandler);
-app.get("/api/news", newsFeedHandler);
-app.post("/api/news/summarize", newsSummarizeHandler);
-app.post("/api/code-agent", codeAgentHandler);
+// Mount all API endpoints from server/apiRouter
+app.use(apiRouter);
 
 // Vite middleware for development vs static build for production
 if (process.env.NODE_ENV !== "production") {
