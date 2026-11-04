@@ -300,9 +300,9 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
       if (saved && AVAILABLE_AI_MODELS.some((m) => m.id === saved)) {
         return saved;
       }
-      return 'gemini-3.5-flash-lite';
+      return 'gemini-3.1-flash-lite';
     } catch {
-      return 'gemini-3.5-flash-lite';
+      return 'gemini-3.1-flash-lite';
     }
   });
   const [modelCategoryFilter, setModelCategoryFilter] = useState<'all' | 'gemini' | 'groq'>('all');

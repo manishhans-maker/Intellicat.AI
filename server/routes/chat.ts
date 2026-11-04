@@ -602,6 +602,9 @@ function formatCleanErrorMessage(error: any): string {
   if (msg.includes("503") || msg.includes("UNAVAILABLE") || msg.includes("high demand")) {
     return "Google Gemini's public API is temporarily experiencing peak high demand (503 Service Unavailable). This is usually brief. Tap 'Retry Response' in 15-30s, or paste a free Groq key from console.groq.com in the ⚡ Engine menu to chat instantly with zero wait!";
   }
+  if (msg.includes("PERMISSION_DENIED") || msg.includes("insufficient authentication scopes") || msg.includes("403") || msg.includes("ACCESS_TOKEN_SCOPE_INSUFFICIENT")) {
+    return "Gemini API key is not configured or lacks permission on this deployment. Please verify your GEMINI_API_KEY in the Settings > Secrets panel or environment variables, or switch to Groq in the ⚡ Engine menu!";
+  }
   if (msg.includes("API_KEY") || msg.includes("API key not valid")) {
     return "API key authentication issue. Please verify your API key in Settings.";
   }
