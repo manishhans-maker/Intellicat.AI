@@ -1408,7 +1408,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
         );
       }
 
-      if (!response.ok) {
+        if (!response.ok) {
         let errMsg = `Server error (${response.status})`;
         try {
           const errorData = await response.json();
@@ -1423,6 +1423,9 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
               errMsg = stripped;
             }
           }
+        }
+        if (response.status === 500 && errMsg.includes('Server error (500)')) {
+          errMsg = 'Server error (500): The serverless API function encountered an error. If deploying to Vercel, make sure you have added GEMINI_API_KEY (or GROQ_API_KEY) in your Vercel Project Settings > Environment Variables.';
         }
         throw new Error(errMsg);
       }
