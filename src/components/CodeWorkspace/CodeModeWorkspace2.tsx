@@ -76,8 +76,8 @@ export const CodeModeWorkspace2: React.FC<CodeModeWorkspaceProps> = ({ userId, o
   const [historySearch, setHistorySearch] = useState('');
   const [selectedModel, setSelectedModel] = useState<string>(() => {
     const saved = localStorage.getItem('intelicat_coding_model');
-    if (!saved || saved.includes('3.8') || saved === 'gemini-3.8-flash') {
-      return 'gemini-2.5-flash';
+    if (!saved || saved.includes('1.') || saved.includes('2.') || saved === 'gemini-3.8-flash') {
+      return 'gemini-3.5-flash';
     }
     return saved;
   });

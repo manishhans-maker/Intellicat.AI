@@ -10,13 +10,6 @@ import searchServiceHandler from "./api/searchService";
 import { translateHandler } from "./api/translate";
 import { newsFeedHandler, newsSummarizeHandler } from "./api/news";
 import codeAgentHandler from "./api/code-agent";
-import {
-  githubAuthUrlHandler,
-  githubCallbackHandler,
-  githubVerifyTokenHandler,
-  githubConfigureHandler,
-  githubClearConfigHandler,
-} from "./api/githubAuth";
 
 dotenv.config();
 
@@ -125,13 +118,6 @@ async function startServer() {
 
   // Dedicated AI Coding Agent Workspace endpoint
   app.post("/api/code-agent", codeAgentHandler);
-
-  // GitHub OAuth Flow & Token Verification Endpoints
-  app.get("/api/auth/github/url", githubAuthUrlHandler);
-  app.get(["/auth/github/callback", "/auth/github/callback/"], githubCallbackHandler);
-  app.post("/api/auth/github/verify", githubVerifyTokenHandler);
-  app.post("/api/auth/github/configure", githubConfigureHandler);
-  app.delete("/api/auth/github/configure", githubClearConfigHandler);
 
   // Vite middleware for development vs static build for production
   if (process.env.NODE_ENV !== "production") {

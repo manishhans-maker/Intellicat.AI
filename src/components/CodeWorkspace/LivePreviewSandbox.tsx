@@ -89,41 +89,16 @@ export const LivePreviewSandbox: React.FC<LivePreviewSandboxProps> = ({
           console.error = function() { sendLog('error', arguments); _error.apply(console, arguments); };
           console.info = function() { sendLog('info', arguments); _info.apply(console, arguments); };
 
-          window.showError = function(errMessage) {
-            var errDiv = document.getElementById('error-display');
-            var errText = document.getElementById('error-text');
-            var rootDiv = document.getElementById('root');
-            if (errDiv && errText) {
-              errText.textContent = errMessage;
-              errDiv.style.display = 'block';
-              if (rootDiv) rootDiv.style.display = 'none';
-            }
-            try {
-              window.parent.postMessage({ type: 'SANDBOX_CONSOLE', logType: 'error', message: errMessage }, '*');
-            } catch(e) {}
-          };
-
           window.onerror = function(msg, url, line, col, error) {
             var fullMsg = (error && error.message) ? error.message : msg;
             if (line) fullMsg += ' (line ' + line + (col ? ':' + col : '') + ')';
-            if (window.showError) window.showError(fullMsg);
+            window.parent.postMessage({ type: 'SANDBOX_CONSOLE', logType: 'error', message: fullMsg }, '*');
             return false;
           };
-
           window.addEventListener('unhandledrejection', function(event) {
             var reason = event.reason ? (event.reason.message || event.reason) : 'Rejected';
-            if (window.showError) window.showError('Unhandled Promise: ' + reason);
+            window.parent.postMessage({ type: 'SANDBOX_CONSOLE', logType: 'error', message: 'Unhandled Promise: ' + reason }, '*');
           });
-
-          // Timeout watchdog: if preview is still showing loading screen after 10s, notify user
-          setTimeout(function() {
-            var root = document.getElementById('root');
-            if (root && root.innerText && root.innerText.indexOf('Preparing App Preview...') !== -1) {
-              if (window.showError) {
-                window.showError('Preview load timeout: React runtime took too long to compile. Click "Retry Preview" or reload.');
-              }
-            }
-          }, 10000);
         })();
       </script>
     `;
@@ -152,96 +127,132 @@ export const LivePreviewSandbox: React.FC<LivePreviewSandboxProps> = ({
     }
 
     // 2. React SPA Compilation
-    const cleanReactSource = (code: string, filePath: string): string => {
-      if (!code) return '';
+    const cleanReactSource = (code: string, filePath: string): { cleaned: string; lucideIconNames: string[] } => {
+      if (!code) return { cleaned: '', lucideIconNames: [] };
       let cleaned = code;
 
-      // 1. Strip ES import statements
-      cleaned = cleaned.replace(/\bimport\s+(?:type\s+)?[\s\S]*?from\s*['"][^'"]+['"];?/g, '');
-      cleaned = cleaned.replace(/\bimport\s+['"][^'"]+['"];?/g, '');
-      cleaned = cleaned.replace(/\bimport\s+type\b[\s\S]*?;/g, '');
+      // Extract all imported names from lucide-react before stripping imports
+      const lucideIconNames: string[] = [];
+      const lucideImportMatches: string[] = cleaned.match(/import\s*\{([^}]+)\}\s*from\s*['"]lucide-react['"]/g) || [];
+      lucideImportMatches.forEach((m: string) => {
+        const inside = m.replace(/import\s*\{/, '').replace(/\}\s*from.*/, '');
+        inside.split(',').forEach((n) => {
+          const name = n.trim().split(/\s+as\s+/).pop()?.trim();
+          if (name) lucideIconNames.push(name);
+        });
+      });
 
-      // Derive fallback component name from file path
+      // Strip single & multiline imports
+      cleaned = cleaned.replace(/^\s*import\s+(?:type\s+)?[\s\S]*?from\s*['"][^'"]+['"];?/gm, '');
+      cleaned = cleaned.replace(/^\s*import\s+['"][^'"]+['"];?/gm, '');
+      cleaned = cleaned.replace(/^\s*import\s+type\s+[\s\S]*?;/gm, '');
+
+      // Derive fallback component name from file path (e.g. src/components/ScoreBoard.tsx -> ScoreBoard)
       const fileNameMatch = filePath.split('/').pop()?.replace(/\.[^/.]+$/, '');
       const defaultName = (fileNameMatch && /^[A-Z]/.test(fileNameMatch)) ? fileNameMatch : (filePath === mainAppPath ? 'App' : 'SubComponent');
 
-      // 2. Clean re-exports and export-from statements
-      cleaned = cleaned.replace(/\bexport\s+(?:\*|\{[\s\S]*?\})\s*from\s*['"][^'"]+['"];?/g, '');
-
-      // 3. Clean export default function (with optional async or generic)
-      cleaned = cleaned.replace(/\bexport\s+default\s+(?:async\s+)?function(?:\s+([A-Za-z0-9_$]+))?(?:<[^>]*>)?\s*\(/g, function (_, name) {
+      // Clean function default exports
+      cleaned = cleaned.replace(/^\s*export\s+default\s+function(?:\s+([A-Za-z0-9_$]+))?\s*\(/gm, function (_, name) {
         const fnName = name || defaultName;
-        return `function ${fnName}(`;
+        return `window.${fnName} = function ${fnName}(`;
       });
 
-      // 4. Clean export default class
-      cleaned = cleaned.replace(/\bexport\s+default\s+class(?:\s+([A-Za-z0-9_$]+))?/g, function (_, name) {
+      // Clean class default exports
+      cleaned = cleaned.replace(/^\s*export\s+default\s+class(?:\s+([A-Za-z0-9_$]+))?/gm, function (_, name) {
         const clsName = name || defaultName;
-        return `class ${clsName} `;
+        return `window.${clsName} = class ${clsName} `;
       });
 
-      // 5. Clean arrow function default exports
-      cleaned = cleaned.replace(/\bexport\s+default\s*(?:\([^)]*\)|[A-Za-z0-9_$]+)\s*=>/g, function (match) {
-        const after = match.replace(/\bexport\s+default\s*/, '');
-        return `const ${defaultName} = ${after}`;
+      // Clean arrow function default exports
+      cleaned = cleaned.replace(/^\s*export\s+default\s*(?:\([^)]*\)|[A-Za-z0-9_$]+)\s*=>/gm, function (match) {
+        const after = match.replace(/^\s*export\s+default\s*/, '');
+        return `window.${defaultName} = ${after}`;
       });
 
-      // 6. Clean identifier default exports (e.g. export default App;)
-      cleaned = cleaned.replace(/\bexport\s+default\s+([A-Za-z0-9_$]+)\s*;?/g, function (_, name) {
-        if (name !== defaultName) {
-          return `const ${defaultName} = ${name};`;
+      // Clean identifier default exports (e.g. export default App; or export default Calculator;)
+      cleaned = cleaned.replace(/^\s*export\s+default\s+([A-Za-z0-9_$]+);?/gm, function (_, name) {
+        if (filePath === mainAppPath) {
+          return `window.App = ${name}; try { window.${name} = ${name}; } catch(e){}; exports.default = ${name};`;
         }
-        return `/* export default ${name} */`;
+        return `try { window.${name} = ${name}; } catch(e){};`;
       });
 
-      // 7. Clean named variable exports
-      cleaned = cleaned.replace(/\bexport\s+(?:const|let|var)\s+([A-Za-z0-9_$]+)/g, 'var $1');
+      // Clean named exports
+      cleaned = cleaned.replace(/^\s*export\s+(?:const|let|var)\s+([A-Za-z0-9_$]+)\s*=/gm, function(_, name) {
+        return `var ${name} = window.${name} =`;
+      });
+      cleaned = cleaned.replace(/^\s*export\s+function\s+([A-Za-z0-9_$]+)\s*\(/gm, function(_, name) {
+        return `window.${name} = function ${name}(`;
+      });
+      cleaned = cleaned.replace(/^\s*export\s+class\s+([A-Za-z0-9_$]+)/gm, function(_, name) {
+        return `window.${name} = class ${name}`;
+      });
+      cleaned = cleaned.replace(/^\s*export\s+(type|interface|enum)\s+/gm, '$1 ');
+      cleaned = cleaned.replace(/^\s*export\s+(?:type\s+)?\{[\s\S]*?\};?/gm, '');
 
-      // 8. Clean named functions and classes
-      cleaned = cleaned.replace(/\bexport\s+(?:async\s+)?function\s+([A-Za-z0-9_$]+)/g, 'function $1');
-      cleaned = cleaned.replace(/\bexport\s+class\s+([A-Za-z0-9_$]+)/g, 'class $1');
-
-      // 9. Clean export type, interface, enum prefixes
-      cleaned = cleaned.replace(/\bexport\s+(type|interface)\b/g, '$1');
-      cleaned = cleaned.replace(/\bexport\s+enum\b/g, 'enum');
-
-      // 10. Clean standalone export { ... } lists
-      cleaned = cleaned.replace(/\bexport\s+(?:type\s+)?\{[\s\S]*?\}\s*;?/g, '');
-
-      // 11. Catch any residual bare 'export default' or 'export' keywords
-      cleaned = cleaned.replace(/\bexport\s+default\s+/g, `var ${defaultName} = `);
-      cleaned = cleaned.replace(/\bexport\b/g, '/* export */');
-
-      return cleaned;
+      return { cleaned, lucideIconNames };
     };
 
     // Combine subcomponent files first so they are available in scope
     const subcomponentCodeParts: string[] = [];
+    const collectedLucideIcons = new Set<string>();
+
     Object.entries(files).forEach(([path, file]) => {
       if (
         path !== mainAppPath &&
         (path.endsWith('.tsx') || path.endsWith('.ts') || path.endsWith('.jsx') || path.endsWith('.js'))
       ) {
         if (!path.includes('node_modules') && !path.includes('vite') && !path.includes('config')) {
-          const cleaned = cleanReactSource(file.content, path);
+          const { cleaned, lucideIconNames } = cleanReactSource(file.content, path);
           subcomponentCodeParts.push(cleaned);
+          lucideIconNames.forEach((n) => collectedLucideIcons.add(n));
         }
       }
     });
 
-    const sanitizedMainApp = cleanReactSource(mainAppContent, mainAppPath);
+    const { cleaned: sanitizedMainApp, lucideIconNames: mainLucideIcons } = cleanReactSource(mainAppContent, mainAppPath);
+    mainLucideIcons.forEach((n) => collectedLucideIcons.add(n));
+
     const combinedReactCode = [...subcomponentCodeParts, sanitizedMainApp].join('\n\n');
 
     // Detect target component name
     const matchComp =
       sanitizedMainApp.match(/function\s+([A-Z][A-Za-z0-9_]*)/) ||
       sanitizedMainApp.match(/const\s+([A-Z][A-Za-z0-9_]*)\s*=/) ||
-      sanitizedMainApp.match(/var\s+([A-Z][A-Za-z0-9_]*)\s*=/) ||
       sanitizedMainApp.match(/class\s+([A-Z][A-Za-z0-9_]*)/);
     const componentName = matchComp ? matchComp[1] : 'App';
 
-    // Encode source code safely to prevent any template string, quote, or HTML injection issues
-    const encodedSourceCode = encodeURIComponent(combinedReactCode);
+    const commonLucideIcons = [
+      'Sparkles', 'Cat', 'Cpu', 'Plus', 'Minus', 'RotateCcw', 'ShieldCheck', 'Bug',
+      'Code', 'Code2', 'Play', 'Pause', 'Square', 'Check', 'X', 'Send', 'RefreshCw',
+      'Eye', 'EyeOff', 'Terminal', 'Search', 'Download', 'Upload', 'History',
+      'Folder', 'File', 'Settings', 'Zap', 'Award', 'ArrowRight', 'ArrowLeft',
+      'ArrowUp', 'ArrowDown', 'ChevronDown', 'ChevronUp', 'ChevronLeft',
+      'ChevronRight', 'ExternalLink', 'Lock', 'Unlock', 'User', 'Users', 'Mail',
+      'Phone', 'Calendar', 'Clock', 'Heart', 'Star', 'Moon', 'Sun', 'Layout',
+      'Layers', 'Maximize2', 'Minimize2', 'Copy', 'CheckCircle2', 'CheckCircle',
+      'AlertCircle', 'AlertTriangle', 'Info', 'HelpCircle', 'List', 'Grid', 'Sliders',
+      'SlidersHorizontal', 'Menu', 'Trash2', 'Trash', 'Edit3', 'Edit', 'Crown',
+      'MessageSquare', 'MessageCircle', 'Palette', 'Flame', 'Volume2', 'VolumeX',
+      'Volume1', 'Coins', 'DollarSign', 'TrendingUp', 'TrendingDown', 'BarChart',
+      'BarChart2', 'PieChart', 'Activity', 'Gamepad', 'Gamepad2', 'Music',
+      'Headphones', 'Video', 'Camera', 'Image', 'MapPin', 'Compass', 'Globe',
+      'Share2', 'Bookmark', 'Tag', 'Filter', 'Database', 'Server', 'Wifi',
+      'Battery', 'Shield', 'Key', 'Gift', 'ShoppingBag', 'ShoppingCart',
+      'CreditCard', 'Smile', 'Frown', 'Meh', 'ThumbsUp', 'ThumbsDown', 'Sparkle',
+      'Box', 'Package', 'TerminalSquare', 'FileText', 'FilePlus', 'FolderPlus',
+      'XCircle', 'PlusCircle', 'MinusCircle', 'PlayCircle', 'PauseCircle',
+      'StopCircle', 'Repeat', 'Shuffle', 'Volume', 'Bell', 'BellOff', 'Trophy',
+      'Medal', 'Target', 'Rocket', 'Lightbulb', 'Brain', 'Radio', 'Tv', 'Watch',
+      'Wand2', 'CheckCheck', 'Link', 'Undo2', 'Redo2', 'FilterX', 'Power',
+    ];
+
+    collectedLucideIcons.forEach((icon) => {
+      if (!commonLucideIcons.includes(icon)) commonLucideIcons.push(icon);
+    });
+
+    // Safely serialize code for script injection (prevent </script> breakout)
+    const serializedReactCode = JSON.stringify(combinedReactCode).replace(/<\/script>/gi, '<\\/script>');
 
     return `<!DOCTYPE html>
 <html lang="en">
@@ -249,11 +260,10 @@ export const LivePreviewSandbox: React.FC<LivePreviewSandboxProps> = ({
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.24.4/babel.min.js"></script>
+  <script src="https://unpkg.com/lucide@0.344.0/dist/umd/lucide.min.js"></script>
   ${consoleCaptureScript}
   <style>
     body {
@@ -273,7 +283,7 @@ export const LivePreviewSandbox: React.FC<LivePreviewSandboxProps> = ({
 <body>
   <div id="root">
     <div style="min-height:100vh; display:flex; align-items:center; justify-content:center; flex-direction:column; padding:24px; color:#94a3b8; font-family:sans-serif;">
-      <div style="width:44px; height:44px; border-radius:14px; background:linear-gradient(135deg, #ef233c, #f59e0b); display:flex; align-items:center; justify-content:center; color:white; font-size:22px; margin-bottom:12px; box-shadow:0 10px 25px rgba(239,35,60,0.35); animation:pulse 2s infinite;">
+      <div style="width:44px; height:44px; border-radius:14px; background:linear-gradient(135deg, #ef233c, #f59e0b); display:flex; align-items:center; justify-content:center; color:white; font-size:22px; margin-bottom:12px; box-shadow:0 10px 25px rgba(239,35,60,0.35);">
         ⚡
       </div>
       <div style="font-size:14px; font-weight:bold; color:white;">Preparing App Preview...</div>
@@ -297,9 +307,21 @@ export const LivePreviewSandbox: React.FC<LivePreviewSandboxProps> = ({
     </div>
   </div>
 
-  <script id="react-raw-code" type="text/plain">${encodedSourceCode}</script>
-
   <script>
+    function showError(errMessage) {
+      var errDiv = document.getElementById('error-display');
+      var errText = document.getElementById('error-text');
+      var rootDiv = document.getElementById('root');
+      if (errDiv && errText) {
+        errText.textContent = errMessage;
+        errDiv.style.display = 'block';
+        if (rootDiv) rootDiv.style.display = 'none';
+      }
+      try {
+        window.parent.postMessage({ type: 'SANDBOX_CONSOLE', logType: 'error', message: errMessage }, '*');
+      } catch(e) {}
+    }
+
     function bootSandboxApp() {
       try {
         // Global Environment & Module setup
@@ -319,53 +341,64 @@ export const LivePreviewSandbox: React.FC<LivePreviewSandboxProps> = ({
 
         // Universal SVG Lucide Icon Generator
         function makeIconComponent(iconName) {
-          return function DynamicIcon(props) {
+          return function(props) {
             var p = props || {};
             var size = p.size || 18;
             var className = p.className || '';
             var strokeWidth = p.strokeWidth || 2;
             var color = p.color || 'currentColor';
 
+            var iconTuple = null;
+            if (window.lucide) {
+              if (window.lucide.icons && window.lucide.icons[iconName]) {
+                iconTuple = window.lucide.icons[iconName];
+              } else if (window.lucide[iconName]) {
+                iconTuple = window.lucide[iconName];
+              }
+            }
+
+            if (iconTuple && Array.isArray(iconTuple)) {
+              var defaultAttrs = iconTuple[1] || {};
+              var children = iconTuple[2] || [];
+
+              var svgAttrs = Object.assign({}, defaultAttrs, {
+                width: size,
+                height: size,
+                stroke: color,
+                strokeWidth: strokeWidth,
+                className: className,
+              });
+              delete svgAttrs['stroke-width'];
+              delete svgAttrs['stroke-linecap'];
+              delete svgAttrs['stroke-linejoin'];
+              svgAttrs.strokeLinecap = 'round';
+              svgAttrs.strokeLinejoin = 'round';
+
+              var childEls = children.map(function(c, idx) {
+                var cTag = c[0];
+                var cAttrs = Object.assign({ key: idx }, c[1]);
+                return React.createElement(cTag, cAttrs);
+              });
+
+              return React.createElement('svg', svgAttrs, childEls);
+            }
+
+            // Fallback for custom or missing icon names
             return React.createElement('span', {
               className: 'inline-flex items-center justify-center ' + className,
-              style: { width: size, height: size, display: 'inline-flex', verticalAlign: 'middle' },
+              style: { width: size, height: size, display: 'inline-flex', verticalAlign: 'middle', fontSize: Math.max(10, size - 4) },
               title: iconName
-            }, React.createElement('svg', {
-              width: size,
-              height: size,
-              viewBox: '0 0 24 24',
-              fill: 'none',
-              stroke: color,
-              strokeWidth: strokeWidth,
-              strokeLinecap: 'round',
-              strokeLinejoin: 'round'
-            },
-              React.createElement('circle', { cx: '12', cy: '12', r: '8', opacity: '0.3' }),
-              React.createElement('path', { d: 'M12 8v8M8 12h8' })
-            ));
+            }, '✦');
           };
         }
 
-        // Register universal Lucide icon shims on window
-        var commonIcons = [
-          'Sparkles', 'Cat', 'Cpu', 'Plus', 'Minus', 'RotateCcw', 'ShieldCheck', 'Bug',
-          'Code', 'Code2', 'Play', 'Pause', 'Square', 'Check', 'X', 'Send', 'RefreshCw',
-          'Eye', 'EyeOff', 'Terminal', 'Search', 'Download', 'Upload', 'History',
-          'Folder', 'File', 'Settings', 'Zap', 'Award', 'ArrowRight', 'ArrowLeft',
-          'ArrowUp', 'ArrowDown', 'ChevronDown', 'ChevronUp', 'ChevronLeft',
-          'ChevronRight', 'ExternalLink', 'Lock', 'Unlock', 'User', 'Users', 'Mail',
-          'Phone', 'Calendar', 'Clock', 'Heart', 'Star', 'Moon', 'Sun', 'Layout',
-          'Layers', 'Maximize2', 'Minimize2', 'Copy', 'CheckCircle2', 'CheckCircle',
-          'AlertCircle', 'AlertTriangle', 'Info', 'HelpCircle', 'List', 'Grid', 'Sliders',
-          'SlidersHorizontal', 'Menu', 'Trash2', 'Trash', 'Edit3', 'Edit', 'Crown',
-          'MessageSquare', 'MessageCircle', 'Palette', 'Flame', 'Volume2', 'VolumeX',
-          'Trophy', 'Wand2', 'Undo2', 'Redo2', 'CheckCheck', 'Link', 'Power'
-        ];
-        commonIcons.forEach(function(icon) {
+        // Register ONLY known Lucide icons on window
+        var iconList = ${JSON.stringify(commonLucideIcons)};
+        iconList.forEach(function(icon) {
           window[icon] = makeIconComponent(icon);
         });
 
-        // Framer Motion compatibility shim
+        // Framer Motion compatibility shim (prevents crashes when code uses motion.div)
         window.motion = new Proxy({}, {
           get: function(target, prop) {
             return function(props) {
@@ -378,74 +411,46 @@ export const LivePreviewSandbox: React.FC<LivePreviewSandboxProps> = ({
         });
         window.AnimatePresence = function(props) { return props.children; };
 
-        // Module shim for CommonJS imports
-        window.require = function(mod) {
-          if (mod === 'react') return window.React;
-          if (mod === 'react-dom') return window.ReactDOM;
-          if (mod === 'lucide-react') return window.LucideProxy || {};
-          if (mod === 'framer-motion') return { motion: window.motion, AnimatePresence: window.AnimatePresence };
-          if (mod === 'canvas-confetti') return window.confetti;
-          return window[mod] || {};
-        };
-
-        var rawCodeEl = document.getElementById('react-raw-code');
-        var rawCode = rawCodeEl ? decodeURIComponent(rawCodeEl.textContent || '') : '';
-
-        // Explicit Babel Transpilation inside try...catch
-        var transpiledCode = '';
-        try {
-          var res = Babel.transform(rawCode, {
-            presets: ['react', 'typescript'],
-            filename: 'App.tsx'
-          });
-          transpiledCode = res.code;
-        } catch (babelErr) {
-          showError('Babel compilation error:\n' + (babelErr.message || String(babelErr)));
-          return;
+        // Canvas Confetti shim fallback
+        if (typeof window.confetti === 'undefined') {
+          window.confetti = function() { console.log('🎉 Confetti triggered!'); };
         }
 
-        // Clean leftover ES imports and exports safely without corrupting exports.default
-        transpiledCode = transpiledCode
-          .replace(/\bimport\s+[\s\S]*?from\s*['"][^'"]+['"];?/g, '')
-          .replace(/\bimport\s*['"][^'"]+['"];?/g, '')
-          .replace(/\bexport\s+default\s+(?:async\s+)?function(?:\s+([A-Za-z0-9_$]+))?/g, 'function $1')
-          .replace(/\bexport\s+default\s+class(?:\s+([A-Za-z0-9_$]+))?/g, 'class $1')
-          .replace(/\bexport\s+default\s+/g, 'window.App = exports.default = ')
-          .replace(/\bexport\s+(?:const|let|var)\s+/g, 'var ')
-          .replace(/\bexport\s+(?:async\s+)?function\s+/g, 'function ')
-          .replace(/\bexport\s+class\s+/g, 'class ')
-          .replace(/\bexport\s*\{[\s\S]*?\};?/g, '')
-          .replace(/\bexport\s+\*\s+from\s*['"][^'"]+['"];?/g, '')
-          .replace(/\bexport\b/g, '/* export */')
-          .replace(/\bimport\b/g, '/* import */');
+        var rawCode = ${serializedReactCode};
+
+        // Transpile React / TypeScript code safely using standard Babel presets
+        var transpiled = Babel.transform(rawCode, {
+          presets: ['react', 'typescript'],
+          filename: 'App.tsx'
+        }).code;
+
+        // Clean any leftover module statements
+        transpiled = transpiled.replace(/^\\s*import\\s+[\\s\\S]*?from\\s*['\"][^'\"]+['\"];?/gm, '');
+        transpiled = transpiled.replace(/^\\s*import\\s+['\"][^'\"]+['\"];?/gm, '');
 
         var targetName = ${JSON.stringify(componentName)};
-        var glueCode = '\n' +
-          'if (typeof ' + targetName + ' !== "undefined") { window[' + JSON.stringify(targetName) + '] = ' + targetName + '; window.App = ' + targetName + '; window.exports.default = ' + targetName + '; }\n' +
-          'if (typeof App !== "undefined") { window.App = App; window.exports.default = App; }\n';
 
-        // Execute transpiled JavaScript safely
-        try {
-          var execFn = new Function(transpiledCode + glueCode);
-          execFn();
-        } catch (evalErr) {
-          showError('Runtime execution error:\n' + (evalErr.stack || evalErr.message || String(evalErr)));
-          return;
-        }
+        // Append explicit global attachments so components are guaranteed on window
+        var glueCode = '\\n' +
+          'if (typeof ' + targetName + ' !== \"undefined\") { window[' + JSON.stringify(targetName) + '] = ' + targetName + '; window.App = ' + targetName + '; window.exports.default = ' + targetName + '; }\\n' +
+          'if (typeof App !== \"undefined\") { window.App = App; window.exports.default = App; }\\n';
+
+        // Execute in global scope using indirect eval
+        (1, eval)(transpiled + glueCode);
 
         // Determine main component to render
-        var TargetComp = window[targetName] || window.App || window.exports.default || (window.module && window.module.exports);
+        var targetComp = window[targetName] || window.App || window.exports.default || (window.module && window.module.exports);
 
-        if (!TargetComp) {
+        if (!targetComp) {
           var candidates = Object.keys(window).filter(function(k) {
-            return /^[A-Z]/.test(k) && typeof window[k] === 'function' && !['React', 'ReactDOM', 'Babel'].includes(k);
+            return k.match(/^[A-Z]/) && typeof window[k] === 'function' && !['React', 'ReactDOM', 'Babel'].includes(k);
           });
           if (candidates.length > 0) {
-            TargetComp = window[candidates[candidates.length - 1]];
+            targetComp = window[candidates[candidates.length - 1]];
           }
         }
 
-        if (TargetComp) {
+        if (targetComp) {
           var rootElement = document.getElementById('root');
           rootElement.innerHTML = '';
 
@@ -453,17 +458,19 @@ export const LivePreviewSandbox: React.FC<LivePreviewSandboxProps> = ({
           class SandboxErrorBoundary extends React.Component {
             constructor(props) {
               super(props);
-              this.state = { hasError: false };
+              this.state = { hasError: false, error: null };
             }
             static getDerivedStateFromError(error) {
-              return { hasError: true };
+              return { hasError: true, error: error };
             }
-            componentDidCatch(error) {
-              var errMessage = error ? (error.stack || error.message || String(error)) : 'Unknown component runtime error';
+            componentDidCatch(error, errorInfo) {
+              var errMessage = error ? (error.stack || error.message || String(error)) : 'Unknown component error';
               showError(errMessage);
             }
             render() {
-              if (this.state.hasError) return null;
+              if (this.state.hasError) {
+                return null;
+              }
               return this.props.children;
             }
           }
@@ -471,7 +478,7 @@ export const LivePreviewSandbox: React.FC<LivePreviewSandboxProps> = ({
           var root = ReactDOM.createRoot(rootElement);
           root.render(
             React.createElement(SandboxErrorBoundary, null,
-              React.createElement(TargetComp)
+              React.createElement(targetComp)
             )
           );
         } else {
@@ -491,7 +498,7 @@ export const LivePreviewSandbox: React.FC<LivePreviewSandboxProps> = ({
           waitForLibs(callback, retriesLeft - 1);
         }, 50);
       } else {
-        showError('Preview libraries failed to load from CDN. Please check your network connection and click "Retry Preview".');
+        showError('Preview libraries failed to load from CDN. Please check your network connection and click Reload.');
       }
     }
 
