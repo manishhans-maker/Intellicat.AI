@@ -126,7 +126,16 @@ export const ImageGenStudio: React.FC<ImageGenStudioProps> = () => {
           body: JSON.stringify({ prompt: cleanPrompt, aspectRatio, style, engine }),
         });
       } catch {
-        res = null;
+        // Fallback to secondary route
+        try {
+          res = await fetch('/api/imageGen', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt: cleanPrompt, aspectRatio, style, engine }),
+          });
+        } catch {
+          res = null;
+        }
       }
 
       if (res) {

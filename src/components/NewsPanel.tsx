@@ -25,7 +25,7 @@ import {
   Radio,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { NewsArticle } from '../types';
+import { NewsArticle } from '../../api/news';
 
 interface NewsPanelProps {
   onOpenChatWithQuery?: (prompt: string) => void;

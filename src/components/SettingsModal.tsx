@@ -141,6 +141,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   useEffect(() => {
     if (!isOpen) return;
     loadUserMemories(user?.uid).then(setMemories);
+
     
     const updateVoices = () => {
       setAvailableVoices(getAvailableVoices());
@@ -790,6 +791,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
               </div>
             )}
+
+
 
             {/* TAB 4: QUOTA & USAGE */}
             {activeTab === 'usage' && (

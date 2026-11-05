@@ -542,7 +542,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
         return {
           id: `welcome-${Date.now()}`,
           role: 'assistant',
-          content: `Purr-fect timing! 🐾 I am **IntelicatAI**, your Cybernetic Cat Coder in **Cat Code Mode** featuring **Live Website Artifact Previews** ⚡.\n\nAsk me to build any website, web app, interactive game, calculator, or dashboard! I'll write the code and immediately launch the live website right inside the chat with desktop, tablet, and mobile previews. What app or website shall we build?`,
+          content: `Purr-fect! 🐾 I am **IntellicatAI Code Mode 2.0**, your senior full-stack software engineer.\n\nI turn your ideas into complete, working, secure, and production-grade software — **never snippets** or placeholders. Every website, interactive game, and full-stack app is built in full with multi-file architectures, interactive **Live Responsive Sandbox Previews**, and direct **Push to GitHub** integration! ⚡\n\nWhat website, game, or application shall we engineer?`,
           timestamp: 'Just now',
           createdAt: new Date().toISOString(),
           mode: 'cat-code',
@@ -1322,7 +1322,6 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
       let buffer = '';
       let streamError: string | null = null;
       let streamProvider: AiProvider = provider;
-      let finalVerificationSummary: any;
       const gatheredCitations: CitationSource[] = [];
 
       while (true) {
@@ -1355,34 +1354,6 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
             streamProvider = parsed.provider;
           }
 
-          if (parsed.statusStep) {
-            setMessages((prev) =>
-              prev.map((msg) =>
-                msg.id === assistantMsgId
-                  ? {
-                      ...msg,
-                      statusStep: parsed.statusStep,
-                      stepLabel: parsed.stepLabel,
-                    }
-                  : msg
-              )
-            );
-          }
-
-          if (parsed.verificationSummary) {
-            finalVerificationSummary = parsed.verificationSummary;
-            setMessages((prev) =>
-              prev.map((msg) =>
-                msg.id === assistantMsgId
-                  ? {
-                      ...msg,
-                      verificationSummary: parsed.verificationSummary,
-                    }
-                  : msg
-              )
-            );
-          }
-
           if (parsed.citations && Array.isArray(parsed.citations)) {
             parsed.citations.forEach((cit: CitationSource) => {
               if (!gatheredCitations.some((existing) => existing.uri === cit.uri)) {
@@ -1410,7 +1381,6 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                       provider: streamProvider,
                       model: parsed.model || selectedModel,
                       citations: gatheredCitations.length > 0 ? [...gatheredCitations] : undefined,
-                      verificationSummary: finalVerificationSummary || msg.verificationSummary,
                     }
                   : msg
               )
@@ -1432,7 +1402,6 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
           content: accumulatedContent,
           provider: streamProvider,
           citations: gatheredCitations.length > 0 ? gatheredCitations : undefined,
-          verificationSummary: finalVerificationSummary,
         };
         await saveMessage(activeUid, activeConvId, finalizedMsg);
       }
@@ -1850,6 +1819,19 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                 >
                   <Zap className="w-3 h-3 text-amber-400" />
                   <span>Fast</span>
+                </button>
+                <button
+                  onClick={() => handleSwitchMode('deep-think')}
+                  type="button"
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer whitespace-nowrap min-h-[32px] ${
+                    mode === 'deep-think'
+                      ? 'bg-purple-600 text-white shadow-md shadow-purple-600/30'
+                      : 'text-neutral-400 hover:text-white bg-white/5 hover:bg-white/10'
+                  }`}
+                  title="Reasoning and step-by-step thinking"
+                >
+                  <Brain className="w-3 h-3 text-purple-400" />
+                  <span>Deep Think</span>
                 </button>
                 <button
                   onClick={() => {

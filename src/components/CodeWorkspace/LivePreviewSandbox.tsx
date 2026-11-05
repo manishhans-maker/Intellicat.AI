@@ -156,54 +156,59 @@ export const LivePreviewSandbox: React.FC<LivePreviewSandboxProps> = ({
       if (!code) return '';
       let cleaned = code;
 
-      // 1. Strip ES import statements line by line safely
-      cleaned = cleaned
-        .split('\n')
-        .map((line) => {
-          const trimmed = line.trim();
-          if (
-            trimmed.startsWith('import ') ||
-            trimmed.startsWith('import{') ||
-            trimmed.startsWith('import type')
-          ) {
-            return '// ' + line;
-          }
-          return line;
-        })
-        .join('\n');
-
-      // Also clean multi-line imports
-      cleaned = cleaned.replace(/import\s+(?:type\s+)?[\s\S]*?from\s*['"][^'"]+['"]\s*;?/g, '');
-      cleaned = cleaned.replace(/import\s+['"][^'"]+['"]\s*;?/g, '');
+      // 1. Strip ES import statements
+      cleaned = cleaned.replace(/\bimport\s+(?:type\s+)?[\s\S]*?from\s*['"][^'"]+['"];?/g, '');
+      cleaned = cleaned.replace(/\bimport\s+['"][^'"]+['"];?/g, '');
+      cleaned = cleaned.replace(/\bimport\s+type\b[\s\S]*?;/g, '');
 
       // Derive fallback component name from file path
       const fileNameMatch = filePath.split('/').pop()?.replace(/\.[^/.]+$/, '');
       const defaultName = (fileNameMatch && /^[A-Z]/.test(fileNameMatch)) ? fileNameMatch : (filePath === mainAppPath ? 'App' : 'SubComponent');
 
-      // 2. Clean export default statements
-      cleaned = cleaned.replace(/\bexport\s+default\s+(?:async\s+)?function(?:\s+([A-Za-z0-9_$]+))?/g, function (_, name) {
+      // 2. Clean re-exports and export-from statements
+      cleaned = cleaned.replace(/\bexport\s+(?:\*|\{[\s\S]*?\})\s*from\s*['"][^'"]+['"];?/g, '');
+
+      // 3. Clean export default function (with optional async or generic)
+      cleaned = cleaned.replace(/\bexport\s+default\s+(?:async\s+)?function(?:\s+([A-Za-z0-9_$]+))?(?:<[^>]*>)?\s*\(/g, function (_, name) {
         const fnName = name || defaultName;
-        return `function ${fnName}`;
+        return `function ${fnName}(`;
       });
 
+      // 4. Clean export default class
       cleaned = cleaned.replace(/\bexport\s+default\s+class(?:\s+([A-Za-z0-9_$]+))?/g, function (_, name) {
         const clsName = name || defaultName;
-        return `class ${clsName}`;
+        return `class ${clsName} `;
       });
 
+      // 5. Clean arrow function default exports
+      cleaned = cleaned.replace(/\bexport\s+default\s*(?:\([^)]*\)|[A-Za-z0-9_$]+)\s*=>/g, function (match) {
+        const after = match.replace(/\bexport\s+default\s*/, '');
+        return `const ${defaultName} = ${after}`;
+      });
+
+      // 6. Clean identifier default exports (e.g. export default App;)
       cleaned = cleaned.replace(/\bexport\s+default\s+([A-Za-z0-9_$]+)\s*;?/g, function (_, name) {
-        if (name && name !== defaultName) {
-          return `var ${defaultName} = ${name};`;
+        if (name !== defaultName) {
+          return `const ${defaultName} = ${name};`;
         }
-        return `;/* export default ${name} */;`;
+        return `/* export default ${name} */`;
       });
 
-      cleaned = cleaned.replace(/\bexport\s+(?:const|let|var)\s+/g, 'var ');
-      cleaned = cleaned.replace(/\bexport\s+(?:async\s+)?function\s+/g, 'function ');
-      cleaned = cleaned.replace(/\bexport\s+class\s+/g, 'class ');
+      // 7. Clean named variable exports
+      cleaned = cleaned.replace(/\bexport\s+(?:const|let|var)\s+([A-Za-z0-9_$]+)/g, 'var $1');
+
+      // 8. Clean named functions and classes
+      cleaned = cleaned.replace(/\bexport\s+(?:async\s+)?function\s+([A-Za-z0-9_$]+)/g, 'function $1');
+      cleaned = cleaned.replace(/\bexport\s+class\s+([A-Za-z0-9_$]+)/g, 'class $1');
+
+      // 9. Clean export type, interface, enum prefixes
       cleaned = cleaned.replace(/\bexport\s+(type|interface)\b/g, '$1');
       cleaned = cleaned.replace(/\bexport\s+enum\b/g, 'enum');
-      cleaned = cleaned.replace(/\bexport\s*\{[\s\S]*?\}\s*;?/g, '');
+
+      // 10. Clean standalone export { ... } lists
+      cleaned = cleaned.replace(/\bexport\s+(?:type\s+)?\{[\s\S]*?\}\s*;?/g, '');
+
+      // 11. Catch any residual bare 'export default' or 'export' keywords
       cleaned = cleaned.replace(/\bexport\s+default\s+/g, `var ${defaultName} = `);
       cleaned = cleaned.replace(/\bexport\b/g, '/* export */');
 
@@ -398,6 +403,21 @@ export const LivePreviewSandbox: React.FC<LivePreviewSandboxProps> = ({
           showError('Babel compilation error:\n' + (babelErr.message || String(babelErr)));
           return;
         }
+
+        // Clean leftover ES imports and exports safely without corrupting exports.default
+        transpiledCode = transpiledCode
+          .replace(/\bimport\s+[\s\S]*?from\s*['"][^'"]+['"];?/g, '')
+          .replace(/\bimport\s*['"][^'"]+['"];?/g, '')
+          .replace(/\bexport\s+default\s+(?:async\s+)?function(?:\s+([A-Za-z0-9_$]+))?/g, 'function $1')
+          .replace(/\bexport\s+default\s+class(?:\s+([A-Za-z0-9_$]+))?/g, 'class $1')
+          .replace(/\bexport\s+default\s+/g, 'window.App = exports.default = ')
+          .replace(/\bexport\s+(?:const|let|var)\s+/g, 'var ')
+          .replace(/\bexport\s+(?:async\s+)?function\s+/g, 'function ')
+          .replace(/\bexport\s+class\s+/g, 'class ')
+          .replace(/\bexport\s*\{[\s\S]*?\};?/g, '')
+          .replace(/\bexport\s+\*\s+from\s*['"][^'"]+['"];?/g, '')
+          .replace(/\bexport\b/g, '/* export */')
+          .replace(/\bimport\b/g, '/* import */');
 
         var targetName = ${JSON.stringify(componentName)};
         var glueCode = '\n' +

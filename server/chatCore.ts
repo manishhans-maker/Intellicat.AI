@@ -91,9 +91,6 @@ export interface ValidatedChatRequest {
   webSearch: boolean;
   userId?: string;
   isVipOrFounder: boolean;
-  thinkEnabled?: boolean;
-  thinkIntensity?: 'auto' | 'standard' | 'deep' | 'intensive';
-  verificationEnabled?: boolean;
 }
 
 export function validateChatPayload(body: any): { isValid: boolean; error?: string; data?: ValidatedChatRequest } {
@@ -179,9 +176,6 @@ export function validateChatPayload(body: any): { isValid: boolean; error?: stri
       webSearch: Boolean(webSearch),
       userId: typeof userId === 'string' ? userId.slice(0, 128) : undefined,
       isVipOrFounder: Boolean(isVipOrFounder),
-      thinkEnabled: typeof body.thinkEnabled === 'boolean' ? body.thinkEnabled : undefined,
-      thinkIntensity: body.thinkIntensity,
-      verificationEnabled: typeof body.verificationEnabled === 'boolean' ? body.verificationEnabled : undefined,
     },
   };
 }
@@ -255,11 +249,15 @@ export function markSearchQuotaExhausted(durationMs = 24 * 60 * 60 * 1000) {
 // gemini-3.6-flash, 3.8-flash, and 3.7-flash provide rock-solid reasoning & uptime
 // gemini-3.5-flash-lite provides ultra-low latency, with 3.5-flash and 3.1-flash-lite as fallbacks
 export const GEMINI_CANDIDATE_MODELS = [
+  'gemini-3.6-flash',
   'gemini-3.8-flash',
+  'gemini-3.7-flash',
+  'gemini-3.5-flash',
+  'gemini-3.5-flash-lite',
   'gemini-3.1-flash-lite',
   'gemini-flash-latest',
 ];
-export const GEMINI_MODEL = 'gemini-3.8-flash';
+export const GEMINI_MODEL = 'gemini-3.6-flash';
 
 /**
  * Format conversation history into compliant Gemini SDK contents structure:
